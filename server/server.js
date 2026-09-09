@@ -279,11 +279,18 @@ export function createAuroraServer(options = {}) {
           ? "I've written the code in the workspace."
           : "I've placed the response in the workspace.");
 
+      const requestRimeApiKey =
+        (typeof req.headers['x-rime-api-key'] === 'string' &&
+          req.headers['x-rime-api-key'].trim()) ||
+        (typeof req.body?.rimeApiKey === 'string' && req.body.rimeApiKey.trim()) ||
+        rimeConfig.apiKey;
+
       const t1 = Date.now();
       let audioBase64 = null;
       try {
         const buf = await synthesizeSpeech(spokenText, {
           ...rimeConfig,
+          apiKey: requestRimeApiKey,
           speaker: activeSpeaker,
           modelId: activeModel,
         });
@@ -318,8 +325,15 @@ export function createAuroraServer(options = {}) {
         text = 'Hello from Rime voice synthesis.',
         speaker = rimeConfig.speaker,
         modelId = rimeConfig.modelId,
-      } = req.body;
-      if (!rimeConfig.apiKey && !rimeConfig.mockAudio) {
+      } = req.body || {};
+
+      const requestRimeApiKey =
+        (typeof req.headers['x-rime-api-key'] === 'string' &&
+          req.headers['x-rime-api-key'].trim()) ||
+        (typeof req.body?.rimeApiKey === 'string' && req.body.rimeApiKey.trim()) ||
+        rimeConfig.apiKey;
+
+      if (!requestRimeApiKey && !rimeConfig.mockAudio) {
         return res.json({
           ok: false,
           fallback: true,
@@ -328,6 +342,7 @@ export function createAuroraServer(options = {}) {
       }
       const buf = await synthesizeSpeech(text, {
         ...rimeConfig,
+        apiKey: requestRimeApiKey,
         speaker,
         modelId,
       });
@@ -347,7 +362,13 @@ export function createAuroraServer(options = {}) {
   });
 
   app.post(['/keys', '/api/keys'], (req, res) => {
-    const { llmApiKey, llmProvider = 'groq', llmModel } = req.body;
+    const { llmApiKey, llmProvider = 'groq', llmModel, rimeApiKey } = req.body || {};
+    let rimeUpdated = false;
+    if (typeof rimeApiKey === 'string' && rimeApiKey.trim()) {
+      rimeConfig.apiKey = rimeApiKey.trim();
+      rimeUpdated = true;
+      if (!quiet) console.log(`🎙️ Rime TTS Key activated: ${rimeConfig.speaker}`);
+    }
     if (typeof llmApiKey === 'string' && llmApiKey.trim()) {
       llmConfig.apiKey = llmApiKey.trim();
       llmConfig.provider = llmProvider;
@@ -366,8 +387,16 @@ export function createAuroraServer(options = {}) {
       return res.json({
         ok: true,
         llmConfigured: true,
+        rimeConfigured: Boolean(rimeConfig.apiKey),
         provider: llmConfig.provider,
         model: llmConfig.model,
+      });
+    }
+    if (rimeUpdated) {
+      return res.json({
+        ok: true,
+        rimeConfigured: true,
+        llmConfigured: Boolean(llmConfig.apiKey),
       });
     }
     res.json({ ok: false, error: 'API key is required' });

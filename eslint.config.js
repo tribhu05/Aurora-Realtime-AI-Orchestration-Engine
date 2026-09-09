@@ -28,6 +28,15 @@ export default [
     },
   },
   {
-    ignores: ['node_modules/', 'package-lock.json', '.git/', 'dist/', 'coverage/', 'scratch/'],
+    ignores: [
+      'node_modules/',
+      'package-lock.json',
+      '.git/',
+      '.github/',
+      '.impeccable/',
+      'dist/',
+      'coverage/',
+      'scratch/',
+    ],
   },
 ];

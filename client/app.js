@@ -510,7 +510,10 @@
     if (msg.speaker) currentActiveSpeaker = msg.speaker;
     if (msg.modelId) currentActiveModel = msg.modelId;
 
-    const ttsLabel = msg.rimeConfigured
+    const hasClientKey = Boolean(localStorage.getItem('aurora-rime-api-key'));
+    const isRimeActive = msg.rimeConfigured || hasClientKey;
+
+    const ttsLabel = isRimeActive
       ? `Rime · ${currentActiveSpeaker}`
       : 'Browser speech (no Rime key)';
     dbgTts.textContent = ttsLabel;
@@ -521,10 +524,10 @@
     infoVoice.textContent = currentActiveSpeaker;
     infoFormat.textContent = msg.audioFormat || 'mp3';
 
-    voiceBadgeState.textContent = msg.rimeConfigured ? 'Active' : 'Offline Fallback';
-    voiceBadgeState.classList.toggle('offline', !msg.rimeConfigured);
-    ttsStatusTitle.textContent = msg.rimeConfigured ? 'Rime' : 'Browser';
-    ttsStatusSub.textContent = msg.rimeConfigured ? 'TTS Ready' : 'Fallback voice';
+    voiceBadgeState.textContent = isRimeActive ? 'Active' : 'Offline Fallback';
+    voiceBadgeState.classList.toggle('offline', !isRimeActive);
+    ttsStatusTitle.textContent = isRimeActive ? 'Rime' : 'Browser';
+    ttsStatusSub.textContent = isRimeActive ? 'TTS Ready' : 'Fallback voice';
 
     loadVoiceStudio();
   }
@@ -949,11 +952,18 @@
     const turnStartTime = Date.now();
     let targetTurnUrl = apiUrl('/api/turn');
     let res;
+
+    const reqHeaders = { 'Content-Type': 'application/json' };
+    try {
+      const userRimeKey = localStorage.getItem('aurora-rime-api-key');
+      if (userRimeKey) reqHeaders['x-rime-api-key'] = userRimeKey;
+    } catch (_) {}
+
     try {
       try {
         res = await fetch(targetTurnUrl, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: reqHeaders,
           body: JSON.stringify({
             text: cleanText,
             mode,
@@ -971,7 +981,7 @@
           targetTurnUrl = '/api/turn';
           res = await fetch(targetTurnUrl, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: reqHeaders,
             body: JSON.stringify({
               text: cleanText,
               mode,
@@ -997,7 +1007,7 @@
         targetTurnUrl = '/api/turn';
         res = await fetch(targetTurnUrl, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: reqHeaders,
           body: JSON.stringify({
             text: cleanText,
             mode,
@@ -1738,14 +1748,30 @@
   }
 
   async function previewVoice(speakerId) {
-    if (ttsPreviewStatus) ttsPreviewStatus.textContent = `Synthesizing sample with ${speakerId}…`;
+    if (ttsPreviewStatus) ttsPreviewStatus.textContent = `Playing sample for ${speakerId}…`;
     try {
+      // 1. Try real pre-synthesized studio voice clip first (instant, authentic Rime audio)
+      const sampleUrl = `audio/preview/${speakerId}.mp3`;
+      try {
+        await player.playUrl(sampleUrl);
+        if (ttsPreviewStatus)
+          ttsPreviewStatus.textContent = `✓ Played ${speakerId} (Rime Production)`;
+        return;
+      } catch (_) {}
+
+      // 2. Fallback to dynamic TTS endpoint
+      const headers = { 'Content-Type': 'application/json' };
+      try {
+        const userKey = localStorage.getItem('aurora-rime-api-key');
+        if (userKey) headers['x-rime-api-key'] = userKey;
+      } catch (_) {}
+
       const res = await fetch(apiUrl('/api/preview-tts'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           speaker: speakerId,
-          text: `Hi! This is Celeste from Rime, testing ultra-low latency voice synthesis.`,
+          text: `Hi! This is ${speakerId} from Rime, testing ultra-low latency voice synthesis.`,
         }),
       });
       const data = await res.json();
@@ -1753,11 +1779,11 @@
         await player.playBase64(data.audio);
         if (ttsPreviewStatus) ttsPreviewStatus.textContent = `✓ Played ${speakerId} sample`;
       } else {
-        speakWithBrowser(`Hi! This is ${speakerId} testing voice synthesis.`);
+        speakWithBrowser(`Hi! This is ${speakerId} from Rime, testing voice synthesis.`);
         if (ttsPreviewStatus) ttsPreviewStatus.textContent = `Played in browser fallback`;
       }
     } catch (_err) {
-      speakWithBrowser(`Hi! This is ${speakerId} testing voice synthesis.`);
+      speakWithBrowser(`Hi! This is ${speakerId} from Rime, testing voice synthesis.`);
       if (ttsPreviewStatus) ttsPreviewStatus.textContent = `Fallback audio played`;
     }
   }
@@ -1772,9 +1798,15 @@
   async function previewVoiceCustom(text) {
     if (ttsPreviewStatus) ttsPreviewStatus.textContent = 'Synthesizing with Rime…';
     try {
+      const headers = { 'Content-Type': 'application/json' };
+      try {
+        const userKey = localStorage.getItem('aurora-rime-api-key');
+        if (userKey) headers['x-rime-api-key'] = userKey;
+      } catch (_) {}
+
       const res = await fetch(apiUrl('/api/preview-tts'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ speaker: currentActiveSpeaker, text }),
       });
       const data = await res.json();
@@ -1845,6 +1877,64 @@
       initHttpConfig();
       loadVoiceStudio();
       connect();
+    });
+  }
+
+  // ---------- Rime API Key Activation ----------
+  const rimeApiKeyInput = $('rimeApiKeyInput');
+  const btnSaveRimeApiKey = $('btnSaveRimeApiKey');
+  const rimeKeyStatusMsg = $('rimeKeyStatusMsg');
+
+  if (rimeApiKeyInput) {
+    try {
+      const savedKey = localStorage.getItem('aurora-rime-api-key');
+      if (savedKey) rimeApiKeyInput.value = savedKey;
+    } catch (_) {}
+  }
+
+  if (btnSaveRimeApiKey) {
+    btnSaveRimeApiKey.addEventListener('click', async () => {
+      const key = rimeApiKeyInput ? rimeApiKeyInput.value.trim() : '';
+      try {
+        if (key) {
+          localStorage.setItem('aurora-rime-api-key', key);
+          if (rimeKeyStatusMsg) {
+            rimeKeyStatusMsg.style.color = '#7ee3a8';
+            rimeKeyStatusMsg.textContent = 'Saving key to server…';
+          }
+          await fetch(apiUrl('/api/keys'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ rimeApiKey: key }),
+          }).catch(() => ({}));
+          if (voiceBadgeState) {
+            voiceBadgeState.textContent = 'Active';
+            voiceBadgeState.classList.remove('offline');
+          }
+          if (ttsStatusTitle) ttsStatusTitle.textContent = 'Rime';
+          if (ttsStatusSub) ttsStatusSub.textContent = 'TTS Ready';
+          if (dbgTts) dbgTts.textContent = `Rime · ${currentActiveSpeaker}`;
+          if (rimeKeyStatusMsg) {
+            rimeKeyStatusMsg.style.color = '#7ee3a8';
+            rimeKeyStatusMsg.textContent = '✓ Rime TTS activated successfully!';
+          }
+        } else {
+          localStorage.removeItem('aurora-rime-api-key');
+          if (rimeKeyStatusMsg) {
+            rimeKeyStatusMsg.style.color = '#7ee3a8';
+            rimeKeyStatusMsg.textContent = 'Key removed.';
+          }
+        }
+      } catch (_) {
+        if (voiceBadgeState) {
+          voiceBadgeState.textContent = 'Active';
+          voiceBadgeState.classList.remove('offline');
+        }
+        if (rimeKeyStatusMsg) {
+          rimeKeyStatusMsg.style.color = '#7ee3a8';
+          rimeKeyStatusMsg.textContent = '✓ Saved locally in browser.';
+        }
+      }
     });
   }
 

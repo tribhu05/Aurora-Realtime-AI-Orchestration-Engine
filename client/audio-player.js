@@ -85,6 +85,32 @@ class AuroraAudioPlayer {
     });
   }
 
+  /** Play audio directly from URL (e.g. pre-synthesized studio voice clips). */
+  async playUrl(url) {
+    this._ensureContext();
+    if (this.ctx.state === 'suspended') await this.ctx.resume();
+    this.stop();
+
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Audio fetch failed (${res.status})`);
+    const arrayBuffer = await res.arrayBuffer();
+    const audioBuffer = await this.ctx.decodeAudioData(arrayBuffer);
+
+    const source = this.ctx.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(this.gainNode);
+    this.gainNode.gain.setValueAtTime(1, this.ctx.currentTime);
+    this.sourceNode = source;
+
+    return new Promise((resolve) => {
+      source.onended = () => {
+        if (this.sourceNode === source) this.sourceNode = null;
+        resolve();
+      };
+      source.start(0);
+    });
+  }
+
   /** Replay audio previously cached for a specific generation. */
   async replayGeneration(generation) {
     const cached = this.audioCache.get(generation);

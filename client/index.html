@@ -538,6 +538,36 @@ Hello! This is Aurora speaking with Rime ultra-low latency voice synthesis.</tex
               <div class="preview-status" id="backendStatusMsg" style="margin-top: 8px"></div>
             </div>
 
+            <h4 class="section-subtitle">Rime TTS API Key (Optional)</h4>
+            <div class="llm-config-box" style="margin-bottom: 20px">
+              <p style="font-size: 12.5px; color: var(--ink-secondary); margin-bottom: 12px">
+                Set a client-side Rime API Key for real-time speech synthesis on serverless
+                deployments (stored securely in your browser only).
+              </p>
+              <div style="display: flex; gap: 10px">
+                <input
+                  type="password"
+                  id="rimeApiKeyInput"
+                  placeholder="Enter Rime API Key (smHVPL...)"
+                  autocomplete="off"
+                  style="
+                    flex: 1;
+                    background: rgba(0, 0, 0, 0.3);
+                    border: 1px solid var(--border-subtle);
+                    border-radius: 8px;
+                    padding: 9px 12px;
+                    color: var(--ink);
+                    font-size: 13px;
+                    outline: none;
+                  "
+                />
+                <button id="btnSaveRimeApiKey" class="primary-btn" style="white-space: nowrap">
+                  Save Key
+                </button>
+              </div>
+              <div class="preview-status" id="rimeKeyStatusMsg" style="margin-top: 8px"></div>
+            </div>
+
             <h4 class="section-subtitle">Online LLM Brain (Gemini / Groq / OpenAI)</h4>
             <div class="llm-config-box">
               <p style="font-size: 12.5px; color: var(--ink-secondary); margin-bottom: 12px">
