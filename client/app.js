@@ -167,17 +167,6 @@
     }
   }
 
-  // Suggestion chips: click to query
-  const chipButtons = document.querySelectorAll('.suggestion-chip');
-  chipButtons.forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const q = btn.dataset.query;
-      if (q) {
-        sendQuery(q);
-      }
-    });
-  });
-
   // ---------- Sliding Sidebars (Left & Right) ----------
   function toggleSidebar(open) {
     if (!sidebar) return;
