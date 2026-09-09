@@ -1,5 +1,5 @@
 # Official Rime Evidence & Judging Verification Document
-**Project:** Aurora ✨ — Interruptible Voice AI Assistant  
+**Project:** Aurora  — Interruptible Voice AI Assistant  
 **Challenge:** Rime Hackathon — Interruption and Recovery  
 **Spoken Engine:** Official Rime TTS (`mistv3`, `celeste`, sub-100ms latency)
 
@@ -94,5 +94,3 @@ This runs `tests/interruption-test.js` which:
    - New topic is spoken cleanly without stutter or bleed.
 
 ---
-
-> Thank you for watching!"*
