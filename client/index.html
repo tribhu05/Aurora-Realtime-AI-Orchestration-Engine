@@ -300,7 +300,11 @@
               <h3 class="view-title">Conversation Timeline</h3>
               <button class="small-action-btn" id="btnClearChatConv">Clear Chat</button>
             </div>
-            <div class="chat-area" id="chatAreaConv"></div>
+            <div class="chat-area" id="chatAreaConv">
+              <p class="empty-hint" id="convEmptyHint">
+                No messages yet. Speak or type below to start the conversation timeline.
+              </p>
+            </div>
             <form class="type-row" id="typeFormConv">
               <input
                 id="typeInputConv"
@@ -347,12 +351,86 @@
 
             <h4 class="section-subtitle">Rime Production Voices</h4>
             <div class="speakers-grid" id="speakersGrid">
-              <!-- Dynamically populated -->
+              <div class="speaker-card active" data-speaker-id="astra">
+                <div class="speaker-head">
+                  <span class="speaker-name">Astra</span>
+                  <span class="speaker-badge">Female</span>
+                </div>
+                <div class="speaker-style">Crisp, articulate, fast (Sub-100ms)</div>
+                <div class="speaker-actions">
+                  <button class="select-btn active" data-id="astra">✓ Active</button>
+                  <button class="preview-btn" data-id="astra">Preview</button>
+                </div>
+              </div>
+              <div class="speaker-card" data-speaker-id="luna">
+                <div class="speaker-head">
+                  <span class="speaker-name">Luna</span>
+                  <span class="speaker-badge">Female</span>
+                </div>
+                <div class="speaker-style">Warm, natural, conversational</div>
+                <div class="speaker-actions">
+                  <button class="select-btn" data-id="luna">Select</button>
+                  <button class="preview-btn" data-id="luna">Preview</button>
+                </div>
+              </div>
+              <div class="speaker-card" data-speaker-id="celeste">
+                <div class="speaker-head">
+                  <span class="speaker-name">Celeste</span>
+                  <span class="speaker-badge">Female</span>
+                </div>
+                <div class="speaker-style">Expressive, friendly, melodic</div>
+                <div class="speaker-actions">
+                  <button class="select-btn" data-id="celeste">Select</button>
+                  <button class="preview-btn" data-id="celeste">Preview</button>
+                </div>
+              </div>
+              <div class="speaker-card" data-speaker-id="cove">
+                <div class="speaker-head">
+                  <span class="speaker-name">Cove</span>
+                  <span class="speaker-badge">Female</span>
+                </div>
+                <div class="speaker-style">Youthful, calm, smooth conversational</div>
+                <div class="speaker-actions">
+                  <button class="select-btn" data-id="cove">Select</button>
+                  <button class="preview-btn" data-id="cove">Preview</button>
+                </div>
+              </div>
+              <div class="speaker-card" data-speaker-id="blaze">
+                <div class="speaker-head">
+                  <span class="speaker-name">Blaze</span>
+                  <span class="speaker-badge">Male</span>
+                </div>
+                <div class="speaker-style">Energetic, dynamic, engaging</div>
+                <div class="speaker-actions">
+                  <button class="select-btn" data-id="blaze">Select</button>
+                  <button class="preview-btn" data-id="blaze">Preview</button>
+                </div>
+              </div>
+              <div class="speaker-card" data-speaker-id="breeze">
+                <div class="speaker-head">
+                  <span class="speaker-name">Breeze</span>
+                  <span class="speaker-badge">Male</span>
+                </div>
+                <div class="speaker-style">Calm, clear, natural pace</div>
+                <div class="speaker-actions">
+                  <button class="select-btn" data-id="breeze">Select</button>
+                  <button class="preview-btn" data-id="breeze">Preview</button>
+                </div>
+              </div>
             </div>
 
             <h4 class="section-subtitle" style="margin-top: 20px">Model Engine</h4>
             <div class="models-row" id="modelsRow">
-              <!-- Dynamically populated -->
+              <div class="model-card active" data-model-id="mistv3">
+                <strong>Mist v3</strong>
+                <small>Engineered for real-time conversational turn-taking</small>
+                <div class="latency-tag">&lt; 100ms latency</div>
+              </div>
+              <div class="model-card" data-model-id="coda">
+                <strong>Coda</strong>
+                <small>Expressive and highly nuanced prosody</small>
+                <div class="latency-tag">~ 250ms latency</div>
+              </div>
             </div>
 
             <h4 class="section-subtitle" style="margin-top: 20px">Live TTS Playground</h4>

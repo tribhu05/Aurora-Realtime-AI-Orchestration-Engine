@@ -122,12 +122,78 @@
   let currentActiveModel = 'mistv3';
   let isRunningAutomatedTest = false;
 
+  const DEFAULT_SPEAKERS = [
+    {
+      id: 'astra',
+      name: 'Astra',
+      style: 'Crisp, articulate, fast (Sub-100ms)',
+      gender: 'Female',
+      models: ['mistv3', 'coda'],
+    },
+    {
+      id: 'luna',
+      name: 'Luna',
+      style: 'Warm, natural, conversational',
+      gender: 'Female',
+      models: ['mistv3', 'coda'],
+    },
+    {
+      id: 'celeste',
+      name: 'Celeste',
+      style: 'Expressive, friendly, melodic',
+      gender: 'Female',
+      models: ['coda'],
+    },
+    {
+      id: 'cove',
+      name: 'Cove',
+      style: 'Youthful, calm, smooth conversational',
+      gender: 'Female',
+      models: ['mistv3'],
+    },
+    {
+      id: 'blaze',
+      name: 'Blaze',
+      style: 'Energetic, dynamic, engaging',
+      gender: 'Male',
+      models: ['mistv3'],
+    },
+    {
+      id: 'breeze',
+      name: 'Breeze',
+      style: 'Calm, clear, natural pace',
+      gender: 'Male',
+      models: ['mistv3'],
+    },
+  ];
+
+  const DEFAULT_MODELS = [
+    {
+      id: 'mistv3',
+      name: 'Mist v3',
+      latency: '< 100ms',
+      description: 'Engineered for real-time conversational turn-taking',
+    },
+    {
+      id: 'coda',
+      name: 'Coda',
+      latency: '~ 250ms',
+      description: 'Expressive and highly nuanced prosody',
+    },
+  ];
+
   // ---------- View Switching ----------
   function switchView(target) {
     navItems.forEach((b) => b.classList.toggle('active', b.dataset.view === target));
     Object.entries(views).forEach(([name, el]) => {
       if (el) el.classList.toggle('hidden', name !== target);
     });
+    if (target === 'voice') {
+      if (!speakersGrid || speakersGrid.children.length === 0) {
+        renderVoiceStudio(DEFAULT_SPEAKERS, DEFAULT_MODELS);
+      }
+      loadVoiceStudio();
+    }
   }
 
   navItems.forEach((btn) => {
@@ -363,14 +429,31 @@
       }
     };
   }
+  // Resilient fetch with configurable timeout (prevents hanging when remote backend spins up)
+  async function fetchWithTimeout(url, options = {}, timeoutMs = 3500) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, { ...options, signal: controller.signal });
+      return res;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   connect();
   updateWorkspaceState();
+
+  // Initialize info panel defaults immediately
+  if (infoModel) infoModel.textContent = currentActiveModel;
+  if (infoVoice) infoVoice.textContent = currentActiveSpeaker;
+  if (infoFormat) infoFormat.textContent = 'mp3';
 
   let httpHealthy = false;
   async function initHttpConfig() {
     const primaryUrl = apiUrl('/api/config');
     try {
-      const res = await fetch(primaryUrl);
+      const res = await fetchWithTimeout(primaryUrl, {}, 3500);
       if (res.ok) {
         const data = await res.json();
         httpHealthy = true;
@@ -383,10 +466,10 @@
       }
     } catch (_) {}
 
-    // Fallback to same-origin if cross-origin failed
+    // Fallback to same-origin if cross-origin failed or timed out
     if (primaryUrl !== '/api/config') {
       try {
-        const res = await fetch('/api/config');
+        const res = await fetchWithTimeout('/api/config', {}, 3000);
         if (res.ok) {
           const data = await res.json();
           httpHealthy = true;
@@ -530,6 +613,8 @@
         chatArea.scrollTop = chatArea.scrollHeight;
 
         if (chatAreaConv) {
+          const hint = $('convEmptyHint');
+          if (hint) hint.remove();
           const clone = taskRow.cloneNode(true);
           chatAreaConv.appendChild(clone);
           chatAreaConv.scrollTop = chatAreaConv.scrollHeight;
@@ -1274,6 +1359,8 @@
     }, 60);
 
     if (chatAreaConv) {
+      const hint = $('convEmptyHint');
+      if (hint) hint.remove();
       const clone = row.cloneNode(true);
       chatAreaConv.appendChild(clone);
       chatAreaConv.scrollTop = chatAreaConv.scrollHeight;
@@ -1346,7 +1433,10 @@
   function clearAllChat() {
     transcript = [];
     chatArea.innerHTML = '';
-    if (chatAreaConv) chatAreaConv.innerHTML = '';
+    if (chatAreaConv) {
+      chatAreaConv.innerHTML =
+        '<p class="empty-hint" id="convEmptyHint">No messages yet. Speak or type below to start the conversation timeline.</p>';
+    }
     captionAi.textContent =
       '“Welcome. Tap the orb or mic to speak — you can interrupt me anytime, mid-sentence.”';
     if (captionUser) captionUser.style.display = 'none';
@@ -1501,24 +1591,31 @@
     try {
       let res;
       try {
-        res = await fetch(apiUrl('/api/voices'));
+        res = await fetchWithTimeout(apiUrl('/api/voices'), {}, 3500);
       } catch (_) {
-        res = await fetch('/api/voices');
+        res = await fetchWithTimeout('/api/voices', {}, 3000);
       }
       if (res && res.ok) {
         const data = await res.json();
-        renderVoiceStudio(data.speakers || [], data.models || []);
+        const spks = data.speakers && data.speakers.length > 0 ? data.speakers : DEFAULT_SPEAKERS;
+        const mdls = data.models && data.models.length > 0 ? data.models : DEFAULT_MODELS;
+        renderVoiceStudio(spks, mdls);
+        return;
       }
     } catch (err) {
-      console.error('Failed to load voices', err);
+      console.warn('Failed to load voices from server, using defaults', err);
     }
+    renderVoiceStudio(DEFAULT_SPEAKERS, DEFAULT_MODELS);
   }
 
   function renderVoiceStudio(speakers, models) {
     if (!speakersGrid) return;
+    const spkList = Array.isArray(speakers) && speakers.length > 0 ? speakers : DEFAULT_SPEAKERS;
+    const mdlList = Array.isArray(models) && models.length > 0 ? models : DEFAULT_MODELS;
+
     speakersGrid.innerHTML = '';
 
-    speakers.forEach((spk) => {
+    spkList.forEach((spk) => {
       const card = document.createElement('div');
       card.className = `speaker-card ${spk.id === currentActiveSpeaker ? 'active' : ''}`;
       card.dataset.speakerId = spk.id;
@@ -1555,7 +1652,7 @@
 
     if (modelsRow) {
       modelsRow.innerHTML = '';
-      models.forEach((m) => {
+      mdlList.forEach((m) => {
         const card = document.createElement('div');
         card.className = `model-card ${m.id === currentActiveModel ? 'active' : ''}`;
         card.dataset.modelId = m.id;
@@ -1576,6 +1673,10 @@
       });
     }
   }
+
+  // Immediately initialize Voice Studio with default catalog
+  renderVoiceStudio(DEFAULT_SPEAKERS, DEFAULT_MODELS);
+  loadVoiceStudio();
 
   function updateVoiceStudioSelection() {
     if (!speakersGrid) return;
