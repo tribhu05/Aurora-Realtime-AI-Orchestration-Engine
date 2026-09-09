@@ -17,13 +17,6 @@
 
   // Layout & Views
   const navItems = document.querySelectorAll('.nav-item');
-  const views = {
-    home: $('view-home'),
-    conversation: $('view-conversation'),
-    voice: $('view-voice'),
-    history: $('view-history'),
-    settings: $('view-settings'),
-  };
 
   // Header
   const connDot = $('connDot');
@@ -35,9 +28,6 @@
   const captionUser = $('captionUser');
   const captionAi = $('captionAi');
   const cancelPill = $('cancelPill');
-  const suggestionChips = $('suggestionChips');
-  const centerConversationWrapper = $('centerConversationWrapper');
-  const chatHeader = $('chatHeader');
   const chatArea = $('chatArea');
   const chatAreaConv = $('chatAreaConv');
   const btnClearChat = $('btnClearChat');
@@ -105,13 +95,18 @@
   const qaLogs = $('qaLogs');
   const qaConv = $('qaConv');
   const qaHelp = $('qaHelp');
-  const sidebar = $('sidebar');
+  const appSidebar = $('appSidebar');
   const btnToggleSidebar = $('btnToggleSidebar');
-  const btnCloseSidebar = $('btnCloseSidebar');
-  const inspectorPanel = $('inspectorPanel');
-  const btnToggleInspector = $('btnToggleInspector');
-  const btnCloseInspector = $('btnCloseInspector');
   const sidebarBackdrop = $('sidebarBackdrop');
+  const navCompanion = $('navCompanion');
+  const navConversation = $('navConversation');
+  const navConvBadge = $('navConvBadge');
+  const navVoiceStudio = $('navVoiceStudio');
+  const navTranscripts = $('navTranscripts');
+  const navTelemetry = $('navTelemetry');
+  const drawerSectionVoice = $('drawerSectionVoice');
+  const drawerSectionTranscripts = $('drawerSectionTranscripts');
+  const drawerSectionTelemetry = $('drawerSectionTelemetry');
 
   // Core Audio & State
   const player = new window.AuroraAudioPlayer();
@@ -219,24 +214,100 @@
     }
   });
 
-  // ---------- View Switching ----------
+  // ---------- Navigation & Experience Switching ----------
+  let _activeMainView = 'companion';
+
+  function setMainExperience(view, focusInput = false) {
+    _activeMainView = view;
+    if (navCompanion) navCompanion.classList.toggle('active', view === 'companion');
+    if (navConversation) navConversation.classList.toggle('active', view === 'conversation');
+
+    if (appRoot) {
+      appRoot.classList.toggle('in-conversation', view === 'conversation');
+    }
+
+    if (view === 'conversation' && chatArea) {
+      requestAnimationFrame(() => {
+        chatArea.scrollTop = chatArea.scrollHeight;
+      });
+    }
+
+    if (focusInput && typeInput) {
+      typeInput.focus();
+    }
+
+    if (orb && typeof orb.resize === 'function') {
+      setTimeout(() => orb.resize(), 100);
+    }
+
+    // Auto-close sidebar on mobile after navigating
+    if (window.innerWidth <= 900 && appRoot) {
+      appRoot.classList.remove('sidebar-open');
+      if (btnToggleSidebar) btnToggleSidebar.classList.remove('active');
+    }
+  }
+
+  function openDrawerTo(sectionEl) {
+    openDrawer();
+    if (sectionEl) {
+      setTimeout(() => {
+        sectionEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 80);
+    }
+    if (window.innerWidth <= 900 && appRoot) {
+      appRoot.classList.remove('sidebar-open');
+      if (btnToggleSidebar) btnToggleSidebar.classList.remove('active');
+    }
+  }
+
   function switchView(target) {
     navItems.forEach((b) => b.classList.toggle('active', b.dataset.view === target));
-    Object.entries(views).forEach(([name, el]) => {
-      if (el) el.classList.toggle('hidden', name !== target);
-    });
-    if (target === 'voice' || target === 'settings') {
-      openDrawer();
+    if (target === 'companion' || target === 'home') {
+      setMainExperience('companion');
+    } else if (target === 'conversation') {
+      setMainExperience('conversation');
+    } else if (target === 'voice') {
       if (!speakersGrid || speakersGrid.children.length === 0) {
         renderVoiceStudio(DEFAULT_SPEAKERS, DEFAULT_MODELS);
       }
       loadVoiceStudio();
+      openDrawerTo(drawerSectionVoice);
+    } else if (target === 'transcripts' || target === 'history') {
+      openDrawerTo(drawerSectionTranscripts);
+    } else if (target === 'settings' || target === 'telemetry') {
+      openDrawerTo(drawerSectionTelemetry);
     }
   }
 
-  navItems.forEach((btn) => {
-    btn.addEventListener('click', () => switchView(btn.dataset.view));
-  });
+  if (navCompanion) {
+    navCompanion.addEventListener('click', () => setMainExperience('companion', true));
+  }
+
+  if (navConversation) {
+    navConversation.addEventListener('click', () => setMainExperience('conversation', true));
+  }
+
+  if (navVoiceStudio) {
+    navVoiceStudio.addEventListener('click', () => {
+      if (!speakersGrid || speakersGrid.children.length === 0) {
+        renderVoiceStudio(DEFAULT_SPEAKERS, DEFAULT_MODELS);
+      }
+      loadVoiceStudio();
+      openDrawerTo(drawerSectionVoice);
+    });
+  }
+
+  if (navTranscripts) {
+    navTranscripts.addEventListener('click', () => {
+      openDrawerTo(drawerSectionTranscripts);
+    });
+  }
+
+  if (navTelemetry) {
+    navTelemetry.addEventListener('click', () => {
+      openDrawerTo(drawerSectionTelemetry);
+    });
+  }
 
   if (qaTest) qaTest.addEventListener('click', () => runInteractiveBargeInTest());
   if (qaVoice) qaVoice.addEventListener('click', () => switchView('voice'));
@@ -244,7 +315,7 @@
   if (qaConv) qaConv.addEventListener('click', () => switchView('conversation'));
   if (qaHelp) {
     qaHelp.addEventListener('click', () => {
-      switchView('home');
+      setMainExperience('companion');
       captionAi.textContent =
         "“I'm Aurora. Tap the mic or orb to speak. If I'm mid-sentence and you interrupt me, I silence my speech instantly (< 2ms) and answer your new thought!”";
     });
@@ -253,73 +324,60 @@
   // ---------- Center Workspace Dynamic Transition ----------
   function updateWorkspaceState() {
     const hasMessages = transcript.length > 0;
-    if (appRoot) {
-      appRoot.classList.toggle('in-conversation', hasMessages);
+    if (navConvBadge) {
+      navConvBadge.textContent = String(transcript.length);
+      navConvBadge.style.display = hasMessages ? 'inline-flex' : 'none';
     }
+
+    if (hasMessages) {
+      setMainExperience('conversation');
+    } else {
+      setMainExperience('companion');
+    }
+
     if (chatArea) {
       chatArea.style.display = hasMessages ? 'flex' : 'none';
     }
-    if (views.home) {
-      views.home.classList.toggle('is-empty', !hasMessages);
-      views.home.classList.toggle('has-conversation', hasMessages);
-    }
-    if (chatHeader) {
-      chatHeader.style.display = hasMessages ? 'flex' : 'none';
-    }
-    if (suggestionChips) {
-      suggestionChips.style.display = hasMessages ? 'none' : 'flex';
-    }
-    if (centerConversationWrapper) {
-      centerConversationWrapper.style.display = hasMessages ? 'flex' : 'none';
-    }
+
     if (orb && typeof orb.resize === 'function') {
       setTimeout(() => orb.resize(), 60);
     }
   }
 
-  // ---------- Sliding Sidebars (Left & Right) ----------
-  function toggleSidebar(open) {
-    if (!sidebar) return;
-    const isClosed = typeof open === 'boolean' ? !open : !sidebar.classList.contains('closed');
-    sidebar.classList.toggle('closed', isClosed);
-    if (btnToggleSidebar) btnToggleSidebar.classList.toggle('active', !isClosed);
-    updateBackdrop();
-  }
-
-  function toggleInspector(open) {
-    if (!inspectorPanel) return;
-    const isClosed =
-      typeof open === 'boolean' ? !open : !inspectorPanel.classList.contains('closed');
-    inspectorPanel.classList.toggle('closed', isClosed);
-    if (btnToggleInspector) btnToggleInspector.classList.toggle('active', !isClosed);
-    updateBackdrop();
-  }
-
-  function updateBackdrop() {
-    if (!sidebarBackdrop) return;
-    const anyOpen =
-      (sidebar && !sidebar.classList.contains('closed')) ||
-      (inspectorPanel && !inspectorPanel.classList.contains('closed'));
-    sidebarBackdrop.classList.toggle('active', anyOpen && window.innerWidth <= 1080);
+  // ---------- Left Sidebar Toggle (Desktop & Mobile) ----------
+  function toggleSidebar(forceState) {
+    if (!appSidebar || !appRoot) return;
+    const isMobile = window.innerWidth <= 900;
+    if (isMobile) {
+      const shouldOpen =
+        typeof forceState === 'boolean' ? forceState : !appRoot.classList.contains('sidebar-open');
+      appRoot.classList.toggle('sidebar-open', shouldOpen);
+      if (btnToggleSidebar) btnToggleSidebar.classList.toggle('active', shouldOpen);
+    } else {
+      const shouldCollapse =
+        typeof forceState === 'boolean'
+          ? !forceState
+          : !appRoot.classList.contains('sidebar-collapsed');
+      appRoot.classList.toggle('sidebar-collapsed', shouldCollapse);
+      if (btnToggleSidebar) btnToggleSidebar.classList.toggle('active', !shouldCollapse);
+      if (orb && typeof orb.resize === 'function') {
+        setTimeout(() => orb.resize(), 200);
+      }
+    }
   }
 
   if (btnToggleSidebar) btnToggleSidebar.addEventListener('click', () => toggleSidebar());
-  if (btnCloseSidebar) btnCloseSidebar.addEventListener('click', () => toggleSidebar(false));
-  if (btnToggleInspector) btnToggleInspector.addEventListener('click', () => toggleInspector());
-  if (btnCloseInspector) btnCloseInspector.addEventListener('click', () => toggleInspector(false));
   if (sidebarBackdrop) {
     sidebarBackdrop.addEventListener('click', () => {
-      toggleSidebar(false);
-      toggleInspector(false);
+      if (appRoot) appRoot.classList.remove('sidebar-open');
+      if (btnToggleSidebar) btnToggleSidebar.classList.remove('active');
     });
   }
 
   // Auto-adapt on resize
   window.addEventListener('resize', () => {
-    if (window.innerWidth <= 1080) {
-      if (sidebar && !sidebar.classList.contains('closed')) updateBackdrop();
-    } else {
-      if (sidebarBackdrop) sidebarBackdrop.classList.remove('active');
+    if (window.innerWidth > 900 && appRoot) {
+      appRoot.classList.remove('sidebar-open');
     }
   });
 

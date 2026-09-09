@@ -1,7 +1,8 @@
 // client/highlighter.js
-// Fast, lightweight, zero-dependency syntax highlighter and code-block builder
+// Fast, deterministic, zero-dependency syntax highlighter and code-block builder
 // tailored for Aurora's visual chat interface.
-// Supports: C++, Python, JavaScript, TypeScript, HTML, CSS, SQL, JSON, Bash.
+// Uses a robust lexical tokenizer to guarantee zero HTML tag corruption or double-escaping.
+// Supports: JavaScript, TypeScript, C++, Python, HTML, CSS, SQL, JSON, Bash.
 
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
@@ -24,7 +25,7 @@
     });
   }
 
-  // Language token definitions
+  // Language keywords
   const KEYWORDS = {
     cpp: [
       'auto',
@@ -159,6 +160,10 @@
       'false',
       'null',
       'undefined',
+      'require',
+      'module',
+      'exports',
+      'of',
     ],
     typescript: [
       'async',
@@ -214,6 +219,10 @@
       'boolean',
       'unknown',
       'never',
+      'require',
+      'module',
+      'exports',
+      'of',
     ],
     sql: [
       'select',
@@ -388,88 +397,191 @@
     return l;
   }
 
+  // Deterministic lexical tokenizer for a single source code line
+  function highlightLine(line, nLang, kwSet, typeSet) {
+    let result = '';
+    let i = 0;
+    const len = line.length;
+
+    while (i < len) {
+      // 1. Line Comments
+      if (
+        (nLang !== 'python' && nLang !== 'bash' && line.startsWith('//', i)) ||
+        ((nLang === 'python' || nLang === 'bash') && line[i] === '#')
+      ) {
+        const comment = line.slice(i);
+        result += `<span class="tok-com">${escapeHtml(comment)}</span>`;
+        break;
+      }
+
+      // 2. Block Comments (single-line slice)
+      if (line.startsWith('/*', i)) {
+        const endIdx = line.indexOf('*/', i + 2);
+        if (endIdx !== -1) {
+          const comment = line.slice(i, endIdx + 2);
+          result += `<span class="tok-com">${escapeHtml(comment)}</span>`;
+          i = endIdx + 2;
+          continue;
+        } else {
+          const comment = line.slice(i);
+          result += `<span class="tok-com">${escapeHtml(comment)}</span>`;
+          break;
+        }
+      }
+
+      // 3. String Literals ("...", '...', `...`)
+      const ch = line[i];
+      if (ch === '"' || ch === "'" || ch === '`') {
+        const quote = ch;
+        let strEnd = i + 1;
+        while (strEnd < len) {
+          if (line[strEnd] === '\\') {
+            strEnd += 2; // skip escaped character
+            continue;
+          }
+          if (line[strEnd] === quote) {
+            strEnd++;
+            break;
+          }
+          strEnd++;
+        }
+        const strVal = line.slice(i, strEnd);
+        result += `<span class="tok-str">${escapeHtml(strVal)}</span>`;
+        i = strEnd;
+        continue;
+      }
+
+      // 4. Numbers (decimal, hex, binary, float with exponents)
+      const isDigit = ch >= '0' && ch <= '9';
+      const prevChar = i > 0 ? line[i - 1] : ' ';
+      const isWordChar = /[a-zA-Z0-9_$]/.test(prevChar);
+
+      if (isDigit && !isWordChar) {
+        const numMatch = line
+          .slice(i)
+          .match(/^(?:0[xX][0-9a-fA-F]+|0[bB][01]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\b/);
+        if (numMatch) {
+          result += `<span class="tok-num">${escapeHtml(numMatch[0])}</span>`;
+          i += numMatch[0].length;
+          continue;
+        }
+      }
+
+      // 5. Identifiers, Keywords, Types, Function Invocations
+      if (/[a-zA-Z_$]/.test(ch) || (ch === '#' && nLang === 'cpp')) {
+        const identMatch = line.slice(i).match(/^#?[a-zA-Z_$][a-zA-Z0-9_$]*/);
+        if (identMatch) {
+          const word = identMatch[0];
+          const nextIdx = i + word.length;
+          const isFuncCall = /^\s*\(/.test(line.slice(nextIdx));
+
+          if (kwSet.has(word) || (nLang === 'sql' && kwSet.has(word.toLowerCase()))) {
+            result += `<span class="tok-kw">${escapeHtml(word)}</span>`;
+          } else if (typeSet.has(word)) {
+            result += `<span class="tok-type">${escapeHtml(word)}</span>`;
+          } else if (isFuncCall) {
+            result += `<span class="tok-fn">${escapeHtml(word)}</span>`;
+          } else {
+            result += escapeHtml(word);
+          }
+          i += word.length;
+          continue;
+        }
+      }
+
+      // 6. Common Programming Operators
+      const opMatch = line.slice(i).match(/^(?:===|!==|==|!=|<=|>=|=>|&&|\|\||[+\-*/%=<>!&|^~?:])/);
+      if (opMatch) {
+        result += `<span class="tok-op">${escapeHtml(opMatch[0])}</span>`;
+        i += opMatch[0].length;
+        continue;
+      }
+
+      // 7. Plain Punctuation and Whitespace
+      result += escapeHtml(ch);
+      i++;
+    }
+
+    return result;
+  }
+
+  // Dedicated JSON Tokenizer
+  function highlightJson(code) {
+    if (!code) return '';
+    const lines = code.split('\n');
+    return lines
+      .map((line) => {
+        let res = '';
+        let i = 0;
+        const len = line.length;
+
+        while (i < len) {
+          const ch = line[i];
+
+          // String
+          if (ch === '"') {
+            let end = i + 1;
+            while (end < len) {
+              if (line[end] === '\\') {
+                end += 2;
+                continue;
+              }
+              if (line[end] === '"') {
+                end++;
+                break;
+              }
+              end++;
+            }
+            const strVal = line.slice(i, end);
+            const isKey = /^\s*:/.test(line.slice(end));
+            const tokenClass = isKey ? 'tok-prop' : 'tok-str';
+            res += `<span class="${tokenClass}">${escapeHtml(strVal)}</span>`;
+            i = end;
+            continue;
+          }
+
+          // Number
+          if ((ch >= '0' && ch <= '9') || (ch === '-' && i + 1 < len && line[i + 1] >= '0')) {
+            const numMatch = line.slice(i).match(/^-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b/);
+            if (numMatch) {
+              res += `<span class="tok-num">${escapeHtml(numMatch[0])}</span>`;
+              i += numMatch[0].length;
+              continue;
+            }
+          }
+
+          // Booleans & null
+          const boolMatch = line.slice(i).match(/^(?:true|false|null)\b/);
+          if (boolMatch) {
+            res += `<span class="tok-kw">${escapeHtml(boolMatch[0])}</span>`;
+            i += boolMatch[0].length;
+            continue;
+          }
+
+          res += escapeHtml(ch);
+          i++;
+        }
+        return res;
+      })
+      .join('\n');
+  }
+
   function highlight(code, lang) {
     const nLang = normalizeLang(lang);
     if (!code) return '';
 
-    // Fast escape
-    const escaped = escapeHtml(code);
-
     if (nLang === 'json') {
-      return highlightJson(escaped);
+      return highlightJson(code);
     }
 
     const kwList = KEYWORDS[nLang] || KEYWORDS.javascript;
     const typeList = TYPES[nLang] || [];
+    const kwSet = new Set(kwList);
+    const typeSet = new Set(typeList);
 
-    // Line-by-line tokenization
-    const lines = escaped.split('\n');
-    const highlightedLines = lines.map((line) => {
-      // Comments
-      let commentMatch = null;
-      let commentText = '';
-
-      if (nLang === 'python' || nLang === 'bash') {
-        const hashIdx = line.indexOf('#');
-        if (hashIdx !== -1) {
-          commentText = line.slice(hashIdx);
-          line = line.slice(0, hashIdx);
-          commentMatch = true;
-        }
-      } else {
-        const slashIdx = line.indexOf('//');
-        if (slashIdx !== -1) {
-          commentText = line.slice(slashIdx);
-          line = line.slice(0, slashIdx);
-          commentMatch = true;
-        }
-      }
-
-      // Strings: "...", '...', `...`
-      line = line.replace(
-        /(&quot;.*?&quot;|&#39;.*?&#39;|`.*?`)/g,
-        '<span class="tok-str">$1</span>'
-      );
-
-      // Numbers
-      line = line.replace(/\b(\d+(\.\d+)?)\b/g, '<span class="tok-num">$1</span>');
-
-      // Types & Builtins
-      if (typeList.length) {
-        const typeRegex = new RegExp(`\\b(${typeList.join('|')})\\b`, 'g');
-        line = line.replace(typeRegex, '<span class="tok-type">$1</span>');
-      }
-
-      // Keywords
-      if (kwList.length) {
-        const kwRegex = new RegExp(`\\b(${kwList.join('|')})\\b`, nLang === 'sql' ? 'gi' : 'g');
-        line = line.replace(kwRegex, '<span class="tok-kw">$1</span>');
-      }
-
-      // Functions foo(...)
-      line = line.replace(/\b([a-zA-Z_]\w*)\s*(?=\()/g, '<span class="tok-fn">$1</span>');
-
-      if (commentMatch) {
-        return line + `<span class="tok-com">${commentText}</span>`;
-      }
-      return line;
-    });
-
+    const lines = String(code).split('\n');
+    const highlightedLines = lines.map((line) => highlightLine(line, nLang, kwSet, typeSet));
     return highlightedLines.join('\n');
-  }
-
-  function highlightJson(escaped) {
-    return (
-      escaped
-        // Keys
-        .replace(/(&quot;[\w\s\-_]+&quot;)\s*:/g, '<span class="tok-prop">$1</span>:')
-        // String values
-        .replace(/:\s*(&quot;.*?&quot;)/g, ': <span class="tok-str">$1</span>')
-        // Booleans & null
-        .replace(/\b(true|false|null)\b/g, '<span class="tok-kw">$1</span>')
-        // Numbers
-        .replace(/\b(-?\d+(\.\d+)?)\b/g, '<span class="tok-num">$1</span>')
-    );
   }
 
   /**
@@ -526,7 +638,6 @@
           if (navigator.clipboard && navigator.clipboard.writeText) {
             await navigator.clipboard.writeText(plainText);
           } else {
-            // Fallback
             const textarea = document.createElement('textarea');
             textarea.value = plainText;
             document.body.appendChild(textarea);
