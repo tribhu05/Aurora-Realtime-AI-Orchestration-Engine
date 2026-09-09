@@ -10,7 +10,8 @@
     "test": "node tests/interruption-test.js",
     "test:visual": "node tests/visual-chat.test.js",
     "test:workspace": "node tests/workspace-scenarios.test.js",
-    "test:all": "node tests/interruption-test.js && node tests/visual-chat.test.js && node tests/workspace-scenarios.test.js"
+    "test:routing": "node tests/routing-scenarios.test.js",
+    "test:all": "node tests/routing-scenarios.test.js && node tests/interruption-test.js && node tests/visual-chat.test.js && node tests/workspace-scenarios.test.js"
   },
   "keywords": [
     "voice-ai",

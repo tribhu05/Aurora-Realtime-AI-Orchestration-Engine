@@ -334,6 +334,9 @@
           visualType: msg.visualType,
           language: msg.language,
           title: msg.title,
+          responseMode: msg.responseMode,
+          spokenResponse: msg.spokenResponse,
+          visualResponse: msg.visualResponse,
         });
         break;
       }
@@ -379,6 +382,7 @@
               <div class="task-footer" style="display:none"></div>
             </div>
             <div class="bubble-meta">
+              <span class="modality-pill modality-hybrid">● Speaking + Workspace</span>
               <span>Task #${msg.taskId} · Live Execution</span>
             </div>
           </div>
@@ -392,8 +396,9 @@
           chatAreaConv.scrollTop = chatAreaConv.scrollHeight;
         }
 
-        transcript.push({ role: 'assistant', text: msg.title, time: new Date(), generation: msg.generation });
+        transcript.push({ role: 'assistant', text: `[Task] ${msg.title}`, time: new Date(), generation: msg.generation });
         updateWorkspaceState();
+        renderHistory();
         break;
       }
 
@@ -694,6 +699,17 @@
         contentHtml = `<div class="bubble-text">${escapeHtml(text)}</div>`;
       }
 
+      const rawMode = String(meta.responseMode || (visualType === 'text' ? 'VOICE' : 'TEXT')).toUpperCase();
+      let modeLabel = 'Speaking';
+      let modeClass = 'modality-voice';
+      if (rawMode === 'TEXT') {
+        modeLabel = 'Written in workspace';
+        modeClass = 'modality-text';
+      } else if (rawMode === 'HYBRID') {
+        modeLabel = 'Speaking + Workspace';
+        modeClass = 'modality-hybrid';
+      }
+
       row.innerHTML = `
         <div class="avatar avatar-sm" title="Aurora AI">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--cyan);">
@@ -703,6 +719,7 @@
         <div class="bubble">
           ${contentHtml}
           <div class="bubble-meta">
+            <span class="modality-pill ${modeClass}">● ${modeLabel}</span>
             <span>Gen #${gen || currentGen} · Rime (${meta.speaker || currentActiveSpeaker})</span>
             <button class="replay-btn" data-gen="${gen || currentGen}">▶ Replay</button>
           </div>

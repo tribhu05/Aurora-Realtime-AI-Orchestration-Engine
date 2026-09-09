@@ -202,7 +202,7 @@ wss.on('connection', (ws) => {
       }
       state.generation += 1;
       const myGen = state.generation;
-      handleTurn(ws, state, myGen, msg.text.trim()).catch((err) => {
+      handleTurn(ws, state, myGen, msg.text.trim(), msg.mode).catch((err) => {
         if (err?.name === 'AbortError') return;
         console.error('[turn error]', err);
         send(ws, { type: 'error', generation: myGen, message: 'Something went wrong on my end.' });
@@ -215,7 +215,7 @@ wss.on('connection', (ws) => {
   });
 });
 
-async function handleTurn(ws, state, myGen, userText) {
+async function handleTurn(ws, state, myGen, userText, userOverride = null) {
   const turnStartTime = Date.now();
   send(ws, { type: 'user_text', text: userText, generation: myGen, timestamp: turnStartTime });
   state.history.push({ role: 'user', content: userText });
@@ -244,7 +244,7 @@ async function handleTurn(ws, state, myGen, userText) {
     return;
   }
 
-  // 2. Standard dual-channel LLM turn
+  // 2. Standard dual-channel LLM turn with Intelligent Response Routing
   send(ws, { type: 'thinking', generation: myGen, timestamp: Date.now() });
 
   const t0 = Date.now();
@@ -256,6 +256,7 @@ async function handleTurn(ws, state, myGen, userText) {
       model: LLM_CONFIG.model,
       messages: state.history,
       signal: controller.signal,
+      userOverride,
     });
   } catch (err) {
     if (err?.name === 'AbortError') return;
@@ -266,14 +267,22 @@ async function handleTurn(ws, state, myGen, userText) {
   const llmMs = Date.now() - t0;
   state.history.push({ role: 'assistant', content: replyObj.content });
 
-  // Send visual chat payload to client
+  // Send visual chat payload to client with modality routing metadata
   send(ws, {
     type: 'ai_text',
     text: replyObj.content,
     spoken: replyObj.spoken,
-    visualType: replyObj.type,
-    language: replyObj.language,
-    title: replyObj.title,
+    visualType: replyObj.visualType || replyObj.type || replyObj.visualResponse?.type || 'text',
+    language: replyObj.language || replyObj.visualResponse?.language || null,
+    title: replyObj.title || replyObj.visualResponse?.title || null,
+    responseMode: replyObj.responseMode || 'VOICE',
+    spokenResponse: replyObj.spokenResponse || replyObj.spoken,
+    visualResponse: replyObj.visualResponse || {
+      type: replyObj.type || 'text',
+      language: replyObj.language || null,
+      title: replyObj.title || null,
+      content: replyObj.content,
+    },
     generation: myGen,
     llmMs,
     timestamp: Date.now(),
@@ -285,7 +294,7 @@ async function handleTurn(ws, state, myGen, userText) {
   if (isStale(state, myGen)) return;
 
   // Synthesize speech ONLY from the spoken channel!
-  const spokenText = replyObj.spoken || replyObj.content;
+  const spokenText = replyObj.spokenResponse || replyObj.spoken || replyObj.content;
   const t1 = Date.now();
   let audioBuffer = null;
   try {

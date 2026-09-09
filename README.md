@@ -30,19 +30,26 @@ When you speak, Aurora answers with brief spoken confirmation while instantly re
 
 ## ⚡ Key Features
 
-### 1. 🎙️ Dual-Channel Separation
+### 1. 🧭 Intelligent Response Routing (VOICE, TEXT, HYBRID)
+Aurora dynamically classifies every request into exactly one of three response modalities in a single-pass inference:
+- 🟢 **VOICE (`Speaking`)**: For short, conversational, and conceptual inquiries (factual lookups, definitions, yes/no queries, greetings). Aurora speaks a natural, direct answer via Rime TTS (strictly budgeted $\le 35$ words) and renders a clean transcript bubble.
+- 🔵 **TEXT (`Written in workspace`)**: When answers benefit heavily from visual layout (code generation, comparison tables, JSON schemas, extensive documentation). Aurora renders rich interactive syntax-highlighted code or GFM tables in the workspace, while Rime TTS speaks *only* a brief spoken confirmation ($\le 20$ words). Raw code and table syntax are **never** read aloud.
+- 🟣 **HYBRID (`Speaking + Workspace`)**: When the user benefits from both vocal explanation and visual artifacts (e.g. concept explanation + code implementation, system comparison + architectural recommendation). Rime speaks a high-level summary ($10-25$ words), paired with a complete visual artifact in the workspace.
+- 🛡️ **Deterministic Safety Corrections**: Server-side guardrails validate model outputs before reaching TTS. If an LLM hallucination marks code as `VOICE`, the system automatically elevates it to `TEXT` or `HYBRID`, sanitizing raw syntax so Rime never speaks code.
+
+### 2. 🎙️ Dual-Channel Separation
 - **Spoken Channel**: Uses **Rime TTS** (`mistv3` sub-100ms model) to speak natural, conversational responses. Aurora **never** reads raw code symbols, markdown syntax, or table pipes aloud.
 - **Visual Channel**: Rich interactive artifacts render directly in the conversation timeline:
   - 💻 **Syntax-Highlighted Code Blocks** (C++, Python, JavaScript, TypeScript, SQL, HTML, CSS, JSON, Bash) with 1-click clipboard copy.
   - 📊 **Responsive Comparison Tables** with GFM formatting and horizontal scrolling.
   - 📝 **Structured Markdown** with clean typography, bullet points, and quotes.
 
-### 2. ⚡ Sub-2ms Barge-In & Monotonic Generation Fencing
+### 3. ⚡ Sub-2ms Barge-In & Monotonic Generation Fencing
 - **Zero-Latency Audio Cutoff**: The moment microphone VAD detects user speech during assistant playback, the client-side Web Audio `GainNode` is clamped to zero synchronously ($< 2\text{ms}$), silencing playback before network roundtrips.
 - **Server Request Cancellation**: The server terminates in-flight LLM calls and Rime TTS requests via `AbortController.abort()`.
 - **Monotonic Fencing**: Every turn increments a `generationId`. Stale or delayed packets from cancelled turns are discarded by both client and server ($100\%$ stale packet protection).
 
-### 3. 🛠️ Multi-Step Task Execution Engine
+### 4. 🛠️ Multi-Step Task Execution Engine
 - **Streaming Scaffolding Tasks**: Say *"Create an Express REST API for a todo app"*, and Aurora streams a live 5-step task execution card:
   1. Initializes `package.json` with dependencies and scripts.
   2. Configures middleware, CORS, logging, and security.
@@ -51,13 +58,14 @@ When you speak, Aurora answers with brief spoken confirmation while instantly re
   5. Renders the syntax-highlighted entrypoint code ready to copy.
 - **Mid-Task Barge-In**: If you interrupt mid-scaffold (e.g. *"WAIT! Use TypeScript instead"*), the running task aborts immediately, the old task card is stamped with `⚡ Cancelled via Barge-in`, and the new task executes without stale collisions.
 
-### 4. 🎨 Linear & Raycast Workspace Aesthetic
+### 5. 🎨 Linear & Raycast Workspace Aesthetic
 - **Dynamic Hierarchy**:
   - **Empty State**: Spacious hero orb ($330\text{px}$), clean status badge, and 4 one-tap interactive suggestion chips.
   - **Active State**: The orb smoothly scales down $\approx 15\%$ ($220\text{px}$) into a persistent top companion bar, suggestion chips collapse, and the conversation timeline expands to dominate the view.
+- **Modality Badges**: Every response bubble features a sleek pill indicator (`● Speaking`, `● Written in workspace`, or `● Speaking + Workspace`) giving immediate visual clarity on response delivery.
 - **Restrained Dark Slate Palette**: Crisp borders, zero diffuse blur haze, high-contrast typography, and a de-weighted supporting inspector panel.
 
-### 5. 🧠 Multi-Model Brain & Offline Resilience
+### 6. 🧠 Multi-Model Brain & Offline Resilience
 - **Google Gemini**: Built-in support for Gemini 2.0 / 3.5 via official OpenAI-compatible endpoints with structured JSON schema output.
 - **Groq & OpenAI**: Plug-and-play support for LLaMA 3.1 and GPT-4o.
 - **Offline Demo Fallback**: Functions out of the box with zero API keys required, providing offline conversational intelligence and local browser speech synthesis.
@@ -144,8 +152,11 @@ Open your browser at **[http://localhost:3000](http://localhost:3000)**. Tap the
 Aurora includes an automated test suite verifying dual-channel output, mid-task barge-in, and generation fencing:
 
 ```bash
-# Run all test suites
+# Run all test suites (routing, interruption, visual, workspace)
 npm run test:all
+
+# Test intelligent response routing (VOICE, TEXT, HYBRID, safety guardrails)
+npm run test:routing
 
 # Test core barge-in latency and packet discarding
 npm test
@@ -165,6 +176,7 @@ npm run test:workspace
 | **Server Interruption ACK Roundtrip** | $< 200\text{ms}$ | **$2\text{ms} - 8\text{ms}$** |
 | **Time to First Audio (TTFA)** | $< 800\text{ms}$ | **$280\text{ms} - 450\text{ms}$** |
 | **Stale Packet Discard Rate** | $> 90\%$ | **$100\%$ (Zero leakage)** |
+| **Modality Classification Overhead** | $< 100\text{ms}$ | **$0\text{ms}$ (Single-Pass Inference)** |
 
 ---
 
@@ -174,7 +186,7 @@ npm run test:workspace
 aurora/
 ├── client/
 │   ├── index.html         # Unified workspace shell & slidebar layout
-│   ├── style.css          # Linear/Raycast design system & responsive views
+│   ├── style.css          # Linear/Raycast design system, modality pills & views
 │   ├── app.js             # Client state machine, WebSocket handler, and VAD
 │   ├── highlighter.js     # Zero-dependency syntax highlighter with Copy button
 │   ├── markdown.js        # Zero-dependency GFM markdown & responsive table renderer
@@ -183,10 +195,12 @@ aurora/
 │   └── vad-mic.js         # Browser SpeechRecognition & voice activity detection
 ├── server/
 │   ├── server.js          # Express & WebSocket gateway with turn management
-│   ├── llm.js             # Dual-channel LLM gateway (Gemini/Groq/OpenAI/Fallback)
+│   ├── response-router.js # Intelligent Response Router (VOICE/TEXT/HYBRID & safety)
+│   ├── llm.js             # Dual-channel LLM gateway with structured routing contracts
 │   ├── rime.js            # Official Rime TTS client with streaming base64 synthesis
 │   └── tasks.js           # Multi-step project scaffolding engine with AbortSignal
 ├── tests/
+│   ├── routing-scenarios.test.js  # Intelligent routing, transitions & guardrail tests
 │   ├── interruption-test.js       # Core barge-in & generation fence test
 │   ├── visual-chat.test.js        # Visual code blocks, tables, & task barge-in test
 │   └── workspace-scenarios.test.js# Comprehensive scenario & prompt test suite
