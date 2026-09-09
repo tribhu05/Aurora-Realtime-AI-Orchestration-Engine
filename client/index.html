@@ -17,8 +17,6 @@
   </head>
   <body>
     <div class="app" id="appRoot">
-      <!-- Ambient 3D Cosmic Depth Layer -->
-      <canvas id="bg3dCanvas" class="bg-3d-canvas" aria-hidden="true"></canvas>
       <div class="noise"></div>
 
       <!-- Minimal Top Navigation Header -->
@@ -62,11 +60,8 @@
         <!-- Hero Orb & Greeting (Compactable on conversation start) -->
         <div class="hero-section" id="heroSection">
           <div class="orb-wrap" id="orbWrap">
-            <div class="orb" id="orbElement">
-              <div class="core"></div>
-            </div>
-            <!-- Interactive Canvas for High-FPS Audio Reactive Glow -->
-            <canvas id="orbCanvas" width="220" height="220" class="orb-canvas-reactive"></canvas>
+            <!-- Unified 3D Holographic AI Sphere Canvas -->
+            <canvas id="orbCanvas" width="280" height="280" class="orb-canvas-3d"></canvas>
           </div>
 
           <div class="greeting" id="greetingText">Hello, Explorer</div>
@@ -384,8 +379,6 @@
     <!-- Scripts -->
     <script src="config.js"></script>
     <script src="audio-player.js"></script>
-    <script src="bg-3d.js"></script>
-    <script src="viewer-3d.js"></script>
     <script src="orb.js"></script>
     <script src="vad-mic.js"></script>
     <script src="markdown.js"></script>

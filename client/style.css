@@ -53,16 +53,6 @@ body {
   overflow: hidden;
 }
 
-/* Ambient 3D Cosmic Starfield Canvas */
-.bg-3d-canvas {
-  position: fixed;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  z-index: 0;
-}
-
 .noise {
   position: fixed;
   inset: 0;
@@ -235,11 +225,11 @@ main {
   flex-shrink: 0;
 }
 
-/* Glowing Robin-Style AI Orb */
+/* 3D Holographic AI Sphere Container */
 .orb-wrap {
-  margin-top: clamp(24px, 6vh, 60px);
-  width: 220px;
-  height: 220px;
+  margin-top: clamp(20px, 5vh, 48px);
+  width: 260px;
+  height: 260px;
   display: grid;
   place-items: center;
   position: relative;
@@ -249,120 +239,79 @@ main {
 .orb-wrap::before {
   content: '';
   position: absolute;
-  inset: 8px;
+  inset: 20px;
   border-radius: 50%;
   background: radial-gradient(
     circle,
-    rgba(0, 101, 255, 0.2),
-    rgba(0, 76, 190, 0.08) 45%,
+    rgba(0, 110, 255, 0.22),
+    rgba(0, 76, 190, 0.08) 50%,
     transparent 72%
   );
-  filter: blur(18px);
-}
-
-.orb {
-  width: 160px;
-  height: 160px;
-  border-radius: 50%;
-  position: relative;
-  background:
-    radial-gradient(ellipse at 36% 28%, rgba(5, 12, 35, 0.85) 0 22%, transparent 23%),
-    radial-gradient(ellipse at 67% 70%, #103c9c 0 7%, #071b4e 26%, #020711 63%);
-  box-shadow:
-    inset -22px -22px 40px rgba(0, 0, 0, 0.75),
-    inset 18px 13px 30px rgba(0, 101, 255, 0.22),
-    0 0 26px rgba(31, 122, 255, 0.35),
-    0 0 85px rgba(0, 84, 255, 0.18);
-  animation: float 5s ease-in-out infinite;
-  overflow: visible;
-  transition: all 0.3s ease;
-}
-
-.orb::before,
-.orb::after {
-  content: '';
-  position: absolute;
-  inset: -4px;
-  border-radius: 50%;
-  border: 2px solid transparent;
-  transform: rotate(-28deg);
-  background: linear-gradient(
-      130deg,
-      transparent 20%,
-      #19a9ff 42%,
-      #a8f2ff 51%,
-      #286aff 63%,
-      transparent 82%
-    )
-    border-box;
-  -webkit-mask:
-    linear-gradient(#000 0 0) padding-box,
-    linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  filter: drop-shadow(0 0 7px rgba(49, 175, 255, 0.9));
-  transition: all 0.3s ease;
-}
-
-.orb::after {
-  inset: 10px -7px -9px 13px;
-  transform: rotate(42deg);
-  opacity: 0.78;
-}
-
-.core {
-  position: absolute;
-  inset: 24px 28px 22px 24px;
-  border-radius: 55% 45% 58% 42%;
-  border: 1px solid rgba(63, 164, 255, 0.35);
-  box-shadow: inset 0 0 24px rgba(0, 107, 255, 0.22);
-}
-
-/* Audio-Reactive Canvas overlay */
-.orb-canvas-reactive {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
+  filter: blur(24px);
   pointer-events: none;
-  opacity: 0.85;
-  mix-blend-mode: screen;
+  z-index: 0;
+  transition: all 0.4s ease;
 }
 
-@keyframes float {
-  0%,
-  100% {
-    transform: translateY(0) scale(1);
-  }
-  50% {
-    transform: translateY(-8px) scale(1.02);
-  }
+/* Unified 3D Holographic Canvas */
+.orb-canvas-3d {
+  position: relative;
+  z-index: 1;
+  width: 260px;
+  height: 260px;
+  display: block;
+  pointer-events: auto;
+  cursor: pointer;
+  filter: drop-shadow(0 0 35px rgba(24, 119, 242, 0.45));
+  transition: filter 0.4s ease;
+  user-select: none;
 }
 
-/* Orb State Variations */
-.orb-wrap.listening .orb {
-  box-shadow:
-    inset -22px -22px 40px rgba(0, 0, 0, 0.75),
-    inset 18px 13px 30px rgba(0, 230, 255, 0.3),
-    0 0 38px rgba(40, 220, 255, 0.55),
-    0 0 110px rgba(0, 180, 255, 0.3);
-  animation: float 2.5s ease-in-out infinite;
+.orb-canvas-3d:hover {
+  filter: drop-shadow(0 0 50px rgba(56, 189, 248, 0.65));
 }
 
-.orb-wrap.listening .orb::before {
-  filter: drop-shadow(0 0 12px rgba(56, 239, 125, 0.9));
+/* State-dependent aura glows */
+.orb-wrap.listening::before {
+  background: radial-gradient(
+    circle,
+    rgba(0, 229, 255, 0.3),
+    rgba(14, 165, 233, 0.12) 55%,
+    transparent 75%
+  );
+  filter: blur(28px);
 }
 
-.orb-wrap.thinking .orb {
-  box-shadow:
-    inset -22px -22px 40px rgba(0, 0, 0, 0.75),
-    inset 18px 13px 30px rgba(168, 85, 247, 0.3),
-    0 0 35px rgba(168, 85, 247, 0.45),
-    0 0 95px rgba(147, 51, 234, 0.25);
+.orb-wrap.listening .orb-canvas-3d {
+  filter: drop-shadow(0 0 55px rgba(0, 229, 255, 0.7));
 }
 
-.orb-wrap.speaking .orb {
-  animation: float 1.8s ease-in-out infinite;
+.orb-wrap.thinking::before {
+  background: radial-gradient(
+    circle,
+    rgba(168, 85, 247, 0.32),
+    rgba(147, 51, 234, 0.12) 55%,
+    transparent 75%
+  );
+  filter: blur(28px);
+}
+
+.orb-wrap.thinking .orb-canvas-3d {
+  filter: drop-shadow(0 0 55px rgba(168, 85, 247, 0.7));
+}
+
+.orb-wrap.speaking::before {
+  background: radial-gradient(
+    circle,
+    rgba(56, 189, 248, 0.35),
+    rgba(37, 99, 235, 0.15) 55%,
+    transparent 75%
+  );
+  filter: blur(32px);
+}
+
+.orb-wrap.speaking .orb-canvas-3d {
+  filter: drop-shadow(0 0 60px rgba(56, 189, 248, 0.75));
 }
 
 /* Greetings & Big Conversation Heading */

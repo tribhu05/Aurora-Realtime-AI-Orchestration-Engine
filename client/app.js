@@ -116,8 +116,6 @@
   // Core Audio & State
   const player = new window.AuroraAudioPlayer();
   const orb = new window.AuroraOrb(orbCanvas, player);
-  const bg3dCanvas = $('bg3dCanvas');
-  const _bg3d = window.AuroraBg3D && bg3dCanvas ? new window.AuroraBg3D(bg3dCanvas) : null;
 
   let ws = null;
   let wsReady = false;
@@ -1341,20 +1339,6 @@
         }
       } else if (/\|[^\n]+\|\n\|[-:\s|]+\|/m.test(text)) {
         visualType = 'table';
-      } else if (
-        /\b(?:3D model|3D visual|3D torus|torus knot|dna helix|double helix|wave surface|icosahedron)\b/i.test(
-          text
-        ) ||
-        meta.visualType === '3d' ||
-        meta.meshType
-      ) {
-        visualType = '3d';
-        if (!meta.meshType) {
-          if (/dna|helix/i.test(text)) meta.meshType = 'dnaHelix';
-          else if (/wave|surface|quantum/i.test(text)) meta.meshType = 'waveSurface';
-          else if (/icosahedron|polyhedron/i.test(text)) meta.meshType = 'icosahedron';
-          else meta.meshType = 'torusKnot';
-        }
       } else if (/^#{1,4}\s+|^\s*[-*]\s+/m.test(text)) {
         visualType = 'markdown';
       }
@@ -1378,8 +1362,6 @@
           : "Done. I've placed the code implementation in the workspace.";
       } else if (visualType === 'table') {
         spoken = 'Here is the comparison table in the workspace.';
-      } else if (visualType === '3d') {
-        spoken = "I've rendered the interactive 3D model in the workspace for you to explore.";
       } else {
         spoken = "I've placed the response in the workspace.";
       }
@@ -1412,14 +1394,6 @@
           language: cleanMeta.language || 'cpp',
           title: cleanMeta.title || 'Code Implementation',
         });
-      } else if (visualType === '3d' && window.Aurora3DViewer) {
-        row.classList.add('has-rich-content');
-        contentHtml =
-          `<p>${escapeHtml(cleanText)}</p>` +
-          window.Aurora3DViewer.render3DCard({
-            type: cleanMeta.meshType || 'torusKnot',
-            title: cleanMeta.title,
-          });
       } else if (visualType === 'table' && window.AuroraMarkdown) {
         row.classList.add('has-rich-content');
         contentHtml = window.AuroraMarkdown.render(cleanText);
@@ -1468,9 +1442,6 @@
       if (window.AuroraHighlighter) {
         window.AuroraHighlighter.attachCopyHandlers(row);
       }
-      if (window.Aurora3DViewer) {
-        window.Aurora3DViewer.attachHandlers(row);
-      }
 
       const replayBtn = row.querySelector('.replay-btn');
       if (replayBtn) {
@@ -1508,9 +1479,6 @@
       chatAreaConv.scrollTop = chatAreaConv.scrollHeight;
       if (window.AuroraHighlighter) {
         window.AuroraHighlighter.attachCopyHandlers(chatAreaConv);
-      }
-      if (window.Aurora3DViewer) {
-        window.Aurora3DViewer.attachHandlers(chatAreaConv);
       }
     }
 
