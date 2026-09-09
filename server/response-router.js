@@ -198,6 +198,171 @@ export function deterministicClassify(userText, history = []) {
 }
 
 /**
+ * Unwraps nested or stringified JSON from object fields (e.g. if content or visualResponse
+ * is itself a stringified JSON string).
+ */
+export function unwrapNestedJson(obj) {
+  if (!obj || typeof obj !== 'object') return obj;
+
+  // 1. If visualResponse is a stringified JSON string
+  if (typeof obj.visualResponse === 'string' && obj.visualResponse.trim().startsWith('{')) {
+    try {
+      const inner = JSON.parse(obj.visualResponse);
+      if (inner && typeof inner === 'object') obj.visualResponse = inner;
+    } catch (_) {
+      const extracted = safeParseOrExtract(obj.visualResponse);
+      if (extracted) obj.visualResponse = extracted;
+    }
+  }
+
+  // 2. If content or visualResponse.content is stringified JSON containing structured keys
+  const targetContent = obj.content || obj.visualResponse?.content;
+  if (typeof targetContent === 'string') {
+    const trimmed = targetContent.trim();
+    if (trimmed.startsWith('{') && (
+      trimmed.includes('"spoken"') ||
+      trimmed.includes('"content"') ||
+      trimmed.includes('"type"') ||
+      trimmed.includes('"visualResponse"') ||
+      trimmed.includes('"responseMode"')
+    )) {
+      const parsedInner = safeParseOrExtract(trimmed);
+      if (parsedInner && typeof parsedInner === 'object') {
+        if (parsedInner.spoken && !obj.spoken) obj.spoken = parsedInner.spoken;
+        if (parsedInner.spokenResponse && !obj.spokenResponse) obj.spokenResponse = parsedInner.spokenResponse;
+        if (parsedInner.responseMode && !obj.responseMode) obj.responseMode = parsedInner.responseMode;
+
+        const innerType = parsedInner.visualResponse?.type || parsedInner.type;
+        const innerLang = parsedInner.visualResponse?.language || parsedInner.language;
+        const innerTitle = parsedInner.visualResponse?.title || parsedInner.title;
+        const innerContent = parsedInner.visualResponse?.content || parsedInner.content || parsedInner.text;
+
+        if (obj.visualResponse && typeof obj.visualResponse === 'object') {
+          if (innerType) obj.visualResponse.type = innerType;
+          if (innerLang) obj.visualResponse.language = innerLang;
+          if (innerTitle) obj.visualResponse.title = innerTitle;
+          if (innerContent) obj.visualResponse.content = innerContent;
+        } else {
+          obj.content = innerContent || obj.content;
+          if (innerType) obj.type = innerType;
+          if (innerLang) obj.language = innerLang;
+          if (innerTitle) obj.title = innerTitle;
+        }
+      }
+    }
+  }
+
+  return obj;
+}
+
+/**
+ * Robust extractor for structured responses from LLM output.
+ * Handles standard JSON, escaped JSON, unescaped code newlines,
+ * unescaped quotes within code strings, markdown fences, and regex fallbacks.
+ */
+export function safeParseOrExtract(rawText) {
+  if (!rawText) return null;
+  if (typeof rawText === 'object') return unwrapNestedJson(rawText);
+  if (typeof rawText !== 'string') return null;
+
+  let clean = rawText.trim();
+  // Strip outer markdown code blocks if present
+  if (clean.startsWith('```json')) clean = clean.slice(7);
+  else if (clean.startsWith('```')) clean = clean.slice(3);
+  if (clean.endsWith('```')) clean = clean.slice(0, -3);
+  clean = clean.trim();
+
+  const looksLikeJson = clean.startsWith('{') && (
+    clean.includes('"spoken"') ||
+    clean.includes('"spokenResponse"') ||
+    clean.includes('"visualResponse"') ||
+    clean.includes('"content"') ||
+    clean.includes('"type"') ||
+    clean.includes('"responseMode"')
+  );
+
+  if (!looksLikeJson && !clean.startsWith('{')) {
+    return null;
+  }
+
+  // Attempt 1: Native JSON.parse
+  try {
+    const parsed = JSON.parse(clean);
+    if (parsed && typeof parsed === 'object') {
+      return unwrapNestedJson(parsed);
+    }
+  } catch (_) {}
+
+  // Attempt 2: Repair unescaped newlines/tabs inside string literals
+  try {
+    const repaired = clean.replace(/:\s*"([\s\S]*?)"(?=\s*[,}])/g, (_match, p1) => {
+      const escaped = p1
+        .replace(/\\/g, '\\\\')
+        .replace(/"/g, '\\"')
+        .replace(/\n/g, '\\n')
+        .replace(/\r/g, '\\r')
+        .replace(/\t/g, '\\t');
+      return `: "${escaped}"`;
+    });
+    const parsed = JSON.parse(repaired);
+    if (parsed && typeof parsed === 'object') {
+      return unwrapNestedJson(parsed);
+    }
+  } catch (_) {}
+
+  // Attempt 3: Robust Regex Field Extraction
+  const result = {};
+
+  // Extract responseMode
+  const modeMatch = clean.match(/"responseMode"\s*:\s*"([A-Za-z]+)"/i);
+  if (modeMatch) result.responseMode = modeMatch[1].toUpperCase();
+
+  // Extract type
+  const typeMatch = clean.match(/"type"\s*:\s*"([A-Za-z]+)"/i);
+  if (typeMatch) result.type = typeMatch[1].toLowerCase();
+
+  // Extract language
+  const langMatch = clean.match(/"language"\s*:\s*"([A-Za-z0-9_+-]+)"/i);
+  if (langMatch) result.language = langMatch[1].toLowerCase();
+
+  // Extract title
+  const titleMatch = clean.match(/"title"\s*:\s*"([^"\r\n]+)"/i);
+  if (titleMatch) result.title = titleMatch[1];
+
+  // Extract spoken / spokenResponse
+  const spokenMatch = clean.match(/"(?:spokenResponse|spoken)"\s*:\s*"((?:[^"\\]|\\.)*)"/i);
+  if (spokenMatch) {
+    result.spoken = spokenMatch[1].replace(/\\"/g, '"').replace(/\\n/g, ' ');
+    result.spokenResponse = result.spoken;
+  }
+
+  // Extract content: find where "content": " begins and find the last matching quote before closing brace
+  const contentStartMatch = clean.match(/"content"\s*:\s*"/);
+  if (contentStartMatch) {
+    const startIndex = contentStartMatch.index + contentStartMatch[0].length;
+    const lastBrace = clean.lastIndexOf('}');
+    const endSearchIndex = lastBrace !== -1 ? lastBrace : clean.length;
+    const lastQuote = clean.lastIndexOf('"', endSearchIndex - 1);
+    if (lastQuote > startIndex) {
+      let content = clean.slice(startIndex, lastQuote);
+      content = content
+        .replace(/\\n/g, '\n')
+        .replace(/\\r/g, '\r')
+        .replace(/\\t/g, '\t')
+        .replace(/\\"/g, '"')
+        .replace(/\\\\/g, '\\');
+      result.content = content;
+    }
+  }
+
+  if (result.content || result.spoken || result.type || result.responseMode) {
+    return unwrapNestedJson(result);
+  }
+
+  return null;
+}
+
+/**
  * Validates, corrects, and enforces the structured response contract:
  * {
  *   responseMode: 'VOICE' | 'TEXT' | 'HYBRID',
@@ -205,18 +370,31 @@ export function deterministicClassify(userText, history = []) {
  *   visualResponse: { type, language, title, content }
  * }
  *
- * Ensures model hallucinations or misclassifications are deterministically corrected
- * before reaching the Rime TTS synthesizer or client workspace.
+ * Ensures model hallucinations, unescaped raw JSON, or misclassifications
+ * are deterministically normalized and corrected before reaching Rime TTS or the workspace.
  */
 export function validateAndEnforceContract(rawObj, userText = '', history = [], userOverride = null) {
   const fallbackMode = deterministicClassify(userText, history);
 
-  // 1. Basic parsing safety
+  // 1. Basic parsing safety & string unwrapping
   let obj = rawObj;
-  if (!obj || typeof obj !== 'object') {
+  if (typeof rawObj === 'string') {
+    const extracted = safeParseOrExtract(rawObj);
+    if (extracted) {
+      obj = extracted;
+    } else {
+      obj = {
+        responseMode: fallbackMode,
+        spokenResponse: rawObj,
+        visualResponse: null,
+      };
+    }
+  } else if (obj && typeof obj === 'object') {
+    obj = unwrapNestedJson(obj);
+  } else {
     obj = {
       responseMode: fallbackMode,
-      spokenResponse: typeof rawObj === 'string' ? rawObj : '',
+      spokenResponse: '',
       visualResponse: null,
     };
   }
@@ -233,7 +411,7 @@ export function validateAndEnforceContract(rawObj, userText = '', history = [], 
   }
 
   // 3. Extract spoken response
-  let spoken = String(obj.spokenResponse || obj.spoken || obj.content || '').trim();
+  let spoken = String(obj.spokenResponse || obj.spoken || '').trim();
 
   // 4. Extract visual response
   let visual = obj.visualResponse;
@@ -247,12 +425,45 @@ export function validateAndEnforceContract(rawObj, userText = '', history = [], 
   }
 
   // Normalize visual fields
-  const visualContent = visual.content != null ? String(visual.content).trim() : '';
-  const visualType = ['text', 'code', 'table', 'markdown', 'task'].includes(visual.type)
+  let visualContent = visual.content != null ? String(visual.content).trim() : '';
+
+  // Safeguard: Check if visualContent itself is stringified JSON!
+  if (visualContent.startsWith('{') && (
+    visualContent.includes('"spoken"') ||
+    visualContent.includes('"content"') ||
+    visualContent.includes('"type"') ||
+    visualContent.includes('"visualResponse"')
+  )) {
+    const unnested = safeParseOrExtract(visualContent);
+    if (unnested) {
+      if (unnested.spoken && !spoken) spoken = unnested.spoken;
+      if (unnested.visualResponse?.content) visualContent = unnested.visualResponse.content;
+      else if (unnested.content) visualContent = unnested.content;
+
+      const unnestedType = unnested.visualResponse?.type || unnested.type;
+      const unnestedLang = unnested.visualResponse?.language || unnested.language;
+      const unnestedTitle = unnested.visualResponse?.title || unnested.title;
+
+      if (unnestedType) visual.type = unnestedType;
+      if (unnestedLang) visual.language = unnestedLang;
+      if (unnestedTitle) visual.title = unnestedTitle;
+    }
+  }
+
+  let visualType = ['text', 'code', 'table', 'markdown', 'task'].includes(visual.type)
     ? visual.type
     : (containsStructuredContent(visualContent) ? 'markdown' : 'text');
-  const visualLanguage = (visualType === 'code' && visual.language) ? String(visual.language).toLowerCase().trim() : null;
-  const visualTitle = visual.title ? String(visual.title).trim() : null;
+  let visualLanguage = (visualType === 'code' && visual.language) ? String(visual.language).toLowerCase().trim() : null;
+  let visualTitle = visual.title ? String(visual.title).trim() : null;
+
+  // Safeguard: If visualContent contains markdown code fences, strip them for clean code rendering
+  if (visualType === 'code' && visualContent) {
+    const fenceMatch = visualContent.match(/^```([a-zA-Z0-9_-]*)\n([\s\S]*?)```$/);
+    if (fenceMatch) {
+      if (!visualLanguage && fenceMatch[1]) visualLanguage = fenceMatch[1].toLowerCase().trim();
+      visualContent = fenceMatch[2].trim();
+    }
+  }
 
   // 5. Deterministic Safety Corrections:
   // Rule A1: If visual content is a rich artifact (code block, table, extensive list),
@@ -275,18 +486,19 @@ export function validateAndEnforceContract(rawObj, userText = '', history = [], 
     }
   }
 
-  // Rule B: If spoken response contains raw code, table pipes, or markdown syntax,
+  // Rule B: If spoken response contains raw code, table pipes, JSON braces, or markdown syntax,
   // sanitize it immediately so Rime never speaks raw syntax!
-  if (containsStructuredContent(spoken)) {
+  if (containsStructuredContent(spoken) || spoken.trim().startsWith('{')) {
     if (mode === RESPONSE_MODES.TEXT) {
-      spoken = "I've written the response in the workspace.";
+      const itemDesc = visualType === 'code' ? (visualTitle || 'code') : (visualType === 'table' ? 'comparison table' : 'response');
+      spoken = `Done. I've placed the ${itemDesc} in the workspace.`;
     } else if (mode === RESPONSE_MODES.HYBRID) {
       spoken = "I've summarized the key concept, and placed the full implementation in the workspace.";
     } else {
       // In voice mode with code syntax, move the code into visualResponse and make spoken clean
       if (!visualContent) {
-        visual.content = spoken;
-        visual.type = 'code';
+        visualContent = spoken;
+        visualType = 'code';
       }
       mode = RESPONSE_MODES.TEXT;
       spoken = "I've placed the code implementation in the workspace.";
@@ -295,17 +507,17 @@ export function validateAndEnforceContract(rawObj, userText = '', history = [], 
 
   // Rule C: In TEXT mode, Rime should receive ONLY a short acknowledgement.
   if (mode === RESPONSE_MODES.TEXT) {
-    if (!spoken || spoken.length > 120 || !spoken.toLowerCase().includes('workspace') && !spoken.toLowerCase().includes('chat')) {
-      const itemDesc = visualType === 'code' ? 'code' : (visualType === 'table' ? 'comparison table' : 'response');
-      spoken = `I've placed the ${itemDesc} in the workspace.`;
+    if (!spoken || spoken.length > 120 || (!spoken.toLowerCase().includes('workspace') && !spoken.toLowerCase().includes('chat'))) {
+      const itemDesc = visualType === 'code' ? (visualTitle || 'code implementation') : (visualType === 'table' ? 'comparison table' : 'response');
+      spoken = `Done. I've placed the ${itemDesc} in the workspace.`;
     }
   }
 
   // Rule D: In HYBRID mode, ensure both a concise spoken summary and a rich visual artifact exist.
   if (mode === RESPONSE_MODES.HYBRID) {
     if (!visualContent && spoken) {
-      visual.content = spoken;
-      visual.type = 'markdown';
+      visualContent = spoken;
+      visualType = 'markdown';
     }
     if (!spoken || spoken.length > 200) {
       spoken = "I've provided a summary, and added the full details to the workspace.";
@@ -315,8 +527,8 @@ export function validateAndEnforceContract(rawObj, userText = '', history = [], 
   // Rule E: In VOICE mode, visualResponse holds the transcript representation
   if (mode === RESPONSE_MODES.VOICE) {
     if (!visualContent && spoken) {
-      visual.content = spoken;
-      visual.type = 'text';
+      visualContent = spoken;
+      visualType = 'text';
     }
   }
 
@@ -335,6 +547,7 @@ export function validateAndEnforceContract(rawObj, userText = '', history = [], 
     responseMode: mode,
     spokenResponse: budgetedSpoken,
     visualResponse: finalVisualResponse,
+    visual: finalVisualResponse,
 
     // Backward compatibility properties for existing clients & test harnesses
     text: finalVisualResponse.content,

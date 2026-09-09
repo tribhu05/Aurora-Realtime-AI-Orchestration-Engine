@@ -9,6 +9,7 @@ import {
   validateAndEnforceContract,
   deterministicClassify,
   enforceSpokenBudget,
+  safeParseOrExtract,
 } from './response-router.js';
 
 const ENDPOINTS = {
@@ -115,71 +116,10 @@ export function parseStructuredResponse(rawText, userQuery = '', history = [], u
     }, userQuery, history, userOverride);
   }
 
-  // Attempt 1: Direct JSON parsing
-  try {
-    let clean = rawText.trim();
-    if (clean.startsWith('```json')) clean = clean.slice(7);
-    else if (clean.startsWith('```')) clean = clean.slice(3);
-    if (clean.endsWith('```')) clean = clean.slice(0, -3);
-    clean = clean.trim();
-
-    try {
-      const parsed = JSON.parse(clean);
-      if (parsed && typeof parsed === 'object') {
-        return validateAndEnforceContract(parsed, userQuery, history, userOverride);
-      }
-    } catch (_) {
-      // If direct JSON.parse fails due to unescaped newlines in code strings, try sanitizing:
-      const sanitized = clean.replace(/"content"\s*:\s*"([\s\S]*?)"\s*}/, (match, p1) => {
-        return `"content": ${JSON.stringify(p1)}}`;
-      });
-      const parsed2 = JSON.parse(sanitized);
-      if (parsed2 && typeof parsed2 === 'object') {
-        return validateAndEnforceContract(parsed2, userQuery, history, userOverride);
-      }
-    }
-  } catch (_) {
-    // Fallthrough to heuristic extraction
-  }
-
-  // Attempt 1.5: Regex extraction of structured JSON fields if JSON.parse failed
-  if (rawText.includes('"responseMode"') || rawText.includes('"spokenResponse"') || rawText.includes('"spoken"')) {
-    try {
-      const modeMatch = rawText.match(/"responseMode"\s*:\s*"([^"]+)"/i);
-      const spokenMatch = rawText.match(/"spoken(?:Response)?"\s*:\s*"((?:[^"\\]|\\.)*)"/i);
-      const typeMatch = rawText.match(/"type"\s*:\s*"([^"]+)"/i);
-      const langMatch = rawText.match(/"language"\s*:\s*"([^"]+)"/i);
-      const titleMatch = rawText.match(/"title"\s*:\s*"([^"]+)"/i);
-
-      let content = null;
-      const contentIdx = rawText.indexOf('"content"');
-      if (contentIdx !== -1) {
-        const afterContent = rawText.slice(contentIdx);
-        const colonIdx = afterContent.indexOf(':');
-        if (colonIdx !== -1) {
-          let rest = afterContent.slice(colonIdx + 1).trim();
-          if (rest.startsWith('"')) {
-            const endIdx = rest.lastIndexOf('"', rest.lastIndexOf('}') !== -1 ? rest.lastIndexOf('}') : rest.length);
-            if (endIdx > 0) {
-              content = rest.slice(1, endIdx).replace(/\\n/g, '\n').replace(/\\"/g, '"');
-            }
-          }
-        }
-      }
-
-      if (modeMatch || spokenMatch) {
-        return validateAndEnforceContract({
-          responseMode: modeMatch ? modeMatch[1] : undefined,
-          spokenResponse: spokenMatch ? spokenMatch[1].replace(/\\"/g, '"').replace(/\\n/g, ' ') : undefined,
-          visualResponse: {
-            type: typeMatch ? typeMatch[1] : undefined,
-            language: langMatch ? langMatch[1] : undefined,
-            title: titleMatch ? titleMatch[1] : undefined,
-            content: content || spokenMatch?.[1] || '',
-          },
-        }, userQuery, history, userOverride);
-      }
-    } catch (_) {}
+  // Attempt 1: Robust parser & extractor (handles standard JSON, repaired newlines/quotes, regex)
+  const parsed = safeParseOrExtract(rawText);
+  if (parsed && typeof parsed === 'object') {
+    return validateAndEnforceContract(parsed, userQuery, history, userOverride);
   }
 
   // Attempt 2: Code block detected in raw markdown
@@ -212,10 +152,18 @@ export function parseStructuredResponse(rawText, userQuery = '', history = [], u
     }, userQuery, history, userOverride);
   }
 
-  // Attempt 4: General text (ensure we never leak raw JSON into spoken channel)
+  // Attempt 4: General text — ensure we NEVER leak raw JSON strings into visual or spoken channels
   let cleanSpoken = rawText;
+  let cleanVisual = rawText;
+
   if (cleanSpoken.trim().startsWith('{')) {
     cleanSpoken = "I've placed the response in the workspace.";
+    // If it started with { but failed to parse, strip leading JSON keys and braces so raw JSON is not shown
+    cleanVisual = cleanVisual
+      .replace(/^\s*\{[\s\S]*?"content"\s*:\s*"/i, '')
+      .replace(/"\s*\}\s*$/i, '')
+      .replace(/\\n/g, '\n')
+      .replace(/\\"/g, '"');
   } else if (cleanSpoken.length > 140) {
     cleanSpoken = cleanSpoken.slice(0, 140) + '…';
   }
@@ -224,8 +172,8 @@ export function parseStructuredResponse(rawText, userQuery = '', history = [], u
     responseMode: 'VOICE',
     spokenResponse: cleanSpoken,
     visualResponse: {
-      type: rawText.includes('#') || rawText.includes('*') ? 'markdown' : 'text',
-      content: rawText,
+      type: cleanVisual.includes('#') || cleanVisual.includes('*') ? 'markdown' : 'text',
+      content: cleanVisual,
     },
   }, userQuery, history, userOverride);
 }
@@ -333,6 +281,89 @@ print("Factorial of 5 is:", factorial(5))  # 120`
           : "Recursion is a method in computer science where the solution to a problem depends on solutions to smaller instances of the same problem. A recursive function solves a base case directly, and otherwise calls itself with modified input, progressing toward the base case.",
       },
     });
+  }
+
+  // Sliding window algorithm & C++ follow-ups
+  if (has('sliding window') || (has('c++', 'cpp', 'in c++', 'in cpp') && (has('sliding') || has('window') || has('want it in c++') || has('want it in cpp')))) {
+    return finalize({
+      responseMode: 'TEXT',
+      spokenResponse: "Done. I've written the sliding window algorithm in C++ in the workspace.",
+      visualResponse: {
+        type: 'code',
+        language: 'cpp',
+        title: 'Sliding Window in C++',
+        content: `#include <iostream>
+#include <vector>
+#include <algorithm>
+
+// Maximum sum subarray of size k using sliding window technique: O(N) time, O(1) space
+int maxSubarraySum(const std::vector<int>& arr, int k) {
+    int n = arr.size();
+    if (n < k) return -1;
+
+    int windowSum = 0;
+    for (int i = 0; i < k; ++i) {
+        windowSum += arr[i];
+    }
+
+    int maxSum = windowSum;
+    for (int i = k; i < n; ++i) {
+        windowSum += arr[i] - arr[i - k];
+        maxSum = std::max(maxSum, windowSum);
+    }
+    return maxSum;
+}
+
+int main() {
+    std::vector<int> nums = {2, 1, 5, 1, 3, 2};
+    int k = 3;
+    std::cout << "Max sum of subarray of size " << k << ": " 
+              << maxSubarraySum(nums, k) << std::endl;
+    return 0;
+}`,
+      },
+    });
+  }
+
+  // Follow-up context check: "I want it in C++" or "in C++"
+  if (has('c++', 'cpp', 'in c++', 'in cpp', 'want it in c++', 'want it in cpp')) {
+    const prevHistory = (messages || []).map((m) => m.content || '').join(' ').toLowerCase();
+    if (prevHistory.includes('sliding window') || prevHistory.includes('window') || prevHistory.includes('algorithm')) {
+      return finalize({
+        responseMode: 'TEXT',
+        spokenResponse: "Done. I've written the sliding window algorithm in C++ in the workspace.",
+        visualResponse: {
+          type: 'code',
+          language: 'cpp',
+          title: 'Sliding Window in C++',
+          content: `#include <iostream>
+#include <vector>
+#include <algorithm>
+
+int maxSubarraySum(const std::vector<int>& arr, int k) {
+    int n = arr.size();
+    if (n < k) return -1;
+
+    int windowSum = 0;
+    for (int i = 0; i < k; ++i) windowSum += arr[i];
+
+    int maxSum = windowSum;
+    for (int i = k; i < n; ++i) {
+        windowSum += arr[i] - arr[i - k];
+        maxSum = std::max(maxSum, windowSum);
+    }
+    return maxSum;
+}
+
+int main() {
+    std::vector<int> nums = {2, 1, 5, 1, 3, 2};
+    int k = 3;
+    std::cout << "Max sum subarray: " << maxSubarraySum(nums, k) << std::endl;
+    return 0;
+}`,
+        },
+      });
+    }
   }
 
   if (has('reverse a string', 'reverse string') && has('c++', 'cpp')) {

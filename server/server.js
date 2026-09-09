@@ -268,21 +268,24 @@ async function handleTurn(ws, state, myGen, userText, userOverride = null) {
   state.history.push({ role: 'assistant', content: replyObj.content });
 
   // Send visual chat payload to client with modality routing metadata
+  const visualPayload = replyObj.visualResponse || {
+    type: replyObj.type || 'text',
+    language: replyObj.language || null,
+    title: replyObj.title || null,
+    content: replyObj.content,
+  };
+
   send(ws, {
     type: 'ai_text',
-    text: replyObj.content,
-    spoken: replyObj.spoken,
-    visualType: replyObj.visualType || replyObj.type || replyObj.visualResponse?.type || 'text',
-    language: replyObj.language || replyObj.visualResponse?.language || null,
-    title: replyObj.title || replyObj.visualResponse?.title || null,
+    text: visualPayload.content || replyObj.content,
+    spoken: replyObj.spokenResponse || replyObj.spoken,
+    visual: visualPayload,
+    visualType: visualPayload.type || replyObj.visualType || replyObj.type || 'text',
+    language: visualPayload.language || replyObj.language || null,
+    title: visualPayload.title || replyObj.title || null,
     responseMode: replyObj.responseMode || 'VOICE',
     spokenResponse: replyObj.spokenResponse || replyObj.spoken,
-    visualResponse: replyObj.visualResponse || {
-      type: replyObj.type || 'text',
-      language: replyObj.language || null,
-      title: replyObj.title || null,
-      content: replyObj.content,
-    },
+    visualResponse: visualPayload,
     generation: myGen,
     llmMs,
     timestamp: Date.now(),
@@ -293,8 +296,10 @@ async function handleTurn(ws, state, myGen, userText, userOverride = null) {
   }
   if (isStale(state, myGen)) return;
 
-  // Synthesize speech ONLY from the spoken channel!
-  const spokenText = replyObj.spokenResponse || replyObj.spoken || replyObj.content;
+  // Synthesize speech ONLY from the spoken channel (NEVER raw code or JSON)
+  const spokenText = replyObj.spokenResponse || replyObj.spoken || (
+    visualPayload.type === 'code' ? "I've written the code in the workspace." : "I've placed the response in the workspace."
+  );
   const t1 = Date.now();
   let audioBuffer = null;
   try {

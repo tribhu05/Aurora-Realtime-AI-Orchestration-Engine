@@ -320,24 +320,25 @@
       }
 
       case 'ai_text': {
-        const spokenText = msg.spoken || msg.text;
-        captionAi.textContent = `“${spokenText}”`;
-
-        if (msg.llmMs != null) {
-          dbgLatency.textContent = `${msg.llmMs}ms to think`;
-        }
-        addMessageCard('assistant', msg.text, msg.generation, {
+        const normalized = normalizeAssistantPayload(msg.text, {
           speaker: currentActiveSpeaker,
           model: currentActiveModel,
           llmMs: msg.llmMs,
           spoken: msg.spoken,
-          visualType: msg.visualType,
+          visualType: msg.visualType || msg.type,
           language: msg.language,
           title: msg.title,
           responseMode: msg.responseMode,
           spokenResponse: msg.spokenResponse,
-          visualResponse: msg.visualResponse,
+          visualResponse: msg.visualResponse || msg.visual,
         });
+
+        captionAi.textContent = `“${normalized.spoken}”`;
+
+        if (msg.llmMs != null) {
+          dbgLatency.textContent = `${msg.llmMs}ms to think`;
+        }
+        addMessageCard('assistant', normalized.text, msg.generation, normalized.meta);
         break;
       }
 
@@ -521,7 +522,12 @@
           dbgLatency.textContent = `${msg.totalMs}ms TTFA`;
           hudTtfa.textContent = `${msg.totalMs} ms`;
         }
-        speakWithBrowser(msg.text);
+        let speakText = msg.text || '';
+        if (speakText.trim().startsWith('{') || speakText.includes('"spoken"')) {
+          const norm = normalizeAssistantPayload(speakText, {});
+          speakText = norm.spoken;
+        }
+        speakWithBrowser(speakText);
         break;
       }
 
@@ -672,6 +678,169 @@
     });
   }
 
+  // ---------- Assistant Message Normalization Safeguard ----------
+  // Ensures structured responses, stringified JSON strings, or malformed payloads
+  // are never displayed raw in the UI or read aloud by voice synthesis.
+  function normalizeAssistantPayload(rawText, rawMeta = {}) {
+    let text = typeof rawText === 'string' ? rawText : '';
+    let meta = { ...rawMeta };
+
+    function tryParseJson(str) {
+      if (!str || typeof str !== 'string') return null;
+      let s = str.trim();
+      if (s.startsWith('```json')) s = s.slice(7);
+      else if (s.startsWith('```')) s = s.slice(3);
+      if (s.endsWith('```')) s = s.slice(0, -3);
+      s = s.trim();
+      if (!s.startsWith('{')) return null;
+
+      try {
+        const obj = JSON.parse(s);
+        if (obj && typeof obj === 'object') return obj;
+      } catch (_) {}
+
+      try {
+        const repaired = s.replace(/:\s*"([\s\S]*?)"(?=\s*[,}])/g, (_match, p1) => {
+          const escaped = p1
+            .replace(/\\/g, '\\\\')
+            .replace(/"/g, '\\"')
+            .replace(/\n/g, '\\n')
+            .replace(/\r/g, '\\r')
+            .replace(/\t/g, '\\t');
+          return `: "${escaped}"`;
+        });
+        const parsed = JSON.parse(repaired);
+        if (parsed && typeof parsed === 'object') return parsed;
+      } catch (_) {}
+
+      // Regex fallback extraction
+      if (s.includes('"spoken"') || s.includes('"spokenResponse"') || s.includes('"content"') || s.includes('"type"')) {
+        const extracted = {};
+        const mode = s.match(/"responseMode"\s*:\s*"([A-Za-z]+)"/i);
+        if (mode) extracted.responseMode = mode[1].toUpperCase();
+
+        const spk = s.match(/"(?:spokenResponse|spoken)"\s*:\s*"((?:[^"\\]|\\.)*)"/i);
+        if (spk) extracted.spoken = spk[1].replace(/\\"/g, '"').replace(/\\n/g, ' ');
+
+        const typ = s.match(/"type"\s*:\s*"([A-Za-z]+)"/i);
+        if (typ) extracted.type = typ[1].toLowerCase();
+
+        const lng = s.match(/"language"\s*:\s*"([A-Za-z0-9_+-]+)"/i);
+        if (lng) extracted.language = lng[1].toLowerCase();
+
+        const ttl = s.match(/"title"\s*:\s*"([^"\r\n]+)"/i);
+        if (ttl) extracted.title = ttl[1];
+
+        const contentMatch = s.match(/"content"\s*:\s*"/);
+        if (contentMatch) {
+          const startIndex = contentMatch.index + contentMatch[0].length;
+          const lastBrace = s.lastIndexOf('}');
+          const endSearch = lastBrace !== -1 ? lastBrace : s.length;
+          const lastQuote = s.lastIndexOf('"', endSearch - 1);
+          if (lastQuote > startIndex) {
+            extracted.content = s.slice(startIndex, lastQuote)
+              .replace(/\\n/g, '\n')
+              .replace(/\\r/g, '\r')
+              .replace(/\\t/g, '\t')
+              .replace(/\\"/g, '"')
+              .replace(/\\\\/g, '\\');
+          }
+        }
+        if (extracted.content || extracted.spoken || extracted.type) return extracted;
+      }
+      return null;
+    }
+
+    // 1. Check if rawText itself is stringified JSON
+    const parsedText = tryParseJson(text);
+    if (parsedText) {
+      if (parsedText.spoken && !meta.spoken) meta.spoken = parsedText.spoken;
+      if (parsedText.spokenResponse && !meta.spokenResponse) meta.spokenResponse = parsedText.spokenResponse;
+      if (parsedText.responseMode && !meta.responseMode) meta.responseMode = parsedText.responseMode;
+      if (parsedText.type && !meta.visualType) meta.visualType = parsedText.type;
+      if (parsedText.language && !meta.language) meta.language = parsedText.language;
+      if (parsedText.title && !meta.title) meta.title = parsedText.title;
+
+      if (parsedText.visualResponse && typeof parsedText.visualResponse === 'object') {
+        const vr = parsedText.visualResponse;
+        if (vr.type) meta.visualType = vr.type;
+        if (vr.language) meta.language = vr.language;
+        if (vr.title) meta.title = vr.title;
+        text = vr.content != null ? vr.content : text;
+      } else if (parsedText.content != null) {
+        text = parsedText.content;
+      }
+    }
+
+    // 2. Check meta.visualResponse
+    if (meta.visualResponse && typeof meta.visualResponse === 'object') {
+      if (meta.visualResponse.type) meta.visualType = meta.visualResponse.type;
+      if (meta.visualResponse.language) meta.language = meta.visualResponse.language;
+      if (meta.visualResponse.title) meta.title = meta.visualResponse.title;
+      if (meta.visualResponse.content && (!text || text === rawText || text.startsWith('{'))) {
+        text = meta.visualResponse.content;
+      }
+    }
+
+    // 3. Second pass: is text still serialized JSON?
+    if (typeof text === 'string' && text.trim().startsWith('{')) {
+      const nested = tryParseJson(text);
+      if (nested) {
+        if (nested.spoken && !meta.spoken) meta.spoken = nested.spoken;
+        if (nested.type) meta.visualType = nested.type;
+        if (nested.language) meta.language = nested.language;
+        if (nested.title) meta.title = nested.title;
+        if (nested.visualResponse?.content) text = nested.visualResponse.content;
+        else if (nested.content) text = nested.content;
+      }
+    }
+
+    // 4. Format detection & normalization
+    let visualType = meta.visualType || meta.type || 'text';
+    if (visualType === 'text') {
+      if (/(?:^|\b)(?:#include\s*<|def\s+\w+\s*\(|function\s+\w+\s*\(|const\s+\w+\s*=|class\s+\w+|std::|int\s+main\s*\()/m.test(text) ||
+          /^```[a-zA-Z0-9_-]*\n[\s\S]*?```$/m.test(text.trim())) {
+        visualType = 'code';
+        if (!meta.language) {
+          if (text.includes('#include') || text.includes('std::') || text.includes('cout')) meta.language = 'cpp';
+          else if (text.includes('def ') || text.includes('import numpy')) meta.language = 'python';
+          else if (text.includes('function ') || text.includes('console.log')) meta.language = 'javascript';
+        }
+      } else if (/\|[^\n]+\|\n\|[-:\s|]+\|/m.test(text)) {
+        visualType = 'table';
+      } else if (/^#{1,4}\s+|^\s*[-*]\s+/m.test(text)) {
+        visualType = 'markdown';
+      }
+    }
+
+    // 5. Strip code fences if visualType is code
+    if (visualType === 'code' && typeof text === 'string') {
+      const fenceMatch = text.match(/^```([a-zA-Z0-9_-]*)\n([\s\S]*?)```$/);
+      if (fenceMatch) {
+        if (!meta.language && fenceMatch[1]) meta.language = fenceMatch[1].toLowerCase().trim();
+        text = fenceMatch[2].trim();
+      }
+    }
+
+    // 6. Ensure clean spoken response
+    let spoken = meta.spokenResponse || meta.spoken || '';
+    if (!spoken || spoken.trim().startsWith('{') || spoken.includes('"spoken"')) {
+      if (visualType === 'code') {
+        spoken = meta.title ? `Done. I've placed ${meta.title} in the workspace.` : "Done. I've placed the code implementation in the workspace.";
+      } else if (visualType === 'table') {
+        spoken = "Here is the comparison table in the workspace.";
+      } else {
+        spoken = "I've placed the response in the workspace.";
+      }
+    }
+
+    meta.visualType = visualType;
+    meta.spoken = spoken;
+    meta.spokenResponse = spoken;
+
+    return { text, meta, spoken, visualType };
+  }
+
   // ---------- Message Cards (Conversation & Timeline) ----------
   function addMessageCard(role, text, gen, meta = {}) {
     const row = document.createElement('div');
@@ -679,27 +848,30 @@
     row.dataset.gen = gen || '';
 
     if (role === 'assistant') {
-      const visualType = meta.visualType || 'text';
+      const norm = normalizeAssistantPayload(text, meta);
+      const cleanText = norm.text;
+      const cleanMeta = norm.meta;
+      const visualType = cleanMeta.visualType || 'text';
       let contentHtml = '';
 
       if (visualType === 'code' && window.AuroraHighlighter) {
         row.classList.add('has-rich-content');
         contentHtml = window.AuroraHighlighter.renderCodeBlock({
-          code: text,
-          language: meta.language,
-          title: meta.title,
+          code: cleanText,
+          language: cleanMeta.language || 'cpp',
+          title: cleanMeta.title || 'Code Implementation',
         });
       } else if (visualType === 'table' && window.AuroraMarkdown) {
         row.classList.add('has-rich-content');
-        contentHtml = window.AuroraMarkdown.render(text);
+        contentHtml = window.AuroraMarkdown.render(cleanText);
       } else if (visualType === 'markdown' && window.AuroraMarkdown) {
         row.classList.add('has-rich-content');
-        contentHtml = window.AuroraMarkdown.render(text);
+        contentHtml = window.AuroraMarkdown.render(cleanText);
       } else {
-        contentHtml = `<div class="bubble-text">${escapeHtml(text)}</div>`;
+        contentHtml = `<div class="bubble-text">${escapeHtml(cleanText)}</div>`;
       }
 
-      const rawMode = String(meta.responseMode || (visualType === 'text' ? 'VOICE' : 'TEXT')).toUpperCase();
+      const rawMode = String(cleanMeta.responseMode || (visualType === 'text' ? 'VOICE' : 'TEXT')).toUpperCase();
       let modeLabel = 'Speaking';
       let modeClass = 'modality-voice';
       if (rawMode === 'TEXT') {
@@ -720,7 +892,7 @@
           ${contentHtml}
           <div class="bubble-meta">
             <span class="modality-pill ${modeClass}">● ${modeLabel}</span>
-            <span>Gen #${gen || currentGen} · Rime (${meta.speaker || currentActiveSpeaker})</span>
+            <span>Gen #${gen || currentGen} · Rime (${cleanMeta.speaker || currentActiveSpeaker})</span>
             <button class="replay-btn" data-gen="${gen || currentGen}">▶ Replay</button>
           </div>
         </div>
@@ -735,11 +907,15 @@
         const targetGen = Number(replayBtn.dataset.gen);
         const played = await player.replayGeneration(targetGen);
         if (!played) {
-          speakWithBrowser(meta.spoken || text);
+          speakWithBrowser(cleanMeta.spoken || cleanText);
         }
       });
+
+      // Record clean message in transcript (NOT raw JSON)
+      transcript.push({ role, text: cleanText, time: new Date(), generation: gen });
     } else {
       row.innerHTML = `<div class="bubble">${escapeHtml(text)}</div>`;
+      transcript.push({ role, text, time: new Date(), generation: gen });
     }
 
     chatArea.appendChild(row);
@@ -758,8 +934,6 @@
       }
     }
 
-
-    transcript.push({ role, text, time: new Date(), generation: gen });
     updateWorkspaceState();
     renderHistory();
   }
