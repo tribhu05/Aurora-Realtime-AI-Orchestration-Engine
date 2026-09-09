@@ -325,13 +325,19 @@
       const saved = localStorage.getItem('aurora-backend-url');
       if (saved && saved.trim()) {
         let clean = saved.trim().replace(/\/+$/, '');
-        if (!/^https?:\/\//i.test(clean) && !/^wss?:\/\//i.test(clean)) {
-          const scheme = window.location.protocol === 'https:' ? 'https://' : 'http://';
-          clean = scheme + clean;
+        if (clean.includes('aurora-interruptible-voice-agent.onrender.com')) {
+          try {
+            localStorage.removeItem('aurora-backend-url');
+          } catch (_) {}
         } else {
-          clean = clean.replace(/^wss:\/\//i, 'https://').replace(/^ws:\/\//i, 'http://');
+          if (!/^https?:\/\//i.test(clean) && !/^wss?:\/\//i.test(clean)) {
+            const scheme = window.location.protocol === 'https:' ? 'https://' : 'http://';
+            clean = scheme + clean;
+          } else {
+            clean = clean.replace(/^wss:\/\//i, 'https://').replace(/^ws:\/\//i, 'http://');
+          }
+          return clean;
         }
-        return clean;
       }
     } catch (_) {}
 
@@ -339,7 +345,8 @@
     const isLocalhost =
       window.location.hostname === 'localhost' ||
       window.location.hostname === '127.0.0.1' ||
-      window.location.hostname === '[::1]';
+      window.location.hostname === '[::1]' ||
+      window.location.protocol === 'file:';
 
     if (isLocalhost) {
       const devUrl =
@@ -352,7 +359,12 @@
     const configuredProd =
       window.AURORA_BACKEND_URL ||
       (window.AURORA_CONFIG && window.AURORA_CONFIG.productionBackendUrl);
-    if (configuredProd && typeof configuredProd === 'string' && configuredProd.trim()) {
+    if (
+      configuredProd &&
+      typeof configuredProd === 'string' &&
+      configuredProd.trim() &&
+      !configuredProd.includes('aurora-interruptible-voice-agent.onrender.com')
+    ) {
       return configuredProd.trim().replace(/\/+$/, '');
     }
 
@@ -974,6 +986,29 @@
         }
       }
 
+      // If remote backend returned 404 or server error (e.g. missing route on external server), fallback to same-origin /api/turn
+      if (
+        targetTurnUrl !== '/api/turn' &&
+        (!res || (!res.ok && (res.status === 404 || res.status >= 500)))
+      ) {
+        log(
+          `Remote backend returned ${res ? res.status : 'error'} (${targetTurnUrl}), retrying same-origin /api/turn`
+        );
+        targetTurnUrl = '/api/turn';
+        res = await fetch(targetTurnUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            text: cleanText,
+            mode,
+            history,
+            speaker: currentActiveSpeaker,
+            modelId: currentActiveModel,
+          }),
+          signal: abortCtrl.signal,
+        });
+      }
+
       if (myGen < currentGen) {
         stalePacketsDiscarded += 1;
         hudDiscard.textContent = `100% (${stalePacketsDiscarded} stale prevented)`;
@@ -1592,9 +1627,14 @@
       let res;
       try {
         res = await fetchWithTimeout(apiUrl('/api/voices'), {}, 3500);
-      } catch (_) {
-        res = await fetchWithTimeout('/api/voices', {}, 3000);
+      } catch (_) {}
+
+      if ((!res || !res.ok) && apiUrl('/api/voices') !== '/api/voices') {
+        try {
+          res = await fetchWithTimeout('/api/voices', {}, 3000);
+        } catch (_) {}
       }
+
       if (res && res.ok) {
         const data = await res.json();
         const spks = data.speakers && data.speakers.length > 0 ? data.speakers : DEFAULT_SPEAKERS;

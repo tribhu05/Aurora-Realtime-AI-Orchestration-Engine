@@ -14,8 +14,8 @@
 
 window.AURORA_CONFIG = Object.assign(
   {
-    // Persistent production backend web service (configured in render.yaml)
-    productionBackendUrl: 'https://aurora-interruptible-voice-agent.onrender.com',
+    // Persistent production backend web service (leave empty to use same-origin serverless backend by default)
+    productionBackendUrl: '',
     // Local development backend host
     developmentBackendUrl: 'http://localhost:3000',
   },

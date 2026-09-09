@@ -104,15 +104,15 @@ export function createAuroraServer(options = {}) {
       req.headers['x-forwarded-uri'] ||
       req.headers['x-original-url'];
 
-    if (
-      matchedPath &&
-      (req.url.includes('index.js') || req.url === '/api' || req.url === '/api/index')
-    ) {
+    if (matchedPath && !matchedPath.includes('index.js') && matchedPath.startsWith('/')) {
       req.url = matchedPath;
-    } else if (req.url.startsWith('/api/index.js') || req.url.startsWith('/index.js')) {
-      const match = req.url.match(/[?&](?:path|1)=([^&]+)/);
+    } else {
+      const match = (req.url || '').match(/[?&](?:path|1)=([^&]+)/);
       if (match) {
-        req.url = `/api/${decodeURIComponent(match[1])}`;
+        const sub = decodeURIComponent(match[1]).replace(/^\/+/, '');
+        req.url = `/api/${sub}`;
+      } else if (matchedPath && matchedPath.startsWith('/')) {
+        req.url = matchedPath;
       }
     }
     next();

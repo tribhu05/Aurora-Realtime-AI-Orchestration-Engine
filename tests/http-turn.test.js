@@ -182,6 +182,26 @@ test('HTTP API - Vercel Serverless rewrite normalization with query param fallba
   assert.strictEqual(res.status, 200);
   const data = await res.json();
   assert.strictEqual(data.ok, true);
+
+  // Test /api?1=turn format
+  const res2 = await fetch(`${baseUrl}/api?1=turn`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: 'Testing /api?1=turn format' }),
+  });
+  assert.strictEqual(res2.status, 200);
+  const data2 = await res2.json();
+  assert.strictEqual(data2.ok, true);
+});
+
+test('HTTP API - Dedicated serverless entrypoints api/turn.js, api/config.js, api/voices.js', async () => {
+  const { default: turnHandler } = await import('../api/turn.js');
+  const { default: configHandler } = await import('../api/config.js');
+  const { default: voicesHandler } = await import('../api/voices.js');
+
+  assert.strictEqual(typeof turnHandler, 'function');
+  assert.strictEqual(typeof configHandler, 'function');
+  assert.strictEqual(typeof voicesHandler, 'function');
 });
 
 test('HTTP API - CORS headers allow Vercel origins with credentials', async () => {
