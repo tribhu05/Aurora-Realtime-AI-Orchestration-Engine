@@ -1,4 +1,4 @@
-# Aurora ✨ — Voice-First AI Workspace
+# Aurora — Voice-First AI Workspace
 
 <div align="center">
 
@@ -216,23 +216,6 @@ All client-server communication occurs over a single full-duplex WebSocket conne
 - `{ type: 'interrupted', oldGeneration: number, newGeneration: number }`: Interruption confirmation.
 
 ---
-
-## ☁️ Deployment
-
-### Render / Railway (One-Click)
-1. Push this repository to GitHub.
-2. Link your repository in Render or Railway.
-3. Configure Environment Variables in the service settings:
-   - `RIME_API_KEY`: Your Rime API key.
-   - `LLM_API_KEY`: Your Gemini or Groq API key.
-   - `LLM_PROVIDER`: `gemini` (or `groq`).
-4. Aurora will auto-detect `npm start` and run on port `3000`.
-
-### Docker
-```bash
-docker build -t aurora .
-docker run -p 3000:3000 --env-file .env aurora
-```
 
 ---
 
