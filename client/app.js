@@ -348,8 +348,8 @@
   initHttpConfig();
 
   function setConnStatus(online, label = null) {
-    connText.textContent = label || (online ? 'Online' : 'Offline');
-    connDot.className = 'dot ' + (online ? 'dot-on' : 'dot-off');
+    if (connText) connText.textContent = label || (online ? 'Online' : 'Offline');
+    if (connDot) connDot.className = 'dot ' + (online ? 'dot-on' : 'dot-off');
   }
 
   function applyServerConfig(msg) {
