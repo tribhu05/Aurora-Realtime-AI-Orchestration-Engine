@@ -53,6 +53,16 @@ body {
   overflow: hidden;
 }
 
+/* Ambient 3D Cosmic Starfield Canvas */
+.bg-3d-canvas {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 0;
+}
+
 .noise {
   position: fixed;
   inset: 0;
@@ -701,6 +711,91 @@ h1#title {
   background: rgba(20, 48, 86, 0.6);
   color: #f0f5ff;
   font-weight: 600;
+}
+
+/* Interactive 3D Assistant Card */
+.aurora-3d-card {
+  width: 100%;
+  margin: 14px 0;
+  background: rgba(4, 12, 26, 0.85);
+  border: 1px solid rgba(88, 191, 255, 0.25);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+}
+
+.aurora-3d-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: rgba(12, 28, 54, 0.7);
+  border-bottom: 1px solid rgba(126, 180, 255, 0.12);
+}
+
+.aurora-3d-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #f1f5f9;
+}
+
+.aurora-3d-controls {
+  display: flex;
+  gap: 6px;
+}
+
+.btn-3d-ctrl {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #cbd5e1;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-3d-ctrl:hover {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
+
+.btn-3d-ctrl.active {
+  background: #2563eb;
+  color: #fff;
+  border-color: #3b82f6;
+}
+
+.aurora-3d-stage {
+  position: relative;
+  width: 100%;
+  height: 260px;
+  background: radial-gradient(circle at 50% 50%, rgba(14, 38, 76, 0.4), transparent 75%);
+  cursor: grab;
+}
+
+.aurora-3d-stage:active {
+  cursor: grabbing;
+}
+
+.canvas-3d-viewport {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.stage-hint {
+  position: absolute;
+  bottom: 8px;
+  right: 12px;
+  font-size: 10.5px;
+  color: rgba(147, 197, 253, 0.6);
+  pointer-events: none;
 }
 
 /* Task Scaffolding Card */
