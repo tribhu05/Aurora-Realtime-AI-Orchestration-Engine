@@ -90,7 +90,10 @@ export async function getAssistantReply({ provider, apiKey, model, messages, sig
 
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    console.warn(`[LLM warning] Provider returned HTTP ${res.status}. Falling back to local offline reply. (${body.slice(0, 80)})`);
+    const safeBody = body
+      .replace(/(Bearer\s+)[a-zA-Z0-9_\-\.]+([a-zA-Z0-9]{4})/gi, '$1***REDACTED***$2')
+      .replace(/(key=)[a-zA-Z0-9_\-\.]+([a-zA-Z0-9]{4})/gi, '$1***REDACTED***$2');
+    console.warn(`[LLM warning] Provider returned HTTP ${res.status}. Falling back to local offline reply. (${safeBody.slice(0, 80)})`);
     return localFallbackReply(messages, userOverride);
   }
 

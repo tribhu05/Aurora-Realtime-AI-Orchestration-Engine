@@ -21,6 +21,18 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const PORT = process.env.PORT || 3000;
 
+/**
+ * Sanitizes errors to prevent accidental leakage of auth keys or bearer tokens in logs.
+ */
+export function sanitizeError(err) {
+  if (!err) return '';
+  const str = typeof err === 'string' ? err : (err.message || String(err));
+  return str
+    .replace(/(Bearer\s+)[a-zA-Z0-9_\-\.]+([a-zA-Z0-9]{4})/gi, '$1***REDACTED***$2')
+    .replace(/(key=)[a-zA-Z0-9_\-\.]+([a-zA-Z0-9]{4})/gi, '$1***REDACTED***$2')
+    .replace(/(api[_-]?key["':\s=]+)[a-zA-Z0-9_\-\.]+([a-zA-Z0-9]{4})/gi, '$1***REDACTED***$2');
+}
+
 // Treat obvious template placeholders ("your_..._key_here") as unset so the
 // app cleanly falls back to offline demo mode instead of failing API calls.
 function realKey(v) {
@@ -156,19 +168,38 @@ export function createAuroraServer(options = {}) {
     });
 
     ws.on('message', (raw) => {
+      // 1. Oversized payload defense (> 64 KB)
+      if (raw.length > 65536) {
+        send(ws, { type: 'error', message: 'Payload too large.' });
+        return;
+      }
+
+      // 2. Strict JSON parsing
       let msg;
       try {
         msg = JSON.parse(raw.toString());
       } catch {
+        send(ws, { type: 'error', message: 'Malformed JSON payload.' });
+        return;
+      }
+
+      // 3. Object & type validation
+      if (!msg || typeof msg !== 'object' || Array.isArray(msg) || typeof msg.type !== 'string') {
         return;
       }
 
       if (msg.type === 'update_config') {
         if (typeof msg.speaker === 'string' && msg.speaker.trim()) {
-          rimeConfig.speaker = msg.speaker.trim();
+          const sanitizedSpeaker = msg.speaker.trim().slice(0, 32);
+          if (/^[a-zA-Z0-9_-]+$/.test(sanitizedSpeaker)) {
+            rimeConfig.speaker = sanitizedSpeaker;
+          }
         }
         if (typeof msg.modelId === 'string' && msg.modelId.trim()) {
-          rimeConfig.modelId = msg.modelId.trim();
+          const sanitizedModel = msg.modelId.trim().slice(0, 32);
+          if (/^[a-zA-Z0-9_-]+$/.test(sanitizedModel)) {
+            rimeConfig.modelId = sanitizedModel;
+          }
         }
         send(ws, {
           type: 'config_updated',
@@ -180,7 +211,7 @@ export function createAuroraServer(options = {}) {
 
       if (msg.type === 'set_delay') {
         const ms = Number(msg.delayMs);
-        if (!isNaN(ms) && ms >= 0 && ms <= 10000) {
+        if (Number.isFinite(ms) && ms >= 0 && ms <= 10000) {
           artificialDelayMs = ms;
           send(ws, { type: 'delay_updated', delayMs: artificialDelayMs });
         }
@@ -203,33 +234,48 @@ export function createAuroraServer(options = {}) {
           newGeneration: state.generation,
           serverProcessingMs,
           serverTimestamp: Date.now(),
-          clientTimestamp: msg.timestamp || null,
+          clientTimestamp: typeof msg.timestamp === 'number' ? msg.timestamp : null,
         });
         return;
       }
 
-      if (msg.type === 'query' && typeof msg.text === 'string' && msg.text.trim()) {
-        // A fresh query always cancels whatever was in flight first.
+      if (msg.type === 'query') {
+        if (typeof msg.text !== 'string' || !msg.text.trim()) {
+          return;
+        }
+        const userText = msg.text.trim().slice(0, 4096);
+        const mode = (typeof msg.mode === 'string' && ['VOICE', 'TEXT', 'HYBRID'].includes(msg.mode.toUpperCase()))
+          ? msg.mode.toUpperCase()
+          : null;
+
+        // Synchronously abort in-flight turn and bind new controller immediately
         if (state.activeController) {
           state.activeController.abort();
           state.activeController = null;
         }
         state.generation += 1;
         const myGen = state.generation;
+        const controller = new AbortController();
+        state.activeController = controller;
+
         handleTurn({
           ws,
           state,
           myGen,
-          userText: msg.text.trim(),
-          userOverride: msg.mode,
+          controller,
+          userText,
+          userOverride: mode,
           rimeConfig,
           llmConfig,
           getDelayMs: () => artificialDelayMs,
         }).catch((err) => {
-          if (err?.name === 'AbortError') return;
-          console.error('[turn error]', err);
+          if (err?.name === 'AbortError' || err?.code === 'ABORT_ERR' || controller.signal.aborted || isStale(state, myGen)) {
+            return;
+          }
+          console.error('[turn error]', sanitizeError(err));
           send(ws, { type: 'error', generation: myGen, message: 'Something went wrong on my end.' });
         });
+        return;
       }
     });
 
@@ -271,13 +317,10 @@ export function createAuroraServer(options = {}) {
   };
 }
 
-async function handleTurn({ ws, state, myGen, userText, userOverride = null, rimeConfig, llmConfig, getDelayMs }) {
+async function handleTurn({ ws, state, myGen, controller, userText, userOverride = null, rimeConfig, llmConfig, getDelayMs }) {
   const turnStartTime = Date.now();
   send(ws, { type: 'user_text', text: userText, generation: myGen, timestamp: turnStartTime });
   state.history.push({ role: 'user', content: userText });
-
-  const controller = new AbortController();
-  state.activeController = controller;
 
   // 1. Task execution routing
   if (isTaskRequest(userText)) {
@@ -405,7 +448,11 @@ function isStale(state, myGen) {
 }
 
 function send(ws, obj) {
-  if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify(obj));
+  if (ws && ws.readyState === ws.OPEN) {
+    try {
+      ws.send(JSON.stringify(obj));
+    } catch (_) {}
+  }
 }
 
 function sleep(ms, signal) {

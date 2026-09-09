@@ -59,7 +59,10 @@ export async function synthesizeSpeech(text, config, signal) {
 
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    throw new Error(`Rime TTS error ${res.status}: ${body.slice(0, 200)}`);
+    const safeBody = body
+      .replace(/(Bearer\s+)[a-zA-Z0-9_\-\.]+([a-zA-Z0-9]{4})/gi, '$1***REDACTED***$2')
+      .replace(/(key=)[a-zA-Z0-9_\-\.]+([a-zA-Z0-9]{4})/gi, '$1***REDACTED***$2');
+    throw new Error(`Rime TTS error ${res.status}: ${safeBody.slice(0, 200)}`);
   }
 
   const arrayBuffer = await res.arrayBuffer();
