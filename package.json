@@ -14,7 +14,8 @@
     "test:workspace": "node tests/workspace-scenarios.test.js",
     "test:routing": "node tests/routing-scenarios.test.js",
     "test:barge-in": "node tests/interruption.test.js",
-    "test:all": "node --test tests/**/*.test.js"
+    "test:all": "node --test tests/**/*.test.js",
+    "benchmark": "node benchmarks/barge-in-benchmark.js"
   },
   "keywords": [
     "voice-ai",

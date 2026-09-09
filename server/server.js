@@ -188,16 +188,20 @@ export function createAuroraServer(options = {}) {
       }
 
       if (msg.type === 'interrupt') {
+        const t0 = process.hrtime.bigint();
         const ackedGen = state.generation;
         if (state.activeController) {
           state.activeController.abort();
           state.activeController = null;
         }
         state.generation += 1;
+        const serverProcessingNs = Number(process.hrtime.bigint() - t0);
+        const serverProcessingMs = Number((serverProcessingNs / 1e6).toFixed(3));
         send(ws, {
           type: 'interrupted',
           oldGeneration: ackedGen,
           newGeneration: state.generation,
+          serverProcessingMs,
           serverTimestamp: Date.now(),
           clientTimestamp: msg.timestamp || null,
         });
