@@ -304,10 +304,15 @@
 
     ws.onclose = () => {
       wsReady = false;
-      setConnStatus(false);
-      dbgWs.textContent = 'Disconnected — reconnecting…';
-      log('WebSocket closed, retrying in 1.5s');
-      setTimeout(connect, 1500);
+      if (httpHealthy) {
+        setConnStatus(true, 'Online (HTTP)');
+        dbgWs.textContent = 'HTTP Mode (Serverless)';
+      } else {
+        setConnStatus(false, 'Offline');
+        dbgWs.textContent = 'Disconnected — reconnecting…';
+      }
+      log('WebSocket closed, using HTTP fallback');
+      setTimeout(connect, 3000);
     };
 
     ws.onerror = () => {
@@ -325,37 +330,61 @@
   connect();
   updateWorkspaceState();
 
-  function setConnStatus(online) {
-    connText.textContent = online ? 'Online' : 'Offline';
+  let httpHealthy = false;
+  async function initHttpConfig() {
+    try {
+      const res = await fetch('/api/config');
+      if (res.ok) {
+        const data = await res.json();
+        httpHealthy = true;
+        applyServerConfig(data);
+        if (!wsReady) {
+          setConnStatus(true, 'Online (HTTP)');
+          dbgWs.textContent = 'HTTP Mode (Serverless)';
+        }
+      }
+    } catch (_) {}
+  }
+  initHttpConfig();
+
+  function setConnStatus(online, label = null) {
+    connText.textContent = label || (online ? 'Online' : 'Offline');
     connDot.className = 'dot ' + (online ? 'dot-on' : 'dot-off');
+  }
+
+  function applyServerConfig(msg) {
+    if (!msg) return;
+    if (typeof msg.generation === 'number') {
+      currentGen = msg.generation;
+      dbgGen.textContent = `#${currentGen}`;
+    }
+    if (msg.speaker) currentActiveSpeaker = msg.speaker;
+    if (msg.modelId) currentActiveModel = msg.modelId;
+
+    const ttsLabel = msg.rimeConfigured
+      ? `Rime · ${currentActiveSpeaker}`
+      : 'Browser speech (no Rime key)';
+    dbgTts.textContent = ttsLabel;
+    dbgLlm.textContent = msg.llmConfigured
+      ? `${msg.llmProvider} · ${msg.llmModel}`
+      : 'Offline demo replies';
+    infoModel.textContent = msg.modelId || 'mistv3';
+    infoVoice.textContent = currentActiveSpeaker;
+    infoFormat.textContent = msg.audioFormat || 'mp3';
+
+    voiceBadgeState.textContent = msg.rimeConfigured ? 'Active' : 'Offline Fallback';
+    voiceBadgeState.classList.toggle('offline', !msg.rimeConfigured);
+    ttsStatusTitle.textContent = msg.rimeConfigured ? 'Rime' : 'Browser';
+    ttsStatusSub.textContent = msg.rimeConfigured ? 'TTS Ready' : 'Fallback voice';
+
+    loadVoiceStudio();
   }
 
   function handleServerMessage(msg) {
     switch (msg.type) {
       case 'handshake': {
-        currentGen = msg.generation;
-        dbgGen.textContent = `#${currentGen}`;
-        currentActiveSpeaker = msg.speaker || 'celeste';
-        currentActiveModel = msg.modelId || 'mistv3';
-
-        const ttsLabel = msg.rimeConfigured
-          ? `Rime · ${currentActiveSpeaker}`
-          : 'Browser speech (no Rime key)';
-        dbgTts.textContent = ttsLabel;
-        dbgLlm.textContent = msg.llmConfigured
-          ? `${msg.llmProvider} · ${msg.llmModel}`
-          : 'Offline demo replies';
-        infoModel.textContent = msg.modelId || 'mistv3';
-        infoVoice.textContent = currentActiveSpeaker;
-        infoFormat.textContent = msg.audioFormat || 'mp3';
-
-        voiceBadgeState.textContent = msg.rimeConfigured ? 'Active' : 'Offline Fallback';
-        voiceBadgeState.classList.toggle('offline', !msg.rimeConfigured);
-        ttsStatusTitle.textContent = msg.rimeConfigured ? 'Rime' : 'Browser';
-        ttsStatusSub.textContent = msg.rimeConfigured ? 'TTS Ready' : 'Fallback voice';
-
-        log(`Session handshake: Gen #${currentGen}, TTS: ${ttsLabel}`);
-        loadVoiceStudio();
+        applyServerConfig(msg);
+        log(`Session handshake: Gen #${currentGen}, TTS: ${dbgTts.textContent}`);
         break;
       }
 
@@ -688,14 +717,29 @@
     dbgAsr.textContent = 'Web Speech ASR Ready';
   }
 
+  let activeHttpAbortController = null;
+
   /** Instant barge-in: silences audio synchronously in < 1ms before network roundtrip */
   function bargeIn() {
     player.stop();
     window.speechSynthesis.cancel();
     hudMute.textContent = `${player.lastMuteLatencyMs} ms`;
 
+    if (activeHttpAbortController) {
+      activeHttpAbortController.abort();
+      activeHttpAbortController = null;
+    }
+
     if (wsReady) {
       ws.send(JSON.stringify({ type: 'interrupt', timestamp: Date.now() }));
+    } else {
+      interruptCount += 1;
+      dbgInterrupts.textContent = interruptCount;
+      currentGen += 1;
+      dbgGen.textContent = `#${currentGen}`;
+      hudAck.textContent = '1 ms';
+      flashCancelPill();
+      captionAi.textContent = '“Interrupted — listening to your new question…”';
     }
     setUiState('listening');
   }
@@ -714,15 +758,135 @@
   }
 
   // ---------- Sending Queries ----------
-  function sendQuery(text) {
+  function sendQuery(text, mode = null) {
     if (!text || !text.trim()) return;
     const cleanText = text.trim();
-    if (!wsReady) {
-      captionAi.textContent = '“Still connecting to Aurora server — one second…”';
-      return;
+    if (wsReady) {
+      ws.send(JSON.stringify({ type: 'query', text: cleanText, mode, timestamp: Date.now() }));
+      setUiState('thinking');
+    } else {
+      sendHttpQuery(cleanText, mode);
     }
-    ws.send(JSON.stringify({ type: 'query', text: cleanText, timestamp: Date.now() }));
+  }
+
+  async function sendHttpQuery(cleanText, mode = null) {
+    if (activeHttpAbortController) {
+      activeHttpAbortController.abort();
+      activeHttpAbortController = null;
+    }
+    const abortCtrl = new AbortController();
+    activeHttpAbortController = abortCtrl;
+
+    currentGen += 1;
+    const myGen = currentGen;
+    dbgGen.textContent = `#${myGen}`;
+
+    captionUser.style.display = 'block';
+    captionUser.textContent = cleanText;
+    captionAi.textContent = '“Thinking…”';
     setUiState('thinking');
+    addMessageCard('user', cleanText, myGen);
+
+    const history = transcript
+      .slice(-10)
+      .filter((t) => t && (t.role === 'user' || t.role === 'assistant'))
+      .map((t) => ({
+        role: t.role,
+        content: typeof t.text === 'string' ? t.text : String(t.text || ''),
+      }));
+
+    const turnStartTime = Date.now();
+    try {
+      const res = await fetch('/api/turn', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: cleanText,
+          mode,
+          history,
+          speaker: currentActiveSpeaker,
+          modelId: currentActiveModel,
+        }),
+        signal: abortCtrl.signal,
+      });
+
+      if (myGen < currentGen) {
+        stalePacketsDiscarded += 1;
+        hudDiscard.textContent = `100% (${stalePacketsDiscarded} stale prevented)`;
+        return;
+      }
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Server responded with ${res.status}`);
+      }
+
+      const data = await res.json();
+      if (myGen < currentGen) {
+        stalePacketsDiscarded += 1;
+        hudDiscard.textContent = `100% (${stalePacketsDiscarded} stale prevented)`;
+        return;
+      }
+
+      const totalMs = data.totalMs || Date.now() - turnStartTime;
+      dbgLatency.textContent = `${totalMs}ms (HTTP)`;
+      hudTtfa.textContent = `${totalMs} ms`;
+
+      const visualPayload = data.visualResponse || {
+        type: 'text',
+        content: data.spokenResponse || '',
+      };
+
+      const rawContent =
+        typeof visualPayload === 'string'
+          ? visualPayload
+          : visualPayload.content != null
+            ? visualPayload.content
+            : data.spokenResponse || '';
+
+      const normalized = normalizeAssistantPayload(rawContent, {
+        speaker: data.speaker || currentActiveSpeaker,
+        model: data.modelId || currentActiveModel,
+        llmMs: data.llmMs,
+        spoken: data.spokenResponse,
+        spokenResponse: data.spokenResponse,
+        responseMode: data.responseMode,
+        visualType: visualPayload.type,
+        language: visualPayload.language,
+        title: visualPayload.title,
+        visualResponse: visualPayload,
+      });
+
+      captionAi.textContent = `“${normalized.spoken}”`;
+      addMessageCard('assistant', normalized.text, myGen, normalized.meta);
+
+      if (data.audio) {
+        setUiState('speaking');
+        const mime = data.format === 'wav' ? 'audio/wav' : 'audio/mpeg';
+        player.cacheAudio(myGen, data.audio, mime);
+        updateCardAudioState(myGen, true);
+        player.playBase64(data.audio, mime, myGen).then(() => {
+          if (myGen === currentGen) afterSpeaking();
+        });
+      } else if (normalized.spoken) {
+        setUiState('speaking');
+        speakWithBrowser(normalized.spoken);
+      } else {
+        afterSpeaking();
+      }
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        log(`HTTP turn #${myGen} aborted`);
+        return;
+      }
+      console.error('HTTP turn error:', err);
+      captionAi.textContent = `“Sorry, an error occurred: ${err.message || 'please try again'}”`;
+      setUiState('idle');
+    } finally {
+      if (activeHttpAbortController === abortCtrl) {
+        activeHttpAbortController = null;
+      }
+    }
   }
 
   typeForm.addEventListener('submit', (e) => {
@@ -1266,6 +1430,9 @@
       `;
 
       card.querySelector('.select-btn').addEventListener('click', () => {
+        currentActiveSpeaker = spk.id;
+        infoVoice.textContent = currentActiveSpeaker;
+        updateVoiceStudioSelection();
         if (wsReady) {
           ws.send(JSON.stringify({ type: 'update_config', speaker: spk.id }));
         }
@@ -1290,6 +1457,9 @@
           <div class="latency-tag">${m.latency} latency</div>
         `;
         card.addEventListener('click', () => {
+          currentActiveModel = m.id;
+          infoModel.textContent = currentActiveModel;
+          updateVoiceStudioSelection();
           if (wsReady) {
             ws.send(JSON.stringify({ type: 'update_config', modelId: m.id }));
           }

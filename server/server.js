@@ -102,7 +102,7 @@ export function createAuroraServer(options = {}) {
 
   app.get('/health', (_req, res) => res.json({ ok: true }));
 
-  app.get('/config', (_req, res) =>
+  app.get(['/config', '/api/config'], (_req, res) =>
     res.json({
       rimeConfigured: Boolean(rimeConfig.apiKey),
       llmConfigured: Boolean(llmConfig.apiKey),
@@ -110,6 +110,7 @@ export function createAuroraServer(options = {}) {
       modelId: rimeConfig.modelId,
       llmProvider: llmConfig.provider,
       llmModel: llmConfig.model,
+      audioFormat: rimeConfig.audioFormat,
       delayMs: artificialDelayMs,
     })
   );
@@ -122,6 +123,137 @@ export function createAuroraServer(options = {}) {
       activeModel: rimeConfig.modelId,
       rimeConfigured: Boolean(rimeConfig.apiKey),
     });
+  });
+
+  app.post(['/api/turn', '/turn'], async (req, res) => {
+    try {
+      const { text, mode, history = [], speaker, modelId } = req.body || {};
+      if (typeof text !== 'string' || !text.trim()) {
+        return res.status(400).json({ ok: false, error: 'Query text is required.' });
+      }
+
+      const userText = text.trim().slice(0, 4096);
+      const userOverride =
+        typeof mode === 'string' && ['VOICE', 'TEXT', 'HYBRID'].includes(mode.toUpperCase())
+          ? mode.toUpperCase()
+          : null;
+
+      const activeSpeaker =
+        typeof speaker === 'string' && /^[a-zA-Z0-9_-]{1,32}$/.test(speaker.trim())
+          ? speaker.trim()
+          : rimeConfig.speaker;
+
+      const activeModel =
+        typeof modelId === 'string' && /^[a-zA-Z0-9_-]{1,32}$/.test(modelId.trim())
+          ? modelId.trim()
+          : rimeConfig.modelId;
+
+      const turnStartTime = Date.now();
+      const conversationHistory = Array.isArray(history)
+        ? history.filter(
+            (h) =>
+              h &&
+              typeof h === 'object' &&
+              typeof h.role === 'string' &&
+              typeof h.content === 'string'
+          )
+        : [];
+      conversationHistory.push({ role: 'user', content: userText });
+
+      // 1. Task request check
+      if (isTaskRequest(userText)) {
+        const isTs = /\b(typescript|ts)\b/i.test(userText);
+        const isTodo = /\b(todo|todos)\b/i.test(userText);
+        const flavor = isTs ? 'TypeScript' : 'JavaScript';
+        const targetSubject = isTodo ? 'Todo App' : 'REST API';
+        const title = `Scaffold Express ${targetSubject} (${flavor})`;
+        const spoken = `Scaffolded the Express ${flavor} REST API in the workspace.`;
+        const visualContent = `// Express ${flavor} ${targetSubject} Scaffolding Completed\n// Project structure, routes, controllers, and environment configuration generated.`;
+
+        let audioBase64 = null;
+        try {
+          const buf = await synthesizeSpeech(spoken, {
+            ...rimeConfig,
+            speaker: activeSpeaker,
+            modelId: activeModel,
+          });
+          if (buf) audioBase64 = buf.toString('base64');
+        } catch (_) {}
+
+        return res.json({
+          ok: true,
+          responseMode: 'HYBRID',
+          spokenResponse: spoken,
+          visualResponse: {
+            type: 'code',
+            language: isTs ? 'typescript' : 'javascript',
+            title,
+            content: visualContent,
+          },
+          audio: audioBase64,
+          format: rimeConfig.audioFormat,
+          speaker: activeSpeaker,
+          modelId: activeModel,
+          totalMs: Date.now() - turnStartTime,
+        });
+      }
+
+      // 2. Dual-channel LLM turn
+      const t0 = Date.now();
+      const replyObj = await getAssistantReply({
+        provider: llmConfig.provider,
+        apiKey: llmConfig.apiKey,
+        model: llmConfig.model,
+        messages: conversationHistory,
+        userOverride,
+      });
+      const llmMs = Date.now() - t0;
+
+      const visualPayload = replyObj.visualResponse || {
+        type: replyObj.type || 'text',
+        language: replyObj.language || null,
+        title: replyObj.title || null,
+        content: replyObj.content,
+      };
+
+      const spokenText =
+        replyObj.spokenResponse ||
+        replyObj.spoken ||
+        (visualPayload.type === 'code'
+          ? "I've written the code in the workspace."
+          : "I've placed the response in the workspace.");
+
+      const t1 = Date.now();
+      let audioBase64 = null;
+      try {
+        const buf = await synthesizeSpeech(spokenText, {
+          ...rimeConfig,
+          speaker: activeSpeaker,
+          modelId: activeModel,
+        });
+        if (buf) {
+          audioBase64 = buf.toString('base64');
+        }
+      } catch (_) {}
+      const ttsMs = Date.now() - t1;
+
+      return res.json({
+        ok: true,
+        responseMode: replyObj.responseMode || 'VOICE',
+        spokenResponse: spokenText,
+        visualResponse: visualPayload,
+        audio: audioBase64,
+        format: rimeConfig.audioFormat,
+        speaker: activeSpeaker,
+        modelId: activeModel,
+        llmMs,
+        ttsMs,
+        totalMs: Date.now() - turnStartTime,
+      });
+    } catch (err) {
+      console.error('[turn error]', sanitizeError(err));
+      res.status(500).json({ ok: false, error: 'Internal server error processing turn.' });
+    }
   });
 
   app.post('/api/preview-tts', async (req, res) => {
