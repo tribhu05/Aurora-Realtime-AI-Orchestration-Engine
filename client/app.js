@@ -6,6 +6,15 @@
 (function () {
   const $ = (id) => document.getElementById(id);
 
+  // Robin Layout & Root Elements
+  const appRoot = $('appRoot');
+  const btnOpenSettings = $('btnOpenSettings');
+  const btnCloseSettings = $('btnCloseSettings');
+  const settingsDrawer = $('settingsDrawer');
+  const drawerBackdrop = $('drawerBackdrop');
+  const orbWrap = $('orbWrap');
+  const wave = $('wave');
+
   // Layout & Views
   const navItems = document.querySelectorAll('.nav-item');
   const views = {
@@ -182,13 +191,42 @@
     },
   ];
 
+  // ---------- Slide-Over Drawer for Voice Studio & Settings ----------
+  function openDrawer() {
+    if (settingsDrawer) settingsDrawer.classList.add('open');
+    if (drawerBackdrop) drawerBackdrop.classList.add('open');
+  }
+
+  function closeDrawer() {
+    if (settingsDrawer) settingsDrawer.classList.remove('open');
+    if (drawerBackdrop) drawerBackdrop.classList.remove('open');
+  }
+
+  if (btnOpenSettings) btnOpenSettings.addEventListener('click', openDrawer);
+  if (btnCloseSettings) btnCloseSettings.addEventListener('click', closeDrawer);
+  if (drawerBackdrop) drawerBackdrop.addEventListener('click', closeDrawer);
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      if (settingsDrawer && settingsDrawer.classList.contains('open')) {
+        closeDrawer();
+        return;
+      }
+      if (state === 'speaking' || state === 'thinking' || state === 'listening' || listeningMode) {
+        bargeIn();
+        if (listeningMode) toggleListening();
+      }
+    }
+  });
+
   // ---------- View Switching ----------
   function switchView(target) {
     navItems.forEach((b) => b.classList.toggle('active', b.dataset.view === target));
     Object.entries(views).forEach(([name, el]) => {
       if (el) el.classList.toggle('hidden', name !== target);
     });
-    if (target === 'voice') {
+    if (target === 'voice' || target === 'settings') {
+      openDrawer();
       if (!speakersGrid || speakersGrid.children.length === 0) {
         renderVoiceStudio(DEFAULT_SPEAKERS, DEFAULT_MODELS);
       }
@@ -215,6 +253,12 @@
   // ---------- Center Workspace Dynamic Transition ----------
   function updateWorkspaceState() {
     const hasMessages = transcript.length > 0;
+    if (appRoot) {
+      appRoot.classList.toggle('in-conversation', hasMessages);
+    }
+    if (chatArea) {
+      chatArea.style.display = hasMessages ? 'flex' : 'none';
+    }
     if (views.home) {
       views.home.classList.toggle('is-empty', !hasMessages);
       views.home.classList.toggle('has-conversation', hasMessages);
@@ -582,7 +626,7 @@
         if (msg.generation < currentGen) return;
 
         const taskRow = document.createElement('div');
-        taskRow.className = 'msg assistant has-rich-content';
+        taskRow.className = 'msg-row assistant msg has-rich-content';
         taskRow.dataset.gen = msg.generation;
         taskRow.dataset.taskId = msg.taskId;
 
@@ -603,29 +647,31 @@
         });
 
         taskRow.innerHTML = `
-          <div class="avatar avatar-sm" title="Aurora AI">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--cyan);">
-              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
-            </svg>
-          </div>
-          <div class="bubble">
+          <div class="msg-card-assistant bubble">
+            <div class="msg-head">
+              <div class="assistant-badge">
+                <span class="assistant-badge-dot"></span>
+                <span>AURORA</span>
+              </div>
+              <div class="assistant-meta bubble-meta">
+                <span class="modality-pill modality-hybrid">● Speaking + Workspace</span>
+                <span>Task #${msg.taskId} · Live Execution</span>
+              </div>
+            </div>
             <div class="task-card" data-task-id="${msg.taskId}" data-gen="${msg.generation}">
               <div class="task-card-header">
-                <span class="task-status-badge in_progress">⚡ Working on your task</span>
-                <span class="code-lang-badge">${msg.flavor || 'Task'}</span>
+                <div class="task-card-title">${escapeHtml(msg.title)}</div>
+                <span class="task-status-badge running">⚡ Working on your task</span>
               </div>
-              <div class="task-card-title">${escapeHtml(msg.title)}</div>
               <div class="task-steps-list">${stepsHtml}</div>
               <div class="task-footer" style="display:none"></div>
             </div>
-            <div class="bubble-meta">
-              <span class="modality-pill modality-hybrid">● Speaking + Workspace</span>
-              <span>Task #${msg.taskId} · Live Execution</span>
-            </div>
           </div>
         `;
-        chatArea.appendChild(taskRow);
-        chatArea.scrollTop = chatArea.scrollHeight;
+        if (chatArea) {
+          chatArea.appendChild(taskRow);
+          chatArea.scrollTop = chatArea.scrollHeight;
+        }
 
         if (chatAreaConv) {
           const hint = $('convEmptyHint');
@@ -653,26 +699,34 @@
           const currentStepEl = taskCard.querySelectorAll('.task-step-item')[msg.stepIndex];
           if (currentStepEl) {
             currentStepEl.className = 'task-step-item complete';
-            currentStepEl.querySelector('.step-icon').innerHTML = `
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--emerald)" stroke-width="2.5">
-                <polyline points="20 6 9 17 4 12"/>
-              </svg>
-            `;
+            const icon = currentStepEl.querySelector('.step-icon');
+            if (icon) {
+              icon.innerHTML = `
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#38ef7d" stroke-width="2.5">
+                  <polyline points="20 6 9 17 4 12"/>
+                </svg>
+              `;
+            }
             if (msg.details) {
               const detailsEl = currentStepEl.querySelector('.step-details');
-              detailsEl.style.display = 'block';
-              detailsEl.textContent = msg.details;
+              if (detailsEl) {
+                detailsEl.style.display = 'block';
+                detailsEl.textContent = msg.details;
+              }
             }
           }
           if (msg.nextStepIndex != null) {
             const nextStepEl = taskCard.querySelectorAll('.task-step-item')[msg.nextStepIndex];
             if (nextStepEl) {
               nextStepEl.className = 'task-step-item in_progress';
-              nextStepEl.querySelector('.step-icon').innerHTML = '<div class="step-spinner"></div>';
+              const nextIcon = nextStepEl.querySelector('.step-icon');
+              if (nextIcon) {
+                nextIcon.innerHTML = '<div class="step-spinner"></div>';
+              }
             }
           }
         });
-        chatArea.scrollTop = chatArea.scrollHeight;
+        if (chatArea) chatArea.scrollTop = chatArea.scrollHeight;
         if (chatAreaConv) chatAreaConv.scrollTop = chatAreaConv.scrollHeight;
         break;
       }
@@ -689,11 +743,14 @@
 
           taskCard.querySelectorAll('.task-step-item').forEach((stepEl) => {
             stepEl.className = 'task-step-item complete';
-            stepEl.querySelector('.step-icon').innerHTML = `
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--emerald)" stroke-width="2.5">
-                <polyline points="20 6 9 17 4 12"/>
-              </svg>
-            `;
+            const icon = stepEl.querySelector('.step-icon');
+            if (icon) {
+              icon.innerHTML = `
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#38ef7d" stroke-width="2.5">
+                  <polyline points="20 6 9 17 4 12"/>
+                </svg>
+              `;
+            }
           });
 
           if (msg.files && msg.files.length) {
@@ -1320,10 +1377,10 @@
   // ---------- Message Cards (Conversation & Timeline) ----------
   function addMessageCard(role, text, gen, meta = {}) {
     const row = document.createElement('div');
-    row.className = `msg ${role}`;
     row.dataset.gen = gen || '';
 
     if (role === 'assistant') {
+      row.className = 'msg-row assistant msg';
       const norm = normalizeAssistantPayload(text, meta);
       const cleanText = norm.text;
       const cleanMeta = norm.meta;
@@ -1344,7 +1401,7 @@
         row.classList.add('has-rich-content');
         contentHtml = window.AuroraMarkdown.render(cleanText);
       } else {
-        contentHtml = `<div class="bubble-text">${escapeHtml(cleanText)}</div>`;
+        contentHtml = `<p>${escapeHtml(cleanText)}</p>`;
       }
 
       const rawMode = String(
@@ -1361,17 +1418,23 @@
       }
 
       row.innerHTML = `
-        <div class="avatar avatar-sm" title="Aurora AI">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--cyan);">
-            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
-          </svg>
-        </div>
-        <div class="bubble">
-          ${contentHtml}
-          <div class="bubble-meta">
-            <span class="modality-pill ${modeClass}">● ${modeLabel}</span>
-            <span>Gen #${gen || currentGen} · Rime (${cleanMeta.speaker || currentActiveSpeaker})</span>
-            <button class="replay-btn" data-gen="${gen || currentGen}">▶ Replay</button>
+        <div class="msg-card-assistant bubble">
+          <div class="msg-head">
+            <div class="assistant-badge">
+              <span class="assistant-badge-dot"></span>
+              <span>AURORA</span>
+            </div>
+            <div class="assistant-meta bubble-meta">
+              <span class="modality-pill ${modeClass}">● ${modeLabel}</span>
+              <span>Gen #${gen || currentGen} · Rime (${cleanMeta.speaker || currentActiveSpeaker})</span>
+              <button class="replay-btn" data-gen="${gen || currentGen}">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                Replay
+              </button>
+            </div>
+          </div>
+          <div class="msg-content">
+            ${contentHtml}
           </div>
         </div>
       `;
@@ -1381,27 +1444,32 @@
       }
 
       const replayBtn = row.querySelector('.replay-btn');
-      replayBtn.addEventListener('click', async () => {
-        const targetGen = Number(replayBtn.dataset.gen);
-        const played = await player.replayGeneration(targetGen);
-        if (!played) {
-          speakWithBrowser(cleanMeta.spoken || cleanText);
-        }
-      });
+      if (replayBtn) {
+        replayBtn.addEventListener('click', async () => {
+          const targetGen = Number(replayBtn.dataset.gen);
+          const played = await player.replayGeneration(targetGen);
+          if (!played) {
+            speakWithBrowser(cleanMeta.spoken || cleanText);
+          }
+        });
+      }
 
       // Record clean message in transcript (NOT raw JSON)
       transcript.push({ role, text: cleanText, time: new Date(), generation: gen });
     } else {
-      row.innerHTML = `<div class="bubble">${escapeHtml(text)}</div>`;
+      row.className = 'msg-row user msg';
+      row.innerHTML = `<div class="msg-bubble-user bubble">${escapeHtml(text)}</div>`;
       transcript.push({ role, text, time: new Date(), generation: gen });
     }
 
-    chatArea.appendChild(row);
-    chatArea.scrollTop = chatArea.scrollHeight;
-    setTimeout(() => {
+    if (chatArea) {
+      chatArea.appendChild(row);
       chatArea.scrollTop = chatArea.scrollHeight;
-      row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    }, 60);
+      setTimeout(() => {
+        chatArea.scrollTop = chatArea.scrollHeight;
+        row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }, 60);
+    }
 
     if (chatAreaConv) {
       const hint = $('convEmptyHint');
@@ -1420,16 +1488,18 @@
 
   function markCardInterrupted(gen) {
     // 1. Mark regular assistant bubbles
-    document.querySelectorAll(`.msg.assistant[data-gen="${gen}"] .bubble`).forEach((card) => {
-      if (!card.querySelector('.badge-interrupted')) {
-        const badge = document.createElement('span');
-        badge.className = 'badge-interrupted';
-        badge.innerHTML = `⚡ Cancelled via Barge-in (${player.lastMuteLatencyMs}ms)`;
-        const meta = card.querySelector('.bubble-meta');
-        if (meta) meta.prepend(badge);
-        else card.appendChild(badge);
-      }
-    });
+    document
+      .querySelectorAll(`[data-gen="${gen}"] .msg-card-assistant, [data-gen="${gen}"] .bubble`)
+      .forEach((card) => {
+        if (!card.querySelector('.badge-interrupted')) {
+          const badge = document.createElement('span');
+          badge.className = 'badge-interrupted';
+          badge.innerHTML = `⚡ Cancelled via Barge-in (${player.lastMuteLatencyMs}ms)`;
+          const meta = card.querySelector('.assistant-meta') || card.querySelector('.bubble-meta');
+          if (meta) meta.prepend(badge);
+          else card.prepend(badge);
+        }
+      });
 
     // 2. Mark any in-flight task card
     document.querySelectorAll(`.task-card[data-gen="${gen}"]`).forEach((taskCard) => {
@@ -1454,7 +1524,7 @@
   }
 
   function updateCardAudioState(gen, hasAudio) {
-    const card = chatArea.querySelector(`.msg.assistant[data-gen="${gen}"] .replay-btn`);
+    const card = chatArea ? chatArea.querySelector(`[data-gen="${gen}"] .replay-btn`) : null;
     if (card && hasAudio) {
       card.style.display = 'inline-flex';
     }
@@ -1508,42 +1578,76 @@
   function setUiState(next) {
     state = next === 'complete' ? state : next;
     updateStepper(next);
-    orb.setState(next);
+    if (orb && typeof orb.setState === 'function') {
+      orb.setState(next);
+    }
 
-    if (next === 'listening') {
-      orbStateTag.textContent = 'Listening · Blue Wave';
-      micBtn.classList.add('active');
-      micBtn.classList.remove('thinking');
-      micStatusPill.classList.add('active-listening');
-      micStatusTitle.textContent = 'Listening…';
-      micStatusSub.textContent = 'Say something';
-      micStatusDot.className = 'dot dot-listening';
-    } else if (next === 'thinking') {
-      orbStateTag.textContent = 'Thinking · Amber Energy';
-      micBtn.classList.remove('active');
-      micBtn.classList.add('thinking');
-      micStatusPill.classList.remove('active-listening');
-      micStatusTitle.textContent = 'Thinking…';
-      micStatusSub.textContent = 'Processing your request';
-      micStatusDot.className = 'dot dot-thinking';
-    } else if (next === 'speaking') {
-      orbStateTag.textContent = 'Speaking · Green Pulse';
-      micBtn.classList.remove('active', 'thinking');
-      micStatusPill.classList.remove('active-listening');
-      micStatusTitle.textContent = 'Aurora is speaking';
-      micStatusSub.textContent = 'Jump in anytime';
-      micStatusDot.className = 'dot dot-speaking';
-    } else if (next === 'idle') {
-      orbStateTag.textContent = 'Idle · Violet Aura';
-      micBtn.classList.remove('active', 'thinking');
-      micStatusPill.classList.remove('active-listening');
-      micStatusTitle.textContent = 'Tap to Speak';
-      micStatusSub.textContent = 'Click mic or orb to start';
-      micStatusDot.className = 'dot dot-idle';
+    // Dynamic classes on Robin Orb Wrapper
+    if (orbWrap) {
+      orbWrap.classList.remove('listening', 'thinking', 'speaking');
+      if (next === 'listening' || next === 'thinking' || next === 'speaking') {
+        orbWrap.classList.add(next);
+      }
+    }
+
+    // Dynamic wave animation inside composer
+    if (wave) {
+      wave.classList.toggle('active', next === 'listening');
+    }
+
+    // Dynamic mic button state
+    if (micBtn) {
+      micBtn.classList.toggle('listening', next === 'listening');
+      micBtn.classList.toggle('thinking', next === 'thinking');
+    }
+
+    // Dynamic status pill in header
+    if (connDot) {
+      connDot.className = 'dot';
+      if (next === 'listening') connDot.classList.add('listening');
+      else if (next === 'thinking') connDot.classList.add('thinking');
+      else if (next === 'speaking') connDot.classList.add('speaking');
+      else if (!wsReady && !httpHealthy) connDot.classList.add('dot-off');
+    }
+
+    if (connText) {
+      if (next === 'listening') connText.textContent = 'Listening…';
+      else if (next === 'thinking') connText.textContent = 'Thinking…';
+      else if (next === 'speaking') connText.textContent = 'Speaking…';
+      else if (wsReady) connText.textContent = 'Online (Realtime)';
+      else if (httpHealthy) connText.textContent = 'Online (HTTP)';
+      else connText.textContent = 'Ready to help';
+    }
+
+    if (orbStateTag) {
+      if (next === 'listening') orbStateTag.textContent = 'Listening · Blue Wave';
+      else if (next === 'thinking') orbStateTag.textContent = 'Thinking · Amber Energy';
+      else if (next === 'speaking') orbStateTag.textContent = 'Speaking · Green Pulse';
+      else orbStateTag.textContent = 'Idle · Violet Aura';
+    }
+
+    if (micStatusPill) {
+      micStatusPill.classList.toggle('active-listening', next === 'listening');
+    }
+    if (micStatusTitle) {
+      if (next === 'listening') micStatusTitle.textContent = 'Listening…';
+      else if (next === 'thinking') micStatusTitle.textContent = 'Thinking…';
+      else if (next === 'speaking') micStatusTitle.textContent = 'Aurora is speaking';
+      else micStatusTitle.textContent = 'Tap to Speak';
+    }
+    if (micStatusSub) {
+      if (next === 'listening') micStatusSub.textContent = 'Say something';
+      else if (next === 'thinking') micStatusSub.textContent = 'Processing your request';
+      else if (next === 'speaking') micStatusSub.textContent = 'Jump in anytime';
+      else micStatusSub.textContent = 'Click mic or orb to start';
+    }
+    if (micStatusDot) {
+      micStatusDot.className = `dot dot-${next === 'complete' ? 'idle' : next}`;
     }
   }
 
   function updateStepper(next) {
+    if (!stepper) return;
     const key = next === 'idle' ? null : next;
     ['listening', 'thinking', 'speaking', 'complete'].forEach((stepName) => {
       const li = stepper.querySelector(`[data-step="${stepName}"]`);
@@ -1561,10 +1665,10 @@
       }
     });
     if (next === 'complete') {
-      setTimeout(
-        () => stepper.querySelector('[data-step="complete"]').classList.remove('active'),
-        1200
-      );
+      setTimeout(() => {
+        const completeLi = stepper.querySelector('[data-step="complete"]');
+        if (completeLi) completeLi.classList.remove('active');
+      }, 1200);
     }
   }
 
@@ -1615,7 +1719,11 @@
   // ---------- Controls ----------
   function toggleListening() {
     if (!mic.supported) {
-      typeInput.focus();
+      if (typeInput) typeInput.focus();
+      return;
+    }
+    if (state === 'speaking' || state === 'thinking') {
+      bargeIn();
       return;
     }
     listeningMode = !listeningMode;
@@ -1628,8 +1736,9 @@
     }
   }
 
-  micBtn.addEventListener('click', toggleListening);
-  orbCanvas.addEventListener('click', toggleListening);
+  if (micBtn) micBtn.addEventListener('click', toggleListening);
+  if (orbWrap) orbWrap.addEventListener('click', toggleListening);
+  else if (orbCanvas) orbCanvas.addEventListener('click', toggleListening);
 
   // ---------- Voice Studio Setup ----------
   async function loadVoiceStudio() {

@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Aurora — Intelligent Voice Companion</title>
+    <title>Aurora — AI Assistant</title>
     <link rel="icon" type="image/png" sizes="64x64" href="favicon.png" />
     <link rel="icon" type="image/x-icon" href="favicon.ico" />
     <link rel="apple-touch-icon" href="logo.png" />
@@ -16,20 +16,136 @@
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
-    <div class="app">
-      <!-- Mobile & Overlay Backdrop -->
-      <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+    <div class="app" id="appRoot">
+      <div class="noise"></div>
 
-      <!-- ===== Left Sliding Sidebar Navigation ===== -->
-      <aside class="sidebar" id="sidebar">
-        <div class="sidebar-top">
-          <div class="brand">
-            <img src="logo.png" alt="Aurora Logo" class="brand-icon" />
-            <div class="brand-text">
-              <h1>Aurora</h1>
-            </div>
+      <!-- Minimal Top Navigation Header -->
+      <header>
+        <div class="brand">
+          <div class="brand-mark"></div>
+          <div class="brand-title">AURORA <span>/ AI</span></div>
+        </div>
+        <div class="header-right">
+          <div class="status" id="statusPill">
+            <i class="dot" id="connDot"></i>
+            <span id="connText">Ready to help</span>
           </div>
-          <button class="btn-icon" id="btnCloseSidebar" title="Collapse Navigation Menu">
+          <button
+            class="btn-drawer-toggle"
+            id="btnOpenSettings"
+            aria-label="Open Voice Studio & Telemetry"
+            title="Voice Studio & Settings"
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <circle cx="12" cy="12" r="3"></circle>
+              <path
+                d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"
+              ></path>
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <!-- Main Assistant View Area -->
+      <main id="mainContainer">
+        <!-- Hero Orb & Greeting (Compactable on conversation start) -->
+        <div class="hero-section" id="heroSection">
+          <div class="orb-wrap" id="orbWrap">
+            <div class="orb" id="orbElement">
+              <div class="core"></div>
+            </div>
+            <!-- Interactive Canvas for High-FPS Audio Reactive Glow -->
+            <canvas id="orbCanvas" width="220" height="220" class="orb-canvas-reactive"></canvas>
+          </div>
+
+          <div class="greeting" id="greetingText">Hello, Explorer</div>
+          <h1 id="title">How can I help<br />you today?</h1>
+          <div class="subtitle" id="subtitleText">
+            Ask naturally. Aurora can listen, reason, and help you get things done.
+          </div>
+        </div>
+
+        <!-- Scrollable Conversation Timeline (Revealed when conversation begins) -->
+        <div class="conversation-area" id="chatArea">
+          <!-- Dynamically populated user & assistant response cards -->
+        </div>
+
+        <!-- Floating Large Rounded Composer Pill -->
+        <div class="composer-container" id="composerContainer">
+          <form class="composer" id="typeForm" onsubmit="return false;">
+            <div class="input-shell" id="inputShell">
+              <input
+                id="typeInput"
+                type="text"
+                autocomplete="off"
+                placeholder="Ask anything..."
+                aria-label="Ask Aurora anything"
+              />
+              <div class="wave" id="wave" aria-hidden="true">
+                <i></i><i></i><i></i><i></i><i></i>
+              </div>
+              <button
+                type="button"
+                class="mic"
+                id="micBtn"
+                aria-label="Toggle voice listening"
+                title="Click to speak (or press Esc to stop)"
+              >
+                <svg
+                  width="22"
+                  height="22"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.9"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <rect x="9" y="3" width="6" height="12" rx="3"></rect>
+                  <path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3M9 21h6"></path>
+                </svg>
+              </button>
+            </div>
+            <div class="hint" id="composerHint">
+              Press <kbd>Enter</kbd> to send · Click the mic to talk · <kbd>Esc</kbd> to interrupt
+            </div>
+          </form>
+        </div>
+      </main>
+
+      <!-- Slide-Over Drawer for Voice Studio, Telemetry & Settings -->
+      <div class="drawer-backdrop" id="drawerBackdrop"></div>
+      <aside class="settings-drawer" id="settingsDrawer" aria-label="Voice Studio & Settings">
+        <div class="drawer-header">
+          <div class="drawer-title">
+            <span class="drawer-icon">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="#58bfff"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                <line x1="12" y1="19" x2="12" y2="22"></line>
+              </svg>
+            </span>
+            <span>Voice Studio & Settings</span>
+          </div>
+          <button class="btn-drawer-close" id="btnCloseSettings" aria-label="Close settings drawer">
             <svg
               width="16"
               height="16"
@@ -40,309 +156,25 @@
               stroke-linecap="round"
               stroke-linejoin="round"
             >
-              <polyline points="15 18 9 12 15 6" />
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
             </svg>
           </button>
         </div>
 
-        <nav class="nav">
-          <div class="nav-category">Main Experience</div>
-          <button class="nav-item active" data-view="home">
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
-              <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-              <polyline points="9 22 9 12 15 12 15 22" />
-            </svg>
-            <span>Companion</span>
-          </button>
-          <button class="nav-item" data-view="conversation">
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
-              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-            </svg>
-            <span>Conversation</span>
-          </button>
-
-          <div class="nav-category">Audio &amp; Intelligence</div>
-          <button class="nav-item" data-view="voice">
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
-              <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-              <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-              <line x1="12" x2="12" y1="19" y2="22" />
-            </svg>
-            <span>Voice Studio</span>
-          </button>
-          <button class="nav-item" data-view="history">
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
-              <circle cx="12" cy="12" r="10" />
-              <polyline points="12 6 12 12 16 14" />
-            </svg>
-            <span>Transcripts</span>
-          </button>
-          <button class="nav-item" data-view="settings">
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
-              <line x1="4" x2="20" y1="21" y2="21" />
-              <line x1="4" x2="20" y1="3" y2="3" />
-              <line x1="12" x2="12" y1="7" y2="17" />
-              <circle cx="12" cy="12" r="3" />
-            </svg>
-            <span>Telemetry &amp; HUD</span>
-          </button>
-        </nav>
-      </aside>
-
-      <!-- ===== Main Area ===== -->
-      <main class="main">
-        <!-- Top Header Bar -->
-        <header class="main-header">
-          <div class="header-left">
-            <button class="btn-icon active" id="btnToggleSidebar" title="Toggle Navigation Menu">
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              >
-                <line x1="3" y1="12" x2="21" y2="12" />
-                <line x1="3" y1="6" x2="21" y2="6" />
-                <line x1="3" y1="18" x2="21" y2="18" />
-              </svg>
-            </button>
-          </div>
-          <div class="header-controls">
-            <button class="btn-icon" id="btnToggleInspector" title="Toggle Live Turn Telemetry">
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              >
-                <rect width="18" height="18" x="3" y="3" rx="2" />
-                <path d="M15 3v18" />
-              </svg>
-            </button>
-          </div>
-        </header>
-
-        <!-- Views Area -->
-        <div class="view-container">
-          <!-- View 1: Companion Workspace (Dynamic Center Focus) -->
-          <section class="view workspace-view is-empty" id="view-home">
-            <!-- Persistent Top Companion Bar with Hero / Compact Orb -->
-            <div class="workspace-companion-bar" id="companionBar">
-              <div class="orb-sanctuary" id="orbSanctuary">
-                <canvas id="orbCanvas" width="340" height="340"></canvas>
-                <div class="orb-state-tag" id="orbStateTag">Idle · Tap Orb to Speak</div>
-              </div>
-
-              <div class="captions-stage" id="captionsStage">
-                <div class="caption-user" id="captionUser" style="display: none"></div>
-                <div class="caption-ai" id="captionAi">
-                  “Welcome. Tap the orb or mic to speak — you can interrupt me anytime,
-                  mid-sentence.”
-                </div>
-              </div>
-
-              <div class="cancel-pill" id="cancelPill">
-                ✓ Previous response cancelled — listening to you now
-              </div>
+        <div class="drawer-body">
+          <!-- Voice Studio Section -->
+          <section class="drawer-section">
+            <div class="section-badge-row">
+              <h4 class="drawer-subtitle">Rime Production Voices</h4>
+              <span class="badge" id="voiceBadgeState">Checking…</span>
             </div>
+            <p class="drawer-desc">
+              Select an ultra-low latency voice or preview authentic samples powered by Rime TTS.
+            </p>
 
-            <!-- Main Dynamic Center Conversation Stream -->
-            <div class="center-conversation-wrapper" id="centerConversationWrapper">
-              <div class="workspace-chat-header" id="chatHeader" style="display: none">
-                <span class="workspace-chat-title">Conversation</span>
-                <button class="small-action-btn" id="btnClearChat">Clear Chat</button>
-              </div>
-              <div class="chat-area" id="chatArea">
-                <!-- Messages render dynamically here -->
-              </div>
-            </div>
-
-            <!-- Floating Voice & Text Dock Container (Anchored at bottom) -->
-            <div class="floating-dock-container">
-              <footer class="dock">
-                <div class="dock-pill" id="micStatusPill">
-                  <span class="dot dot-idle" id="micStatusDot"></span>
-                  <div>
-                    <strong id="micStatusTitle">Tap to Speak</strong>
-                    <small id="micStatusSub">Click mic or orb</small>
-                  </div>
-                  <svg class="wave" viewBox="0 0 24 16" width="20" height="14">
-                    <path
-                      d="M1 8h2M5 4v8M9 2v12M13 5v6M17 4v8M21 8h2"
-                      stroke="currentColor"
-                      stroke-width="1.6"
-                      stroke-linecap="round"
-                      fill="none"
-                    />
-                  </svg>
-                </div>
-
-                <button class="mic-btn-lg" id="micBtn" aria-label="Start voice interaction">
-                  <svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor">
-                    <path
-                      d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-2.08A7 7 0 0 0 19 12h-2Z"
-                    />
-                  </svg>
-                </button>
-
-                <div class="dock-pill tts" id="ttsStatusPill">
-                  <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    style="color: var(--cyan); flex-shrink: 0"
-                  >
-                    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-                    <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
-                    <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
-                  </svg>
-                  <div>
-                    <strong id="ttsStatusTitle">Rime</strong>
-                    <small id="ttsStatusSub">TTS Ready</small>
-                  </div>
-                  <svg class="wave" viewBox="0 0 24 16" width="20" height="14">
-                    <path
-                      d="M1 8h2M5 4v8M9 2v12M13 5v6M17 4v8M21 8h2"
-                      stroke="currentColor"
-                      stroke-width="1.6"
-                      stroke-linecap="round"
-                      fill="none"
-                    />
-                  </svg>
-                </div>
-              </footer>
-
-              <form class="type-row" id="typeForm">
-                <input
-                  id="typeInput"
-                  type="text"
-                  placeholder="Type a message or speak naturally… (Interrupt anytime)"
-                  autocomplete="off"
-                />
-                <button type="submit" aria-label="Send message">
-                  <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
-                    <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
-                  </svg>
-                </button>
-              </form>
-            </div>
-          </section>
-
-          <!-- View 2: Conversation View (Full Timeline Focus) -->
-          <section class="view hidden" id="view-conversation">
-            <div class="view-header-row">
-              <h3 class="view-title">Conversation Timeline</h3>
-              <button class="small-action-btn" id="btnClearChatConv">Clear Chat</button>
-            </div>
-            <div class="chat-area" id="chatAreaConv">
-              <p class="empty-hint" id="convEmptyHint">
-                No messages yet. Speak or type below to start the conversation timeline.
-              </p>
-            </div>
-            <form class="type-row" id="typeFormConv">
-              <input
-                id="typeInputConv"
-                type="text"
-                placeholder="Type to chat or speak…"
-                autocomplete="off"
-              />
-              <button type="submit" aria-label="Send message">
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
-                  <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
-                </svg>
-              </button>
-            </form>
-          </section>
-
-          <!-- View 3: Voice Studio (Rime TTS Showcase) -->
-          <section class="view hidden" id="view-voice">
-            <div class="voice-hero-card">
-              <div class="voice-hero-icon">
-                <svg
-                  width="28"
-                  height="28"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  style="color: var(--primary-glow)"
-                >
-                  <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-                  <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                  <line x1="12" x2="12" y1="19" y2="22" />
-                </svg>
-              </div>
-              <div>
-                <h3>Official Rime TTS Voice Studio</h3>
-                <p>
-                  Powered by Rime's ultra-low latency sub-100ms model <code>mistv3</code>. Select
-                  voices, preview natural prosody, and test instant speech synthesis.
-                </p>
-              </div>
-            </div>
-
-            <h4 class="section-subtitle">Rime Production Voices</h4>
             <div class="speakers-grid" id="speakersGrid">
+              <!-- Dynamically populated & pre-rendered -->
               <div class="speaker-card active" data-speaker-id="astra">
                 <div class="speaker-head">
                   <span class="speaker-name">Astra</span>
@@ -411,7 +243,7 @@
               </div>
             </div>
 
-            <h4 class="section-subtitle" style="margin-top: 20px">Model Engine</h4>
+            <h5 class="drawer-inner-title">Model Engine</h5>
             <div class="models-row" id="modelsRow">
               <div class="model-card active" data-model-id="mistv3">
                 <strong>Mist v3</strong>
@@ -425,333 +257,135 @@
               </div>
             </div>
 
-            <h4 class="section-subtitle" style="margin-top: 20px">Live TTS Playground</h4>
-            <div class="tts-playground">
-              <textarea
-                id="ttsPreviewText"
-                rows="2"
-                placeholder="Type text to synthesize with selected Rime voice…"
-              >
-Hello! This is Aurora speaking with Rime ultra-low latency voice synthesis.</textarea>
-              <div class="tts-preview-actions">
-                <button id="btnPreviewTts" class="primary-btn">▶ Synthesize &amp; Play</button>
-                <span class="preview-status" id="ttsPreviewStatus"></span>
+            <h5 class="drawer-inner-title">Live TTS Playground</h5>
+            <div class="tts-playground-box">
+              <div class="input-action-row">
+                <input
+                  type="text"
+                  id="ttsPreviewText"
+                  placeholder="Type sample text to speak with active voice…"
+                  value="Testing ultra-low latency voice synthesis."
+                />
+                <button class="small-action-btn" id="btnPreviewTts">Speak</button>
               </div>
+              <div class="preview-status" id="ttsPreviewStatus"></div>
             </div>
           </section>
 
-          <!-- View 4: History / Transcripts -->
-          <section class="view hidden" id="view-history">
-            <div class="view-header-row">
-              <h3 class="view-title">Transcript History</h3>
-              <button class="small-action-btn" id="btnExportHistory">Export JSON</button>
-            </div>
-            <div class="history-list" id="historyList">
-              <p class="empty-hint">
-                Nothing yet — start talking and your full conversation will be logged here.
-              </p>
-            </div>
-          </section>
-
-          <!-- View 5: Telemetry & HUD View -->
-          <section class="view hidden" id="view-settings">
-            <div class="view-header-row">
-              <h3 class="view-title">Realtime Telemetry &amp; Verification HUD</h3>
-            </div>
-
+          <!-- Telemetry & Benchmarks Section -->
+          <section class="drawer-section">
+            <h4 class="drawer-subtitle">Telemetry & Benchmarks</h4>
             <div class="benchmarks-grid">
               <div class="bench-card">
                 <div class="bench-label">Barge-In Hardware Mute</div>
                 <div class="bench-value" id="hudMute">&lt; 1 ms</div>
-                <div class="bench-meta">
-                  Target: &lt; 50ms <span class="badge-bench">🌟 Sub-ms</span>
-                </div>
+                <div class="bench-meta">Sub-millisecond cancellation</div>
               </div>
               <div class="bench-card">
                 <div class="bench-label">Server Interruption ACK</div>
                 <div class="bench-value" id="hudAck">8 ms</div>
-                <div class="bench-meta">
-                  Target: &lt; 100ms <span class="badge-bench">✅ Realtime WS</span>
-                </div>
+                <div class="bench-meta">Realtime full-duplex</div>
               </div>
               <div class="bench-card">
                 <div class="bench-label">Time to First Audio (TTFA)</div>
                 <div class="bench-value" id="hudTtfa">320 ms</div>
-                <div class="bench-meta">
-                  Target: &lt; 800ms <span class="badge-bench">🚀 mistv3</span>
-                </div>
+                <div class="bench-meta">Mist v3 synthesis</div>
               </div>
               <div class="bench-card">
                 <div class="bench-label">Stale Packets Discarded</div>
                 <div class="bench-value" id="hudDiscard">100%</div>
-                <div class="bench-meta">
-                  0 Leaked <span class="badge-bench">🛡️ Generation Fence</span>
-                </div>
+                <div class="bench-meta">Generation fence protected</div>
               </div>
             </div>
 
-            <h4 class="section-subtitle">Generation Fencing State</h4>
-            <dl class="settings-grid" id="settingsGrid">
-              <dt>Active Generation ID</dt>
+            <h5 class="drawer-inner-title">Turn Diagnostics</h5>
+            <dl class="settings-grid">
+              <dt>Active Gen ID</dt>
               <dd id="dbgGen">#0</dd>
-              <dt>Total Interruptions Shielded</dt>
+              <dt>Interruptions Shielded</dt>
               <dd id="dbgInterrupts">0</dd>
-              <dt>Last Turn Latency</dt>
+              <dt>Turn Latency</dt>
               <dd id="dbgLatency">—</dd>
               <dt>WebSocket State</dt>
               <dd id="dbgWs">connecting…</dd>
-              <dt>Speech Recognition (ASR)</dt>
-              <dd id="dbgAsr">checking…</dd>
-              <dt>Rime Voice Engine</dt>
+              <dt>Voice Engine</dt>
               <dd id="dbgTts">—</dd>
               <dt>Language Model</dt>
               <dd id="dbgLlm">—</dd>
             </dl>
+          </section>
 
-            <h4 class="section-subtitle">Real-Time Backend Server</h4>
-            <div class="llm-config-box" style="margin-bottom: 20px">
-              <p style="font-size: 12.5px; color: var(--ink-secondary); margin-bottom: 12px">
-                Connect to a dedicated Aurora WebSocket host (e.g. Render, Railway, or
-                localhost:3000). Leave empty to connect to the current origin.
-              </p>
-              <div style="display: flex; gap: 10px">
-                <input
-                  type="text"
-                  id="backendUrlInput"
-                  placeholder="e.g. aurora.onrender.com or localhost:3000"
-                  autocomplete="off"
-                  style="
-                    flex: 1;
-                    background: rgba(0, 0, 0, 0.3);
-                    border: 1px solid var(--border-subtle);
-                    border-radius: 8px;
-                    padding: 9px 12px;
-                    color: var(--ink);
-                    font-size: 13px;
-                    outline: none;
-                  "
-                />
-                <button id="btnSaveBackendUrl" class="primary-btn" style="white-space: nowrap">
-                  Connect Server
-                </button>
-              </div>
-              <div class="preview-status" id="backendStatusMsg" style="margin-top: 8px"></div>
-            </div>
+          <!-- Configuration & Credentials Section -->
+          <section class="drawer-section">
+            <h4 class="drawer-subtitle">Configuration & Keys</h4>
 
-            <h4 class="section-subtitle">Rime TTS API Key (Optional)</h4>
-            <div class="llm-config-box" style="margin-bottom: 20px">
-              <p style="font-size: 12.5px; color: var(--ink-secondary); margin-bottom: 12px">
-                Set a client-side Rime API Key for real-time speech synthesis on serverless
-                deployments (stored securely in your browser only).
+            <div class="config-field">
+              <label for="rimeApiKeyInput">Rime TTS API Key (Optional)</label>
+              <p class="config-desc">
+                Saved securely in browser local storage for live serverless turns.
               </p>
-              <div style="display: flex; gap: 10px">
+              <div class="input-action-row">
                 <input
                   type="password"
                   id="rimeApiKeyInput"
                   placeholder="Enter Rime API Key (smHVPL...)"
                   autocomplete="off"
-                  style="
-                    flex: 1;
-                    background: rgba(0, 0, 0, 0.3);
-                    border: 1px solid var(--border-subtle);
-                    border-radius: 8px;
-                    padding: 9px 12px;
-                    color: var(--ink);
-                    font-size: 13px;
-                    outline: none;
-                  "
                 />
-                <button id="btnSaveRimeApiKey" class="primary-btn" style="white-space: nowrap">
-                  Save Key
-                </button>
+                <button id="btnSaveRimeApiKey" class="small-action-btn">Save Key</button>
               </div>
-              <div class="preview-status" id="rimeKeyStatusMsg" style="margin-top: 8px"></div>
+              <div class="preview-status" id="rimeKeyStatusMsg"></div>
             </div>
 
-            <h4 class="section-subtitle">Online LLM Brain (Gemini / Groq / OpenAI)</h4>
-            <div class="llm-config-box">
-              <p style="font-size: 12.5px; color: var(--ink-secondary); margin-bottom: 12px">
-                Active online provider is powered by Google Gemini 3.6 Flash.
+            <div class="config-field">
+              <label for="backendUrlInput">Real-Time Backend Server</label>
+              <p class="config-desc">
+                Dedicated WebSocket host (e.g. Render, Railway, or localhost:3000). Leave empty to
+                use current origin.
               </p>
-              <div style="display: flex; gap: 10px; margin-bottom: 10px">
-                <select
-                  id="llmProviderSelect"
-                  style="
-                    background: var(--bg-card);
-                    color: var(--ink);
-                    border: 1px solid var(--border-subtle);
-                    border-radius: 8px;
-                    padding: 9px 12px;
-                    font-size: 13px;
-                    outline: none;
-                    flex: 1;
-                  "
-                >
-                  <option value="gemini">Google Gemini (Gemini 3.6 Flash · Active)</option>
-                  <option value="groq">Groq (Llama-3.1-8b-instant · Sub-100ms)</option>
-                  <option value="openai">OpenAI (GPT-4o-mini)</option>
-                  <option value="openrouter">OpenRouter</option>
-                </select>
-              </div>
-              <div style="display: flex; gap: 10px">
+              <div class="input-action-row">
                 <input
-                  type="password"
-                  id="llmKeyInput"
-                  placeholder="Update API key (e.g. AIzaSy... or gsk_...)"
+                  type="text"
+                  id="backendUrlInput"
+                  placeholder="e.g. localhost:3000"
                   autocomplete="off"
-                  style="
-                    flex: 1;
-                    background: rgba(0, 0, 0, 0.3);
-                    border: 1px solid var(--border-subtle);
-                    border-radius: 8px;
-                    padding: 9px 12px;
-                    color: var(--ink);
-                    font-size: 13px;
-                    outline: none;
-                  "
                 />
-                <button id="btnSaveLlmKey" class="primary-btn" style="white-space: nowrap">
-                  Activate Key
-                </button>
+                <button id="btnSaveBackendUrl" class="small-action-btn">Connect</button>
               </div>
-              <div class="preview-status" id="llmStatusMsg" style="margin-top: 8px"></div>
+              <div class="preview-status" id="backendStatusMsg"></div>
             </div>
 
-            <h4 class="section-subtitle">Network Stress Simulator</h4>
-            <div class="stress-box">
-              <label
-                for="delaySlider"
-                style="
-                  display: block;
-                  margin-bottom: 10px;
-                  font-size: 13px;
-                  color: var(--ink-secondary);
-                "
-              >
-                Artificial Delay:
-                <strong id="delayVal" style="color: var(--amber)">0ms</strong> (Simulate high
-                network latency to test cancellation)
-              </label>
-              <div class="stress-controls">
-                <input type="range" id="delaySlider" min="0" max="3000" step="250" value="0" />
-                <button id="btnApplyDelay" class="small-action-btn">Apply Delay</button>
-              </div>
+            <div class="drawer-actions-row">
+              <button class="danger-btn" id="btnClearChat">Clear Conversation</button>
+              <button class="secondary-btn" id="btnExportHistory">Export Transcript</button>
             </div>
-
-            <div class="view-header-row" style="margin-top: 16px">
-              <h4 class="section-subtitle" style="margin: 0">Realtime Event Log</h4>
-              <button class="small-action-btn" id="btnClearLog">Clear Log</button>
-            </div>
-            <div class="debug-log" id="debugLog"></div>
           </section>
         </div>
-      </main>
-
-      <!-- ===== Collapsible Live Turn Inspector (Side Sheet) ===== -->
-      <aside class="inspector-panel" id="inspectorPanel">
-        <div class="inspector-top">
-          <span class="inspector-title">Turn Telemetry</span>
-          <button class="btn-icon" id="btnCloseInspector" title="Collapse Panel">
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
-              <polyline points="9 18 15 12 9 6" />
-            </svg>
-          </button>
-        </div>
-        <div class="panel-card">
-          <div class="panel-head">
-            <span>Turn Progress</span>
-          </div>
-          <ul class="stepper" id="stepper">
-            <li class="step" data-step="listening">
-              <span class="step-dot"></span>
-              <div><strong>Listening</strong><small>Waiting for your voice</small></div>
-              <time id="timeListening">--:--</time>
-            </li>
-            <li class="step" data-step="thinking">
-              <span class="step-dot"></span>
-              <div><strong>Thinking</strong><small>Processing request</small></div>
-              <time id="timeThinking">--:--</time>
-            </li>
-            <li class="step" data-step="speaking">
-              <span class="step-dot"></span>
-              <div><strong>AI Speaking</strong><small>Streaming response</small></div>
-              <time id="timeSpeaking">--:--</time>
-            </li>
-            <li class="step" data-step="complete">
-              <span class="step-dot"></span>
-              <div><strong>Complete</strong><small>Ready for turn</small></div>
-              <time id="timeComplete">--:--</time>
-            </li>
-          </ul>
-        </div>
-
-        <div class="panel-card">
-          <div class="panel-head">
-            <span>Rime Voice Info</span>
-            <a class="panel-link" href="https://rime.ai" target="_blank" rel="noopener"
-              >↗ rime.ai</a
-            >
-          </div>
-          <div class="voice-badge">
-            <span class="voice-badge-icon">
-              <svg
-                width="12"
-                height="12"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.5"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              >
-                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-                <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
-              </svg>
-            </span>
-            <strong style="font-size: 12.5px">Rime TTS</strong>
-            <span class="badge" id="voiceBadgeState">Checking…</span>
-          </div>
-          <dl class="info-grid">
-            <dt>Model</dt>
-            <dd id="infoModel">—</dd>
-            <dt>Voice</dt>
-            <dd id="infoVoice">—</dd>
-            <dt>Language</dt>
-            <dd>English</dd>
-            <dt>Format</dt>
-            <dd id="infoFormat">—</dd>
-            <dt>Transport</dt>
-            <dd>WebSocket</dd>
-          </dl>
-        </div>
-
-        <div class="panel-card">
-          <div class="panel-head"><span>Navigation Shortcuts</span></div>
-          <div class="quick-actions">
-            <button id="qaVoice">Voice Studio</button>
-            <button id="qaLogs">Telemetry</button>
-            <button id="qaConv">Conversation</button>
-            <button id="qaHelp">Instructions</button>
-          </div>
-        </div>
       </aside>
+
+      <!-- Hidden compatibility anchors for existing subsystems -->
+      <div id="compatibilityAnchors" style="display: none" aria-hidden="true">
+        <span id="captionUser"></span>
+        <span id="captionAi"></span>
+        <span id="cancelPill"></span>
+        <span id="orbStateTag"></span>
+        <span id="infoModel">mistv3</span>
+        <span id="infoVoice">astra</span>
+        <span id="infoFormat">mp3</span>
+        <span id="ttsStatusTitle">Rime</span>
+        <span id="ttsStatusSub">TTS Ready</span>
+        <span id="dbgAsr"></span>
+        <div id="debugLog"></div>
+        <div id="historyList"></div>
+      </div>
     </div>
 
+    <!-- Scripts -->
     <script src="config.js"></script>
-    <script src="markdown.js"></script>
-    <script src="highlighter.js"></script>
     <script src="audio-player.js"></script>
     <script src="orb.js"></script>
     <script src="vad-mic.js"></script>
+    <script src="markdown.js"></script>
+    <script src="highlighter.js"></script>
     <script src="app.js"></script>
   </body>
 </html>
