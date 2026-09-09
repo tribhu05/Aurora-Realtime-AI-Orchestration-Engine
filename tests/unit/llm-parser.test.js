@@ -50,7 +50,10 @@ test('LLM Parser - sanitize malformed raw JSON strings from leaking into output'
   // Simulating an LLM returning half-broken JSON
   const brokenJson = `{"spoken": "Done. Here is the C++ code.", "content": "#include <iostream>\\nint main() {}"}`;
   const parsed = parseStructuredResponse(brokenJson, 'I want it in C++');
-  assert.ok(!parsed.text.trim().startsWith('{"spoken"'), 'Raw JSON string eliminated from visual text');
+  assert.ok(
+    !parsed.text.trim().startsWith('{"spoken"'),
+    'Raw JSON string eliminated from visual text'
+  );
   assert.ok(!parsed.spoken.trim().startsWith('{'), 'Raw JSON string eliminated from spoken audio');
 });
 
@@ -63,14 +66,18 @@ test('LLM Parser - handles null or empty input gracefully', () => {
 
 test('LLM Parser - localFallbackReply produces deterministic test fixtures offline', () => {
   // Python prime query
-  const primeReply = localFallbackReply([{ role: 'user', content: 'Write a Python program to check whether a number is prime.' }]);
+  const primeReply = localFallbackReply([
+    { role: 'user', content: 'Write a Python program to check whether a number is prime.' },
+  ]);
   assert.equal(primeReply.responseMode, 'TEXT');
   assert.equal(primeReply.visualType, 'code');
   assert.equal(primeReply.language, 'python');
   assert.ok(primeReply.text.includes('is_prime'));
 
   // Language comparison table
-  const tableReply = localFallbackReply([{ role: 'user', content: 'Compare Python and C++ in a table.' }]);
+  const tableReply = localFallbackReply([
+    { role: 'user', content: 'Compare Python and C++ in a table.' },
+  ]);
   assert.equal(tableReply.responseMode, 'TEXT');
   assert.equal(tableReply.visualType, 'table');
   assert.ok(tableReply.text.includes('|'));
@@ -147,4 +154,3 @@ test('LLM Parser - nested serialized JSON inside content unwrapped cleanly', () 
   assert.ok(!r.text.startsWith('{'));
   assert.ok(r.text.includes('#include <iostream>'));
 });
-

@@ -1,8 +1,18 @@
-// server/server.js
-// Express static server + WebSocket voice orchestrator.
-// Implements generation-fenced turn-taking: every AI turn gets a
-// strictly increasing generationId, and an in-flight turn can be
-// aborted the instant the user barges in.
+/**
+ * @file server/server.js
+ * Express static server + WebSocket real-time orchestrator.
+ *
+ * Implements generation-fenced full-duplex turn-taking:
+ * 1. Monotonic Generation Fencing: Every turn is assigned a strictly increasing generation ID
+ *    (`state.generation += 1`). Asynchronous emissions (LLM streaming, TTS synthesis, task execution)
+ *    are stamped with `myGen` and dropped if `myGen !== state.generation`.
+ * 2. Synchronous Abort & Signal Cancellation: Incoming user barge-in (`interrupt` or new `query`)
+ *    instantly aborts the active turn's `AbortController`, terminating ongoing HTTP requests
+ *    (to Gemini/Groq/OpenAI/Rime) and clearing pending timers.
+ * 3. Zero-Stale-Packet Guarantee: Downstream WebSocket emissions (`audio`, `visual_chat`, `task_progress`)
+ *    are checked against `isStale(state, myGen)` prior to serialization. Even under high-concurrency
+ *    barge-in, orphaned audio packets are suppressed before network transmission.
+ */
 
 import 'dotenv/config';
 import express from 'express';
@@ -23,14 +33,17 @@ const PORT = process.env.PORT || 3000;
 
 /**
  * Sanitizes errors to prevent accidental leakage of auth keys or bearer tokens in logs.
+ *
+ * @param {Error|string|unknown} err - The error object or string to sanitize.
+ * @returns {string} Redacted error message safe for standard logging and client propagation.
  */
 export function sanitizeError(err) {
   if (!err) return '';
-  const str = typeof err === 'string' ? err : (err.message || String(err));
+  const str = typeof err === 'string' ? err : err.message || String(err);
   return str
-    .replace(/(Bearer\s+)[a-zA-Z0-9_\-\.]+([a-zA-Z0-9]{4})/gi, '$1***REDACTED***$2')
-    .replace(/(key=)[a-zA-Z0-9_\-\.]+([a-zA-Z0-9]{4})/gi, '$1***REDACTED***$2')
-    .replace(/(api[_-]?key["':\s=]+)[a-zA-Z0-9_\-\.]+([a-zA-Z0-9]{4})/gi, '$1***REDACTED***$2');
+    .replace(/(Bearer\s+)[a-zA-Z0-9_.-]+([a-zA-Z0-9]{4})/gi, '$1***REDACTED***$2')
+    .replace(/(key=)[a-zA-Z0-9_.-]+([a-zA-Z0-9]{4})/gi, '$1***REDACTED***$2')
+    .replace(/(api[_-]?key["':\s=]+)[a-zA-Z0-9_.-]+([a-zA-Z0-9]{4})/gi, '$1***REDACTED***$2');
 }
 
 // Treat obvious template placeholders ("your_..._key_here") as unset so the
@@ -44,6 +57,24 @@ function realKey(v) {
  * Creates an Aurora HTTP + WebSocket Server instance.
  * Supports running on ephemeral ports (port: 0) and deterministic mock mode
  * for CI and automated testing without real API secrets.
+ *
+ * @param {object} [options={}] - Configuration options for server instantiation.
+ * @param {boolean} [options.quiet=false] - When true, suppresses startup console logging.
+ * @param {boolean} [options.mock=false] - When true, forces offline mock mode across LLM and TTS.
+ * @param {number} [options.delayMs] - Optional artificial latency injected into responses for testing.
+ * @param {string} [options.rimeApiKey] - Rime API key override.
+ * @param {string} [options.rimeSpeaker] - Default Rime speaker voice ID.
+ * @param {string} [options.rimeModelId] - Default Rime TTS model ID.
+ * @param {boolean} [options.mockAudio] - Enable mock PCM/MP3 synthesis fixtures for deterministic tests.
+ * @returns {{
+ *   app: import('express').Express,
+ *   httpServer: import('http').Server,
+ *   wss: import('ws').WebSocketServer,
+ *   rimeConfig: object,
+ *   llmConfig: object,
+ *   listen: (port?: number) => Promise<{ port: number, server: import('http').Server, httpServer: import('http').Server }>,
+ *   close: () => Promise<void>
+ * }} Configured server handle with lifecycle methods.
  */
 export function createAuroraServer(options = {}) {
   const quiet = options.quiet ?? false;
@@ -95,9 +126,17 @@ export function createAuroraServer(options = {}) {
 
   app.post('/api/preview-tts', async (req, res) => {
     try {
-      const { text = 'Hello from Rime voice synthesis.', speaker = rimeConfig.speaker, modelId = rimeConfig.modelId } = req.body;
+      const {
+        text = 'Hello from Rime voice synthesis.',
+        speaker = rimeConfig.speaker,
+        modelId = rimeConfig.modelId,
+      } = req.body;
       if (!rimeConfig.apiKey && !rimeConfig.mockAudio) {
-        return res.json({ ok: false, fallback: true, message: 'No Rime API key configured. Browser speech will be used.' });
+        return res.json({
+          ok: false,
+          fallback: true,
+          message: 'No Rime API key configured. Browser speech will be used.',
+        });
       }
       const buf = await synthesizeSpeech(text, {
         ...rimeConfig,
@@ -127,9 +166,15 @@ export function createAuroraServer(options = {}) {
       if (llmModel && llmModel.trim()) {
         llmConfig.model = llmModel.trim();
       } else {
-        llmConfig.model = llmProvider === 'gemini' ? 'gemini-3.5-flash-lite' : (llmProvider === 'openai' ? 'gpt-4o-mini' : 'llama-3.1-8b-instant');
+        llmConfig.model =
+          llmProvider === 'gemini'
+            ? 'gemini-3.5-flash-lite'
+            : llmProvider === 'openai'
+              ? 'gpt-4o-mini'
+              : 'llama-3.1-8b-instant';
       }
-      if (!quiet) console.log(`🧠 Online LLM Brain activated: ${llmConfig.provider} (${llmConfig.model})`);
+      if (!quiet)
+        console.log(`🧠 Online LLM Brain activated: ${llmConfig.provider} (${llmConfig.model})`);
       return res.json({
         ok: true,
         llmConfigured: true,
@@ -244,9 +289,11 @@ export function createAuroraServer(options = {}) {
           return;
         }
         const userText = msg.text.trim().slice(0, 4096);
-        const mode = (typeof msg.mode === 'string' && ['VOICE', 'TEXT', 'HYBRID'].includes(msg.mode.toUpperCase()))
-          ? msg.mode.toUpperCase()
-          : null;
+        const mode =
+          typeof msg.mode === 'string' &&
+          ['VOICE', 'TEXT', 'HYBRID'].includes(msg.mode.toUpperCase())
+            ? msg.mode.toUpperCase()
+            : null;
 
         // Synchronously abort in-flight turn and bind new controller immediately
         if (state.activeController) {
@@ -269,11 +316,20 @@ export function createAuroraServer(options = {}) {
           llmConfig,
           getDelayMs: () => artificialDelayMs,
         }).catch((err) => {
-          if (err?.name === 'AbortError' || err?.code === 'ABORT_ERR' || controller.signal.aborted || isStale(state, myGen)) {
+          if (
+            err?.name === 'AbortError' ||
+            err?.code === 'ABORT_ERR' ||
+            controller.signal.aborted ||
+            isStale(state, myGen)
+          ) {
             return;
           }
           console.error('[turn error]', sanitizeError(err));
-          send(ws, { type: 'error', generation: myGen, message: 'Something went wrong on my end.' });
+          send(ws, {
+            type: 'error',
+            generation: myGen,
+            message: 'Something went wrong on my end.',
+          });
         });
         return;
       }
@@ -297,8 +353,12 @@ export function createAuroraServer(options = {}) {
           const boundPort = typeof addr === 'object' && addr ? addr.port : port;
           if (!quiet) {
             console.log(`✨ Aurora is listening on http://localhost:${boundPort}`);
-            console.log(`   Rime TTS:  ${rimeConfig.apiKey ? 'configured (' + rimeConfig.speaker + ')' : (rimeConfig.mockAudio ? 'mock audio mode' : 'NOT configured — using browser speech fallback')}`);
-            console.log(`   LLM:       ${llmConfig.apiKey ? 'configured (' + llmConfig.provider + ')' : 'NOT configured — using offline demo replies'}`);
+            console.log(
+              `   Rime TTS:  ${rimeConfig.apiKey ? 'configured (' + rimeConfig.speaker + ')' : rimeConfig.mockAudio ? 'mock audio mode' : 'NOT configured — using browser speech fallback'}`
+            );
+            console.log(
+              `   LLM:       ${llmConfig.apiKey ? 'configured (' + llmConfig.provider + ')' : 'NOT configured — using offline demo replies'}`
+            );
           }
           resolve({ port: boundPort, server, httpServer });
         });
@@ -307,7 +367,9 @@ export function createAuroraServer(options = {}) {
     close() {
       return new Promise((resolve, reject) => {
         for (const client of wss.clients) {
-          try { client.terminate(); } catch (_) {}
+          try {
+            client.terminate();
+          } catch (_) {}
         }
         wss.close(() => {
           httpServer.close((err) => (err ? reject(err) : resolve()));
@@ -317,7 +379,44 @@ export function createAuroraServer(options = {}) {
   };
 }
 
-async function handleTurn({ ws, state, myGen, controller, userText, userOverride = null, rimeConfig, llmConfig, getDelayMs }) {
+/**
+ * Orchestrates a single conversational turn through the generation-fenced pipeline:
+ *
+ * Pipeline Lifecycle:
+ * 1. Notification: Broadcasts user transcript message stamped with `myGen`.
+ * 2. Specialized Task Routing: Dispatches multi-file scaffolding workflows if matched.
+ * 3. Dual-Channel LLM Inference: Queries provider with AbortSignal cancellation support.
+ * 4. Stale Generation Check #1: Fences output if client barged in during LLM inference.
+ * 5. Visual Payload Emission: Sends rich UI cards (code, tables, markdown) to workspace.
+ * 6. Latency Simulation Checkpoint: Sleeps if test delay is configured; checks fencing again.
+ * 7. Speech Synthesis (Rime TTS): Synthesizes strictly the natural spoken channel.
+ * 8. Stale Generation Check #2: Fences audio if client interrupted during TTS generation.
+ * 9. Audio / Local Speech Dispatch: Streams audio packets stamped with `myGen`.
+ * 10. Completion: Emits `done` packet and clears active controller if still current.
+ *
+ * @param {object} params - Turn orchestration parameters.
+ * @param {import('ws').WebSocket} params.ws - Active WebSocket connection.
+ * @param {object} params.state - Connection state tracking `generation` and `activeController`.
+ * @param {number} params.myGen - Monotonic generation epoch assigned to this turn.
+ * @param {AbortController} params.controller - Cancellation controller for this turn.
+ * @param {string} params.userText - Cleaned user prompt.
+ * @param {'VOICE'|'TEXT'|'HYBRID'|null} [params.userOverride=null] - Optional manual modality override.
+ * @param {object} params.rimeConfig - Rime TTS credentials, speaker voice, and model settings.
+ * @param {object} params.llmConfig - LLM provider credentials and model selection.
+ * @param {() => number} [params.getDelayMs] - Accessor for artificial test latency.
+ * @returns {Promise<void>} Resolves when turn finishes or is cleanly fenced.
+ */
+async function handleTurn({
+  ws,
+  state,
+  myGen,
+  controller,
+  userText,
+  userOverride = null,
+  rimeConfig,
+  llmConfig,
+  getDelayMs,
+}) {
   const turnStartTime = Date.now();
   send(ws, { type: 'user_text', text: userText, generation: myGen, timestamp: turnStartTime });
   state.history.push({ role: 'user', content: userText });
@@ -361,7 +460,7 @@ async function handleTurn({ ws, state, myGen, controller, userText, userOverride
     if (err?.name === 'AbortError') return;
     throw err;
   }
-  if (isStale(state, myGen)) return; // interrupted while thinking
+  if (isStale(state, myGen)) return; // Generation fencing: interrupted while thinking
 
   const llmMs = Date.now() - t0;
   state.history.push({ role: 'assistant', content: replyObj.content });
@@ -394,14 +493,17 @@ async function handleTurn({ ws, state, myGen, controller, userText, userOverride
   if (delayMs > 0) {
     await sleep(delayMs, controller.signal);
   }
-  if (isStale(state, myGen)) return;
+  if (isStale(state, myGen)) return; // Generation fencing: interrupted during sleep
 
   // Synthesize speech ONLY from the spoken channel (NEVER raw code or JSON)
-  const spokenText = replyObj.spokenResponse || replyObj.spoken || (
-    visualPayload.type === 'code' ? "I've written the code in the workspace." : "I've placed the response in the workspace."
-  );
+  const spokenText =
+    replyObj.spokenResponse ||
+    replyObj.spoken ||
+    (visualPayload.type === 'code'
+      ? "I've written the code in the workspace."
+      : "I've placed the response in the workspace.");
   const t1 = Date.now();
-  let audioBuffer = null;
+  let audioBuffer;
   try {
     audioBuffer = await synthesizeSpeech(spokenText, rimeConfig, controller.signal);
   } catch (err) {
@@ -409,7 +511,7 @@ async function handleTurn({ ws, state, myGen, controller, userText, userOverride
     console.error('[rime error]', err.message);
     audioBuffer = null; // fall back to local speech synthesis on the client
   }
-  if (isStale(state, myGen)) return;
+  if (isStale(state, myGen)) return; // Generation fencing: interrupted during TTS synthesis
 
   const ttsMs = Date.now() - t1;
   const totalMs = Date.now() - turnStartTime;
@@ -443,10 +545,30 @@ async function handleTurn({ ws, state, myGen, controller, userText, userOverride
   state.activeController = null;
 }
 
+/**
+ * Evaluates whether an asynchronous operation belongs to a past generation epoch.
+ *
+ * Generation Fencing Rule:
+ * If `state.generation` has incremented beyond `myGen` (due to an interruption,
+ * barge-in, or subsequent query), the current asynchronous context is stale.
+ * Returning true instructs the caller to abort further packet serialization
+ * and suppress audio/visual emissions.
+ *
+ * @param {{ generation: number }} state - Connection state holding current generation epoch.
+ * @param {number} myGen - Generation epoch assigned at turn dispatch.
+ * @returns {boolean} True if turn has been fenced/invalidated; false if still active.
+ */
 function isStale(state, myGen) {
   return myGen !== state.generation;
 }
 
+/**
+ * Safely serializes and transmits a JSON packet over WebSocket.
+ * Silently catches socket errors if the client abruptly disconnected mid-flight.
+ *
+ * @param {import('ws').WebSocket} ws - Target WebSocket connection.
+ * @param {object} obj - Event payload to serialize and transmit.
+ */
 function send(ws, obj) {
   if (ws && ws.readyState === ws.OPEN) {
     try {
@@ -455,6 +577,14 @@ function send(ws, obj) {
   }
 }
 
+/**
+ * Cancellable asynchronous delay.
+ * Rejects immediately with an AbortError if the associated signal aborts before timeout.
+ *
+ * @param {number} ms - Milliseconds to sleep.
+ * @param {AbortSignal} signal - Cancellation signal tied to turn's AbortController.
+ * @returns {Promise<void>} Resolves when duration elapses; rejects on abort.
+ */
 function sleep(ms, signal) {
   return new Promise((resolve, reject) => {
     const t = setTimeout(resolve, ms);
@@ -465,10 +595,10 @@ function sleep(ms, signal) {
   });
 }
 
-const isDirectRun = process.argv[1] && (
-  fileURLToPath(import.meta.url) === path.resolve(process.argv[1]) ||
-  process.argv[1].endsWith('server.js')
-);
+const isDirectRun =
+  process.argv[1] &&
+  (fileURLToPath(import.meta.url) === path.resolve(process.argv[1]) ||
+    process.argv[1].endsWith('server.js'));
 
 if (isDirectRun) {
   const instance = createAuroraServer();

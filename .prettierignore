@@ -1,0 +1,11 @@
+node_modules/
+package-lock.json
+.git/
+dist/
+coverage/
+scratch/
+README.md
+RIME_EVIDENCE.md
+SUBMISSION.md
+render.yaml
+.github/

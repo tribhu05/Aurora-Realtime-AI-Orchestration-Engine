@@ -4,13 +4,7 @@
 // 1. Spoken Channel: Natural conversational speech (strictly budgeted) for Rime TTS.
 // 2. Visual Channel: Rich formatted output (code blocks, tables, markdown) for the workspace.
 
-import {
-  RESPONSE_MODES,
-  validateAndEnforceContract,
-  deterministicClassify,
-  enforceSpokenBudget,
-  safeParseOrExtract,
-} from './response-router.js';
+import { validateAndEnforceContract, safeParseOrExtract } from './response-router.js';
 
 const ENDPOINTS = {
   groq: 'https://api.groq.com/openai/v1/chat/completions',
@@ -60,17 +54,41 @@ Core Rules:
 4. Output Format:
    - Return ONLY the raw JSON object. No outer markdown fences, no conversational preamble.`;
 
-export async function getAssistantReply({ provider, apiKey, model, messages, signal, userOverride }) {
-  const userQuery = messages && messages.length > 0 ? messages[messages.length - 1]?.content || '' : '';
+/**
+ * Dispatches a user turn to the configured LLM provider and formats the response.
+ *
+ * @param {object} params - LLM inference parameters.
+ * @param {string} params.provider - LLM provider identifier ('gemini', 'groq', 'openai', 'openrouter').
+ * @param {string} [params.apiKey] - Provider API key. If absent, delegates to localFallbackReply.
+ * @param {string} [params.model] - Target model name.
+ * @param {Array<{role: string, content: string}>} params.messages - Conversation message history.
+ * @param {AbortSignal} [params.signal] - Signal for mid-flight cancellation during barge-in.
+ * @param {'VOICE'|'TEXT'|'HYBRID'|null} [params.userOverride=null] - Explicit manual mode override.
+ * @returns {Promise<object>} Structured response meeting the dual-channel contract.
+ */
+export async function getAssistantReply({
+  provider,
+  apiKey,
+  model,
+  messages,
+  signal,
+  userOverride,
+}) {
+  const userQuery =
+    messages && messages.length > 0 ? messages[messages.length - 1]?.content || '' : '';
   if (!apiKey) {
     return localFallbackReply(messages, userOverride);
   }
 
   const url = ENDPOINTS[provider] || ENDPOINTS.gemini;
   const defaultModel = provider === 'gemini' ? 'gemini-3.5-flash-lite' : 'llama-3.1-8b-instant';
-  const effectiveModel = (model && model !== 'gemini-2.0-flash' && model !== 'gemini-3.6-flash' && model !== 'llama-3.1-8b-instant')
-    ? model
-    : defaultModel;
+  const effectiveModel =
+    model &&
+    model !== 'gemini-2.0-flash' &&
+    model !== 'gemini-3.6-flash' &&
+    model !== 'llama-3.1-8b-instant'
+      ? model
+      : defaultModel;
 
   const res = await fetch(url, {
     method: 'POST',
@@ -91,9 +109,11 @@ export async function getAssistantReply({ provider, apiKey, model, messages, sig
   if (!res.ok) {
     const body = await res.text().catch(() => '');
     const safeBody = body
-      .replace(/(Bearer\s+)[a-zA-Z0-9_\-\.]+([a-zA-Z0-9]{4})/gi, '$1***REDACTED***$2')
-      .replace(/(key=)[a-zA-Z0-9_\-\.]+([a-zA-Z0-9]{4})/gi, '$1***REDACTED***$2');
-    console.warn(`[LLM warning] Provider returned HTTP ${res.status}. Falling back to local offline reply. (${safeBody.slice(0, 80)})`);
+      .replace(/(Bearer\s+)[a-zA-Z0-9_.-]+([a-zA-Z0-9]{4})/gi, '$1***REDACTED***$2')
+      .replace(/(key=)[a-zA-Z0-9_.-]+([a-zA-Z0-9]{4})/gi, '$1***REDACTED***$2');
+    console.warn(
+      `[LLM warning] Provider returned HTTP ${res.status}. Falling back to local offline reply. (${safeBody.slice(0, 80)})`
+    );
     return localFallbackReply(messages, userOverride);
   }
 
@@ -107,16 +127,26 @@ export async function getAssistantReply({ provider, apiKey, model, messages, sig
  * Robust response parser: extracts { responseMode, spokenResponse, visualResponse }
  * and passes through deterministic server-side validation & safety enforcement.
  */
-export function parseStructuredResponse(rawText, userQuery = '', history = [], userOverride = null) {
+export function parseStructuredResponse(
+  rawText,
+  userQuery = '',
+  history = [],
+  userOverride = null
+) {
   if (!rawText) {
-    return validateAndEnforceContract({
-      responseMode: 'VOICE',
-      spokenResponse: "Sorry, I lost my train of thought. Could you say that again?",
-      visualResponse: {
-        type: 'text',
-        content: "Sorry, I lost my train of thought. Could you say that again?",
+    return validateAndEnforceContract(
+      {
+        responseMode: 'VOICE',
+        spokenResponse: 'Sorry, I lost my train of thought. Could you say that again?',
+        visualResponse: {
+          type: 'text',
+          content: 'Sorry, I lost my train of thought. Could you say that again?',
+        },
       },
-    }, userQuery, history, userOverride);
+      userQuery,
+      history,
+      userOverride
+    );
   }
 
   // Attempt 1: Robust parser & extractor (handles standard JSON, repaired newlines/quotes, regex)
@@ -130,29 +160,39 @@ export function parseStructuredResponse(rawText, userQuery = '', history = [], u
   if (codeBlockMatch) {
     const lang = codeBlockMatch[1].toLowerCase() || 'code';
     const code = codeBlockMatch[2].trim();
-    return validateAndEnforceContract({
-      responseMode: 'TEXT',
-      spokenResponse: `Done. I've placed the ${lang.toUpperCase()} code in the workspace.`,
-      visualResponse: {
-        type: 'code',
-        language: lang,
-        title: `${lang.toUpperCase()} Implementation`,
-        content: code,
+    return validateAndEnforceContract(
+      {
+        responseMode: 'TEXT',
+        spokenResponse: `Done. I've placed the ${lang.toUpperCase()} code in the workspace.`,
+        visualResponse: {
+          type: 'code',
+          language: lang,
+          title: `${lang.toUpperCase()} Implementation`,
+          content: code,
+        },
       },
-    }, userQuery, history, userOverride);
+      userQuery,
+      history,
+      userOverride
+    );
   }
 
   // Attempt 3: Markdown table detected
   if (rawText.includes('|') && rawText.includes('---')) {
-    return validateAndEnforceContract({
-      responseMode: 'TEXT',
-      spokenResponse: "Here is the comparison table in the workspace.",
-      visualResponse: {
-        type: 'table',
-        title: 'Comparison Table',
-        content: rawText,
+    return validateAndEnforceContract(
+      {
+        responseMode: 'TEXT',
+        spokenResponse: 'Here is the comparison table in the workspace.',
+        visualResponse: {
+          type: 'table',
+          title: 'Comparison Table',
+          content: rawText,
+        },
       },
-    }, userQuery, history, userOverride);
+      userQuery,
+      history,
+      userOverride
+    );
   }
 
   // Attempt 4: General text — ensure we NEVER leak raw JSON strings into visual or spoken channels
@@ -171,19 +211,25 @@ export function parseStructuredResponse(rawText, userQuery = '', history = [], u
     cleanSpoken = cleanSpoken.slice(0, 140) + '…';
   }
 
-  return validateAndEnforceContract({
-    responseMode: 'VOICE',
-    spokenResponse: cleanSpoken,
-    visualResponse: {
-      type: cleanVisual.includes('#') || cleanVisual.includes('*') ? 'markdown' : 'text',
-      content: cleanVisual,
+  return validateAndEnforceContract(
+    {
+      responseMode: 'VOICE',
+      spokenResponse: cleanSpoken,
+      visualResponse: {
+        type: cleanVisual.includes('#') || cleanVisual.includes('*') ? 'markdown' : 'text',
+        content: cleanVisual,
+      },
     },
-  }, userQuery, history, userOverride);
+    userQuery,
+    history,
+    userOverride
+  );
 }
 
 // --- Local, key-free fallback so the app works seamlessly out of the box ---
 export function localFallbackReply(messages, userOverride = null) {
-  const userQuery = messages && messages.length > 0 ? messages[messages.length - 1]?.content || '' : '';
+  const userQuery =
+    messages && messages.length > 0 ? messages[messages.length - 1]?.content || '' : '';
   const last = userQuery.toLowerCase().trim();
 
   const finalize = (obj) => validateAndEnforceContract(obj, userQuery, messages, userOverride);
@@ -203,7 +249,10 @@ export function localFallbackReply(messages, userOverride = null) {
   }
 
   // Code requests -> TEXT
-  if (has('prime', 'prime number', 'is prime', 'is_prime') && (has('python') || hasWord('check') || hasWord('number'))) {
+  if (
+    has('prime', 'prime number', 'is prime', 'is_prime') &&
+    (has('python') || hasWord('check') || hasWord('number'))
+  ) {
     return finalize({
       responseMode: 'TEXT',
       spokenResponse: "Sure — I've prepared the Python prime checker in the workspace.",
@@ -237,10 +286,14 @@ for num in numbers:
     });
   }
 
-  if (has('odd and even', 'odd or even', 'even or odd', 'even and odd', 'odd', 'even') && (has('python') || has('program') || has('code') || has('number'))) {
+  if (
+    has('odd and even', 'odd or even', 'even or odd', 'even and odd', 'odd', 'even') &&
+    (has('python') || has('program') || has('code') || has('number'))
+  ) {
     return finalize({
       responseMode: 'TEXT',
-      spokenResponse: "Done. I've placed the Python program for odd and even numbers in the workspace.",
+      spokenResponse:
+        "Done. I've placed the Python program for odd and even numbers in the workspace.",
       visualResponse: {
         type: 'code',
         language: 'python',
@@ -266,8 +319,8 @@ for num in test_numbers:
     return finalize({
       responseMode: isHybrid ? 'HYBRID' : 'VOICE',
       spokenResponse: isHybrid
-        ? "Recursion breaks problems down by calling the function itself until reaching a base case. Here is an implementation."
-        : "Recursion is a technique where a function calls itself to break down complex problems into smaller subproblems.",
+        ? 'Recursion breaks problems down by calling the function itself until reaching a base case. Here is an implementation.'
+        : 'Recursion is a technique where a function calls itself to break down complex problems into smaller subproblems.',
       visualResponse: {
         type: isHybrid ? 'code' : 'text',
         language: isHybrid ? 'python' : undefined,
@@ -281,13 +334,16 @@ for num in test_numbers:
 
 # Example:
 print("Factorial of 5 is:", factorial(5))  # 120`
-          : "Recursion is a method in computer science where the solution to a problem depends on solutions to smaller instances of the same problem. A recursive function solves a base case directly, and otherwise calls itself with modified input, progressing toward the base case.",
+          : 'Recursion is a method in computer science where the solution to a problem depends on solutions to smaller instances of the same problem. A recursive function solves a base case directly, and otherwise calls itself with modified input, progressing toward the base case.',
       },
     });
   }
 
   // Follow-up: "Now write the Python code for it."
-  if ((has('code for it', 'now write', 'write the python code') && has('python')) || (has('for it') && has('code'))) {
+  if (
+    (has('code for it', 'now write', 'write the python code') && has('python')) ||
+    (has('for it') && has('code'))
+  ) {
     return finalize({
       responseMode: 'TEXT',
       spokenResponse: "Done. I've placed the recursive Python code in the workspace.",
@@ -311,10 +367,12 @@ print("Factorial of 5:", factorial(5))  # Output: 120`,
   if (has('base case', 'why is a base case')) {
     return finalize({
       responseMode: 'VOICE',
-      spokenResponse: "A base case is required to terminate recursive calls and prevent an infinite loop or call stack overflow.",
+      spokenResponse:
+        'A base case is required to terminate recursive calls and prevent an infinite loop or call stack overflow.',
       visualResponse: {
         type: 'text',
-        content: "A base case is the terminating condition in a recursive algorithm that stops further recursive calls and prevents infinite recursion and stack overflow errors.",
+        content:
+          'A base case is the terminating condition in a recursive algorithm that stops further recursive calls and prevents infinite recursion and stack overflow errors.',
       },
     });
   }
@@ -349,7 +407,11 @@ print("Sorted:", quicksort(numbers))`,
   }
 
   // Sliding window algorithm & C++ follow-ups
-  if (has('sliding window') || (has('c++', 'cpp', 'in c++', 'in cpp') && (has('sliding') || has('window') || has('want it in c++') || has('want it in cpp')))) {
+  if (
+    has('sliding window') ||
+    (has('c++', 'cpp', 'in c++', 'in cpp') &&
+      (has('sliding') || has('window') || has('want it in c++') || has('want it in cpp')))
+  ) {
     return finalize({
       responseMode: 'TEXT',
       spokenResponse: "Done. I've written the sliding window algorithm in C++ in the workspace.",
@@ -392,8 +454,15 @@ int main() {
 
   // Follow-up context check: "I want it in C++" or "in C++"
   if (has('c++', 'cpp', 'in c++', 'in cpp', 'want it in c++', 'want it in cpp')) {
-    const prevHistory = (messages || []).map((m) => m.content || '').join(' ').toLowerCase();
-    if (prevHistory.includes('sliding window') || prevHistory.includes('window') || prevHistory.includes('algorithm')) {
+    const prevHistory = (messages || [])
+      .map((m) => m.content || '')
+      .join(' ')
+      .toLowerCase();
+    if (
+      prevHistory.includes('sliding window') ||
+      prevHistory.includes('window') ||
+      prevHistory.includes('algorithm')
+    ) {
       return finalize({
         responseMode: 'TEXT',
         spokenResponse: "Done. I've written the sliding window algorithm in C++ in the workspace.",
@@ -460,7 +529,7 @@ int main() {
   if (has('binary search')) {
     return finalize({
       responseMode: 'TEXT',
-      spokenResponse: "Here is the binary search implementation in the workspace.",
+      spokenResponse: 'Here is the binary search implementation in the workspace.',
       visualResponse: {
         type: 'code',
         language: 'python',
@@ -488,13 +557,13 @@ print("Index of 23:", binary_search(nums, 23))  # 5`,
   }
 
   // Table requests -> TEXT
-  if (has('compare', 'comparison') && (has('c++', 'python', 'java', 'rust', 'table'))) {
+  if (has('compare', 'comparison') && has('c++', 'python', 'java', 'rust', 'table')) {
     const isHybrid = has('recommend', 'better', 'choose');
     return finalize({
       responseMode: isHybrid ? 'HYBRID' : 'TEXT',
       spokenResponse: isHybrid
-        ? "C++ offers maximum speed, while Python provides fast development velocity. Here is the full comparison table."
-        : "Here is the language comparison table in the workspace.",
+        ? 'C++ offers maximum speed, while Python provides fast development velocity. Here is the full comparison table.'
+        : 'Here is the language comparison table in the workspace.',
       visualResponse: {
         type: 'table',
         title: 'Programming Language Comparison',
@@ -510,13 +579,17 @@ print("Index of 23:", binary_search(nums, 23))  # 5`,
   }
 
   // Standard conversational intents -> VOICE
-  if (has('solar system', 'planet', 'planets', 'sun', 'mars', 'earth', 'moon', 'jupiter', 'saturn')) {
+  if (
+    has('solar system', 'planet', 'planets', 'sun', 'mars', 'earth', 'moon', 'jupiter', 'saturn')
+  ) {
     return finalize({
       responseMode: 'VOICE',
-      spokenResponse: "Our solar system has eight planets orbiting the Sun, ranging from rocky inner worlds like Mars to gas giants like Jupiter.",
+      spokenResponse:
+        'Our solar system has eight planets orbiting the Sun, ranging from rocky inner worlds like Mars to gas giants like Jupiter.',
       visualResponse: {
         type: 'text',
-        content: "Our solar system has eight planets orbiting the Sun, ranging from rocky inner worlds like Earth and Mars to massive gas giants like Jupiter and Saturn.",
+        content:
+          'Our solar system has eight planets orbiting the Sun, ranging from rocky inner worlds like Earth and Mars to massive gas giants like Jupiter and Saturn.',
       },
     });
   }
@@ -524,10 +597,12 @@ print("Index of 23:", binary_search(nums, 23))  # 5`,
   if (has('artificial intelligence', 'what is ai')) {
     return finalize({
       responseMode: 'VOICE',
-      spokenResponse: "Artificial intelligence is the science of creating computer systems capable of reasoning, learning, and adapting to solve complex tasks.",
+      spokenResponse:
+        'Artificial intelligence is the science of creating computer systems capable of reasoning, learning, and adapting to solve complex tasks.',
       visualResponse: {
         type: 'text',
-        content: "Artificial intelligence is the science of creating computer systems capable of reasoning, learning, and adapting to solve complex tasks.",
+        content:
+          'Artificial intelligence is the science of creating computer systems capable of reasoning, learning, and adapting to solve complex tasks.',
       },
     });
   }
@@ -535,10 +610,12 @@ print("Index of 23:", binary_search(nums, 23))  # 5`,
   if (has('machine learning')) {
     return finalize({
       responseMode: 'VOICE',
-      spokenResponse: "Machine learning is a subset of AI that allows algorithms to learn patterns directly from data without explicit programming.",
+      spokenResponse:
+        'Machine learning is a subset of AI that allows algorithms to learn patterns directly from data without explicit programming.',
       visualResponse: {
         type: 'text',
-        content: "Machine learning is a subset of AI that allows algorithms to learn patterns directly from data without being explicitly programmed.",
+        content:
+          'Machine learning is a subset of AI that allows algorithms to learn patterns directly from data without being explicitly programmed.',
       },
     });
   }
@@ -546,10 +623,12 @@ print("Index of 23:", binary_search(nums, 23))  # 5`,
   if (has('space', 'universe', 'galaxy', 'star', 'stars')) {
     return finalize({
       responseMode: 'VOICE',
-      spokenResponse: "Space is completely silent, and there are more stars in the observable universe than grains of sand on Earth.",
+      spokenResponse:
+        'Space is completely silent, and there are more stars in the observable universe than grains of sand on Earth.',
       visualResponse: {
         type: 'text',
-        content: "Space is completely silent because there is no air to carry sound, and there are more stars in the observable universe than grains of sand on Earth.",
+        content:
+          'Space is completely silent because there is no air to carry sound, and there are more stars in the observable universe than grains of sand on Earth.',
       },
     });
   }
@@ -557,10 +636,12 @@ print("Index of 23:", binary_search(nums, 23))  # 5`,
   if (has('rime', 'tts')) {
     return finalize({
       responseMode: 'VOICE',
-      spokenResponse: "Rime TTS is an ultra-low-latency speech platform designed for lifelike conversational turn-taking.",
+      spokenResponse:
+        'Rime TTS is an ultra-low-latency speech platform designed for lifelike conversational turn-taking.',
       visualResponse: {
         type: 'text',
-        content: "Rime TTS is an ultra-low-latency, expressive speech synthesis platform designed for lifelike conversational turn-taking.",
+        content:
+          'Rime TTS is an ultra-low-latency, expressive speech synthesis platform designed for lifelike conversational turn-taking.',
       },
     });
   }
@@ -568,10 +649,12 @@ print("Index of 23:", binary_search(nums, 23))  # 5`,
   if (has('barge in', 'interrupt', 'fencing')) {
     return finalize({
       responseMode: 'VOICE',
-      spokenResponse: "Barge-in lets you talk over me anytime. I silence my audio in under two milliseconds and switch immediately to your new thought.",
+      spokenResponse:
+        'Barge-in lets you talk over me anytime. I silence my audio in under two milliseconds and switch immediately to your new thought.',
       visualResponse: {
         type: 'text',
-        content: "Barge-in lets you talk over me anytime. I silence my audio in under two milliseconds and switch immediately to what you just said.",
+        content:
+          'Barge-in lets you talk over me anytime. I silence my audio in under two milliseconds and switch immediately to what you just said.',
       },
     });
   }
@@ -601,10 +684,10 @@ print("Index of 23:", binary_search(nums, 23))  # 5`,
   if (hasWord('joke')) {
     return finalize({
       responseMode: 'VOICE',
-      spokenResponse: "Why did the AI cross the road? To avoid the latency on the other side.",
+      spokenResponse: 'Why did the AI cross the road? To avoid the latency on the other side.',
       visualResponse: {
         type: 'text',
-        content: "Why did the AI cross the road? To avoid the latency on the other side.",
+        content: 'Why did the AI cross the road? To avoid the latency on the other side.',
       },
     });
   }

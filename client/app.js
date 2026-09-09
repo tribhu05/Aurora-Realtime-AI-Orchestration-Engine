@@ -138,7 +138,8 @@
   if (qaHelp) {
     qaHelp.addEventListener('click', () => {
       switchView('home');
-      captionAi.textContent = "“I'm Aurora. Tap the mic or orb to speak. If I'm mid-sentence and you interrupt me, I silence my speech instantly (< 2ms) and answer your new thought!”";
+      captionAi.textContent =
+        "“I'm Aurora. Tap the mic or orb to speak. If I'm mid-sentence and you interrupt me, I silence my speech instantly (< 2ms) and answer your new thought!”";
     });
   }
 
@@ -185,7 +186,8 @@
 
   function toggleInspector(open) {
     if (!inspectorPanel) return;
-    const isClosed = typeof open === 'boolean' ? !open : !inspectorPanel.classList.contains('closed');
+    const isClosed =
+      typeof open === 'boolean' ? !open : !inspectorPanel.classList.contains('closed');
     inspectorPanel.classList.toggle('closed', isClosed);
     if (btnToggleInspector) btnToggleInspector.classList.toggle('active', !isClosed);
     updateBackdrop();
@@ -193,8 +195,9 @@
 
   function updateBackdrop() {
     if (!sidebarBackdrop) return;
-    const anyOpen = (sidebar && !sidebar.classList.contains('closed')) ||
-                    (inspectorPanel && !inspectorPanel.classList.contains('closed'));
+    const anyOpen =
+      (sidebar && !sidebar.classList.contains('closed')) ||
+      (inspectorPanel && !inspectorPanel.classList.contains('closed'));
     sidebarBackdrop.classList.toggle('active', anyOpen && window.innerWidth <= 1080);
   }
 
@@ -235,7 +238,9 @@
     btn.addEventListener('click', () => {
       const theme = btn.dataset.theme;
       applyTheme(theme);
-      try { localStorage.setItem('aurora-theme', theme); } catch (_) {}
+      try {
+        localStorage.setItem('aurora-theme', theme);
+      } catch (_) {}
     });
   });
 
@@ -287,9 +292,13 @@
         currentActiveSpeaker = msg.speaker || 'celeste';
         currentActiveModel = msg.modelId || 'mistv3';
 
-        const ttsLabel = msg.rimeConfigured ? `Rime · ${currentActiveSpeaker}` : 'Browser speech (no Rime key)';
+        const ttsLabel = msg.rimeConfigured
+          ? `Rime · ${currentActiveSpeaker}`
+          : 'Browser speech (no Rime key)';
         dbgTts.textContent = ttsLabel;
-        dbgLlm.textContent = msg.llmConfigured ? `${msg.llmProvider} · ${msg.llmModel}` : 'Offline demo replies';
+        dbgLlm.textContent = msg.llmConfigured
+          ? `${msg.llmProvider} · ${msg.llmModel}`
+          : 'Offline demo replies';
         infoModel.textContent = msg.modelId || 'mistv3';
         infoVoice.textContent = currentActiveSpeaker;
         infoFormat.textContent = msg.audioFormat || 'mp3';
@@ -397,7 +406,12 @@
           chatAreaConv.scrollTop = chatAreaConv.scrollHeight;
         }
 
-        transcript.push({ role: 'assistant', text: `[Task] ${msg.title}`, time: new Date(), generation: msg.generation });
+        transcript.push({
+          role: 'assistant',
+          text: `[Task] ${msg.title}`,
+          time: new Date(),
+          generation: msg.generation,
+        });
         updateWorkspaceState();
         renderHistory();
         break;
@@ -454,7 +468,8 @@
           });
 
           if (msg.files && msg.files.length) {
-            let filesHtml = '<div class="task-files-section"><div class="task-files-title">Files created</div><ul class="task-files-list">';
+            let filesHtml =
+              '<div class="task-files-section"><div class="task-files-title">Files created</div><ul class="task-files-list">';
             msg.files.forEach((f) => {
               filesHtml += `<li>• <code>${escapeHtml(f.name || f.path)}</code></li>`;
             });
@@ -491,7 +506,9 @@
         if (msg.generation < currentGen) {
           stalePacketsDiscarded += 1;
           hudDiscard.textContent = `100% (${stalePacketsDiscarded} stale prevented)`;
-          log(`🛡️ FENCE: Discarded stale audio packet from Gen #${msg.generation} (current: #${currentGen})`);
+          log(
+            `🛡️ FENCE: Discarded stale audio packet from Gen #${msg.generation} (current: #${currentGen})`
+          );
           return;
         }
 
@@ -550,7 +567,9 @@
         flashCancelPill();
 
         captionAi.textContent = '“Interrupted — listening to your new question…”';
-        log(`⚡ Barge-in ACK: Gen #${msg.oldGeneration} cancelled → #${msg.newGeneration} (Mute: ${player.lastMuteLatencyMs}ms)`);
+        log(
+          `⚡ Barge-in ACK: Gen #${msg.oldGeneration} cancelled → #${msg.newGeneration} (Mute: ${player.lastMuteLatencyMs}ms)`
+        );
         break;
       }
 
@@ -653,7 +672,7 @@
     if (!text || !text.trim()) return;
     const cleanText = text.trim();
     if (!wsReady) {
-      captionAi.textContent = "“Still connecting to Aurora server — one second…”";
+      captionAi.textContent = '“Still connecting to Aurora server — one second…”';
       return;
     }
     ws.send(JSON.stringify({ type: 'query', text: cleanText, timestamp: Date.now() }));
@@ -714,7 +733,12 @@
       } catch (_) {}
 
       // Regex fallback extraction
-      if (s.includes('"spoken"') || s.includes('"spokenResponse"') || s.includes('"content"') || s.includes('"type"')) {
+      if (
+        s.includes('"spoken"') ||
+        s.includes('"spokenResponse"') ||
+        s.includes('"content"') ||
+        s.includes('"type"')
+      ) {
         const extracted = {};
         const mode = s.match(/"responseMode"\s*:\s*"([A-Za-z]+)"/i);
         if (mode) extracted.responseMode = mode[1].toUpperCase();
@@ -738,7 +762,8 @@
           const endSearch = lastBrace !== -1 ? lastBrace : s.length;
           const lastQuote = s.lastIndexOf('"', endSearch - 1);
           if (lastQuote > startIndex) {
-            extracted.content = s.slice(startIndex, lastQuote)
+            extracted.content = s
+              .slice(startIndex, lastQuote)
               .replace(/\\n/g, '\n')
               .replace(/\\r/g, '\r')
               .replace(/\\t/g, '\t')
@@ -755,8 +780,10 @@
     const parsedText = tryParseJson(text);
     if (parsedText) {
       if (parsedText.spoken && !meta.spoken) meta.spoken = parsedText.spoken;
-      if (parsedText.spokenResponse && !meta.spokenResponse) meta.spokenResponse = parsedText.spokenResponse;
-      if (parsedText.responseMode && !meta.responseMode) meta.responseMode = parsedText.responseMode;
+      if (parsedText.spokenResponse && !meta.spokenResponse)
+        meta.spokenResponse = parsedText.spokenResponse;
+      if (parsedText.responseMode && !meta.responseMode)
+        meta.responseMode = parsedText.responseMode;
       if (parsedText.type && !meta.visualType) meta.visualType = parsedText.type;
       if (parsedText.language && !meta.language) meta.language = parsedText.language;
       if (parsedText.title && !meta.title) meta.title = parsedText.title;
@@ -798,13 +825,19 @@
     // 4. Format detection & normalization
     let visualType = meta.visualType || meta.type || 'text';
     if (visualType === 'text') {
-      if (/(?:^|\b)(?:#include\s*<|def\s+\w+\s*\(|function\s+\w+\s*\(|const\s+\w+\s*=|class\s+\w+|std::|int\s+main\s*\()/m.test(text) ||
-          /^```[a-zA-Z0-9_-]*\n[\s\S]*?```$/m.test(text.trim())) {
+      if (
+        /(?:^|\b)(?:#include\s*<|def\s+\w+\s*\(|function\s+\w+\s*\(|const\s+\w+\s*=|class\s+\w+|std::|int\s+main\s*\()/m.test(
+          text
+        ) ||
+        /^```[a-zA-Z0-9_-]*\n[\s\S]*?```$/m.test(text.trim())
+      ) {
         visualType = 'code';
         if (!meta.language) {
-          if (text.includes('#include') || text.includes('std::') || text.includes('cout')) meta.language = 'cpp';
+          if (text.includes('#include') || text.includes('std::') || text.includes('cout'))
+            meta.language = 'cpp';
           else if (text.includes('def ') || text.includes('import numpy')) meta.language = 'python';
-          else if (text.includes('function ') || text.includes('console.log')) meta.language = 'javascript';
+          else if (text.includes('function ') || text.includes('console.log'))
+            meta.language = 'javascript';
         }
       } else if (/\|[^\n]+\|\n\|[-:\s|]+\|/m.test(text)) {
         visualType = 'table';
@@ -826,9 +859,11 @@
     let spoken = meta.spokenResponse || meta.spoken || '';
     if (!spoken || spoken.trim().startsWith('{') || spoken.includes('"spoken"')) {
       if (visualType === 'code') {
-        spoken = meta.title ? `Done. I've placed ${meta.title} in the workspace.` : "Done. I've placed the code implementation in the workspace.";
+        spoken = meta.title
+          ? `Done. I've placed ${meta.title} in the workspace.`
+          : "Done. I've placed the code implementation in the workspace.";
       } else if (visualType === 'table') {
-        spoken = "Here is the comparison table in the workspace.";
+        spoken = 'Here is the comparison table in the workspace.';
       } else {
         spoken = "I've placed the response in the workspace.";
       }
@@ -852,7 +887,7 @@
       const cleanText = norm.text;
       const cleanMeta = norm.meta;
       const visualType = cleanMeta.visualType || 'text';
-      let contentHtml = '';
+      let contentHtml;
 
       if (visualType === 'code' && window.AuroraHighlighter) {
         row.classList.add('has-rich-content');
@@ -871,7 +906,9 @@
         contentHtml = `<div class="bubble-text">${escapeHtml(cleanText)}</div>`;
       }
 
-      const rawMode = String(cleanMeta.responseMode || (visualType === 'text' ? 'VOICE' : 'TEXT')).toUpperCase();
+      const rawMode = String(
+        cleanMeta.responseMode || (visualType === 'text' ? 'VOICE' : 'TEXT')
+      ).toUpperCase();
       let modeLabel = 'Speaking';
       let modeClass = 'modality-voice';
       if (rawMode === 'TEXT') {
@@ -999,7 +1036,8 @@
     transcript = [];
     chatArea.innerHTML = '';
     if (chatAreaConv) chatAreaConv.innerHTML = '';
-    captionAi.textContent = '“Welcome. Tap the orb or mic to speak — you can interrupt me anytime, mid-sentence.”';
+    captionAi.textContent =
+      '“Welcome. Tap the orb or mic to speak — you can interrupt me anytime, mid-sentence.”';
     if (captionUser) captionUser.style.display = 'none';
     if (cancelPill) cancelPill.classList.remove('show');
     historyList.innerHTML = '';
@@ -1011,7 +1049,8 @@
 
   if (btnExportHistory) {
     btnExportHistory.addEventListener('click', () => {
-      const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(transcript, null, 2));
+      const dataStr =
+        'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(transcript, null, 2));
       const a = document.createElement('a');
       a.href = dataStr;
       a.download = `aurora-transcript-${Date.now()}.json`;
@@ -1027,27 +1066,33 @@
 
     if (next === 'listening') {
       orbStateTag.textContent = 'Listening · Blue Wave';
-      micBtn.classList.add('active'); micBtn.classList.remove('thinking');
+      micBtn.classList.add('active');
+      micBtn.classList.remove('thinking');
       micStatusPill.classList.add('active-listening');
-      micStatusTitle.textContent = 'Listening…'; micStatusSub.textContent = 'Say something';
+      micStatusTitle.textContent = 'Listening…';
+      micStatusSub.textContent = 'Say something';
       micStatusDot.className = 'dot dot-listening';
     } else if (next === 'thinking') {
       orbStateTag.textContent = 'Thinking · Amber Energy';
-      micBtn.classList.remove('active'); micBtn.classList.add('thinking');
+      micBtn.classList.remove('active');
+      micBtn.classList.add('thinking');
       micStatusPill.classList.remove('active-listening');
-      micStatusTitle.textContent = 'Thinking…'; micStatusSub.textContent = 'Processing your request';
+      micStatusTitle.textContent = 'Thinking…';
+      micStatusSub.textContent = 'Processing your request';
       micStatusDot.className = 'dot dot-thinking';
     } else if (next === 'speaking') {
       orbStateTag.textContent = 'Speaking · Green Pulse';
       micBtn.classList.remove('active', 'thinking');
       micStatusPill.classList.remove('active-listening');
-      micStatusTitle.textContent = 'Aurora is speaking'; micStatusSub.textContent = 'Jump in anytime';
+      micStatusTitle.textContent = 'Aurora is speaking';
+      micStatusSub.textContent = 'Jump in anytime';
       micStatusDot.className = 'dot dot-speaking';
     } else if (next === 'idle') {
       orbStateTag.textContent = 'Idle · Violet Aura';
       micBtn.classList.remove('active', 'thinking');
       micStatusPill.classList.remove('active-listening');
-      micStatusTitle.textContent = 'Tap to Speak'; micStatusSub.textContent = 'Click mic or orb to start';
+      micStatusTitle.textContent = 'Tap to Speak';
+      micStatusSub.textContent = 'Click mic or orb to start';
       micStatusDot.className = 'dot dot-idle';
     }
   }
@@ -1058,15 +1103,22 @@
       const li = stepper.querySelector(`[data-step="${stepName}"]`);
       if (!li) return;
       if (stepName === key) {
-        li.classList.add('active'); li.classList.remove('done');
+        li.classList.add('active');
+        li.classList.remove('done');
         startStepTimer(stepName);
       } else {
         li.classList.remove('active');
-        stopStepTimer(stepName, stepName !== 'complete' && key && orderIndex(stepName) < orderIndex(key));
+        stopStepTimer(
+          stepName,
+          stepName !== 'complete' && key && orderIndex(stepName) < orderIndex(key)
+        );
       }
     });
     if (next === 'complete') {
-      setTimeout(() => stepper.querySelector('[data-step="complete"]').classList.remove('active'), 1200);
+      setTimeout(
+        () => stepper.querySelector('[data-step="complete"]').classList.remove('active'),
+        1200
+      );
     }
   }
 
@@ -1109,7 +1161,9 @@
   }
 
   if (btnClearLog) {
-    btnClearLog.addEventListener('click', () => { debugLog.innerHTML = ''; });
+    btnClearLog.addEventListener('click', () => {
+      debugLog.innerHTML = '';
+    });
   }
 
   // ---------- Controls ----------
@@ -1237,7 +1291,7 @@
         speakWithBrowser(`Hi! This is ${speakerId} testing voice synthesis.`);
         if (ttsPreviewStatus) ttsPreviewStatus.textContent = `Played in browser fallback`;
       }
-    } catch (err) {
+    } catch (_err) {
       speakWithBrowser(`Hi! This is ${speakerId} testing voice synthesis.`);
       if (ttsPreviewStatus) ttsPreviewStatus.textContent = `Fallback audio played`;
     }
@@ -1322,7 +1376,7 @@
             llmStatusMsg.textContent = data.error || 'Failed to activate key.';
           }
         }
-      } catch (err) {
+      } catch (_err) {
         if (llmStatusMsg) {
           llmStatusMsg.style.color = '#fca5a5';
           llmStatusMsg.textContent = 'Error connecting key.';
@@ -1355,13 +1409,16 @@
           log('⚡ FIRING USER BARGE-IN MID-FLIGHT!');
           bargeIn();
           captionUser.textContent = 'Wait! Tell me about machine learning instead.';
-          captionAi.textContent = '“Barge-in triggered — cancelling Gen #1 and switching to Machine Learning…”';
+          captionAi.textContent =
+            '“Barge-in triggered — cancelling Gen #1 and switching to Machine Learning…”';
 
           sendQuery('Wait! Tell me about machine learning instead.');
 
           setTimeout(() => {
             isRunningAutomatedTest = false;
-            log('🎉 INTERACTIVE TEST COMPLETED: Generation fenced and new answer synthesized cleanly!');
+            log(
+              '🎉 INTERACTIVE TEST COMPLETED: Generation fenced and new answer synthesized cleanly!'
+            );
           }, 4000);
         }, 1100);
       }
@@ -1375,9 +1432,16 @@
   }
 
   function escapeHtml(s) {
-    return String(s).replace(/[&<>"']/g, (c) => ({
-      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-    }[c]));
+    return String(s).replace(
+      /[&<>"']/g,
+      (c) =>
+        ({
+          '&': '&amp;',
+          '<': '&lt;',
+          '>': '&gt;',
+          '"': '&quot;',
+          "'": '&#39;',
+        })[c]
+    );
   }
 })();
-

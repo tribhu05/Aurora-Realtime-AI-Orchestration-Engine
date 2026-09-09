@@ -8,28 +8,28 @@
 
 const THEME_PALETTES = {
   aurora: {
-    idle:      { core: [140, 150, 255], outer: [99, 102, 241], aura: [192, 132, 252] }, // Bright Violet & Indigo
-    listening: { core: [0, 229, 255],   outer: [14, 165, 233], aura: [56, 189, 248] },   // Bright Laser Cyan
-    thinking:  { core: [255, 183, 3],   outer: [245, 158, 11], aura: [251, 191, 36] },   // Bright Solar Amber
-    speaking:  { core: [0, 245, 155],   outer: [16, 185, 129], aura: [52, 211, 153] },   // Bright Vivid Mint Green
+    idle: { core: [140, 150, 255], outer: [99, 102, 241], aura: [192, 132, 252] }, // Bright Violet & Indigo
+    listening: { core: [0, 229, 255], outer: [14, 165, 233], aura: [56, 189, 248] }, // Bright Laser Cyan
+    thinking: { core: [255, 183, 3], outer: [245, 158, 11], aura: [251, 191, 36] }, // Bright Solar Amber
+    speaking: { core: [0, 245, 155], outer: [16, 185, 129], aura: [52, 211, 153] }, // Bright Vivid Mint Green
   },
   titanium: {
-    idle:      { core: [245, 158, 11],  outer: [217, 119, 6],  aura: [251, 191, 36] },   // Champagne Gold
-    listening: { core: [254, 240, 138], outer: [250, 204, 21], aura: [253, 224, 71] },   // Bright Canary
-    thinking:  { core: [251, 191, 36],  outer: [217, 119, 6],  aura: [254, 240, 138] },  // Solar Gold
-    speaking:  { core: [253, 230, 138], outer: [245, 158, 11], aura: [251, 191, 36] },  // Warm Bright Pearl
+    idle: { core: [245, 158, 11], outer: [217, 119, 6], aura: [251, 191, 36] }, // Champagne Gold
+    listening: { core: [254, 240, 138], outer: [250, 204, 21], aura: [253, 224, 71] }, // Bright Canary
+    thinking: { core: [251, 191, 36], outer: [217, 119, 6], aura: [254, 240, 138] }, // Solar Gold
+    speaking: { core: [253, 230, 138], outer: [245, 158, 11], aura: [251, 191, 36] }, // Warm Bright Pearl
   },
   cyber: {
-    idle:      { core: [96, 165, 250],  outer: [37, 99, 235],  aura: [147, 197, 253] },  // Bright Ice Blue
-    listening: { core: [0, 240, 255],   outer: [6, 182, 212],  aura: [103, 232, 249] },  // Laser Cyan
-    thinking:  { core: [216, 180, 254], outer: [168, 85, 247], aura: [233, 213, 255] }, // Bright Neon Violet
-    speaking:  { core: [52, 211, 153],  outer: [16, 185, 129], aura: [110, 231, 183] }, // Electric Mint
+    idle: { core: [96, 165, 250], outer: [37, 99, 235], aura: [147, 197, 253] }, // Bright Ice Blue
+    listening: { core: [0, 240, 255], outer: [6, 182, 212], aura: [103, 232, 249] }, // Laser Cyan
+    thinking: { core: [216, 180, 254], outer: [168, 85, 247], aura: [233, 213, 255] }, // Bright Neon Violet
+    speaking: { core: [52, 211, 153], outer: [16, 185, 129], aura: [110, 231, 183] }, // Electric Mint
   },
   emerald: {
-    idle:      { core: [16, 185, 129],  outer: [5, 150, 105],  aura: [52, 211, 153] },   // Bright Imperial Jade
-    listening: { core: [45, 212, 191],  outer: [20, 184, 166], aura: [94, 234, 212] },   // Bright Turquoise
-    thinking:  { core: [251, 191, 36],  outer: [245, 158, 11], aura: [252, 211, 77] },   // Solar Amber
-    speaking:  { core: [74, 222, 128],  outer: [34, 197, 94],  aura: [134, 239, 172] },  // Bright Spring Mint
+    idle: { core: [16, 185, 129], outer: [5, 150, 105], aura: [52, 211, 153] }, // Bright Imperial Jade
+    listening: { core: [45, 212, 191], outer: [20, 184, 166], aura: [94, 234, 212] }, // Bright Turquoise
+    thinking: { core: [251, 191, 36], outer: [245, 158, 11], aura: [252, 211, 77] }, // Solar Amber
+    speaking: { core: [74, 222, 128], outer: [34, 197, 94], aura: [134, 239, 172] }, // Bright Spring Mint
   },
 };
 
@@ -125,7 +125,6 @@ class AuroraOrb {
 
     const coreColor = `rgba(${Math.round(this.curCore[0])}, ${Math.round(this.curCore[1])}, ${Math.round(this.curCore[2])}, 0.95)`;
     const outerColor = `rgba(${Math.round(this.curOuter[0])}, ${Math.round(this.curOuter[1])}, ${Math.round(this.curOuter[2])}, 0.65)`;
-    const auraColor = `rgba(${Math.round(this.curAura[0])}, ${Math.round(this.curAura[1])}, ${Math.round(this.curAura[2])}, 0.22)`;
 
     // Audio reactivity
     let audioAmp = 0;
@@ -140,8 +139,18 @@ class AuroraOrb {
     const currentRadius = this.baseRadius + breath + audioAmp * 32;
 
     // 1. Crisp Rim Glow (Subtle, non-diffuse)
-    const auraGrad = ctx.createRadialGradient(cx, cy, currentRadius * 0.95, cx, cy, currentRadius * 1.3);
-    auraGrad.addColorStop(0, `rgba(${Math.round(this.curAura[0])}, ${Math.round(this.curAura[1])}, ${Math.round(this.curAura[2])}, 0.12)`);
+    const auraGrad = ctx.createRadialGradient(
+      cx,
+      cy,
+      currentRadius * 0.95,
+      cx,
+      cy,
+      currentRadius * 1.3
+    );
+    auraGrad.addColorStop(
+      0,
+      `rgba(${Math.round(this.curAura[0])}, ${Math.round(this.curAura[1])}, ${Math.round(this.curAura[2])}, 0.12)`
+    );
     auraGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
     ctx.fillStyle = auraGrad;
     ctx.beginPath();
@@ -172,8 +181,9 @@ class AuroraOrb {
       // Multi-frequency wave deformation
       let deform = 0;
       if (this.state === 'speaking') {
-        deform = Math.sin(angle * 5 + this.t * 4) * (audioAmp * 12) +
-                 Math.cos(angle * 3 - this.t * 3) * (audioAmp * 8);
+        deform =
+          Math.sin(angle * 5 + this.t * 4) * (audioAmp * 12) +
+          Math.cos(angle * 3 - this.t * 3) * (audioAmp * 8);
       } else if (this.state === 'thinking') {
         deform = Math.sin(angle * 4 + this.t * 6) * 5;
       } else if (this.state === 'listening') {
@@ -191,13 +201,20 @@ class AuroraOrb {
     const lightOffsetX = cx - currentRadius * 0.3;
     const lightOffsetY = cy - currentRadius * 0.35;
     const sphereGrad = ctx.createRadialGradient(
-      lightOffsetX, lightOffsetY, currentRadius * 0.08,
-      cx, cy, currentRadius * 1.15
+      lightOffsetX,
+      lightOffsetY,
+      currentRadius * 0.08,
+      cx,
+      cy,
+      currentRadius * 1.15
     );
     sphereGrad.addColorStop(0, '#ffffff');
     sphereGrad.addColorStop(0.25, coreColor);
     sphereGrad.addColorStop(0.7, outerColor);
-    sphereGrad.addColorStop(1, `rgba(${Math.round(this.curOuter[0] * 0.4)}, ${Math.round(this.curOuter[1] * 0.4)}, ${Math.round(this.curOuter[2] * 0.4)}, 0.98)`);
+    sphereGrad.addColorStop(
+      1,
+      `rgba(${Math.round(this.curOuter[0] * 0.4)}, ${Math.round(this.curOuter[1] * 0.4)}, ${Math.round(this.curOuter[2] * 0.4)}, 0.98)`
+    );
 
     ctx.fillStyle = sphereGrad;
     // Crisp edge definition without fuzzy blur
@@ -209,7 +226,13 @@ class AuroraOrb {
     // 4. Inner Crisp Highlight Arc (Clean specular glint)
     ctx.save();
     ctx.beginPath();
-    ctx.arc(cx - currentRadius * 0.15, cy - currentRadius * 0.2, currentRadius * 0.55, -Math.PI * 0.8, -Math.PI * 0.2);
+    ctx.arc(
+      cx - currentRadius * 0.15,
+      cy - currentRadius * 0.2,
+      currentRadius * 0.55,
+      -Math.PI * 0.8,
+      -Math.PI * 0.2
+    );
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.65)';
     ctx.lineWidth = 3;
     ctx.lineCap = 'round';

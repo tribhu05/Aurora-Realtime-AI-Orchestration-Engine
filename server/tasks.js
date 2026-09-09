@@ -9,10 +9,20 @@ export function isTaskRequest(text) {
   if (!text || typeof text !== 'string') return false;
   const t = text.toLowerCase();
   const taskKeywords = [
-    'create an express', 'create express', 'scaffold express', 'build express',
-    'setup express', 'set up express', 'generate express', 'rest api in typescript',
-    'rest api in javascript', 'scaffold a project', 'scaffold api', 'create a rest api',
-    'scaffold a rest api', 'create rest api'
+    'create an express',
+    'create express',
+    'scaffold express',
+    'build express',
+    'setup express',
+    'set up express',
+    'generate express',
+    'rest api in typescript',
+    'rest api in javascript',
+    'scaffold a project',
+    'scaffold api',
+    'create a rest api',
+    'scaffold a rest api',
+    'create rest api',
   ];
   return taskKeywords.some((k) => t.includes(k));
 }
@@ -30,7 +40,34 @@ function delay(ms, signal) {
   });
 }
 
-export async function executeScaffoldTask({ ws, state, myGen, userText, signal, send, rimeConfig }) {
+/**
+ * Executes a multi-stage project scaffolding workflow with real-time WebSocket streaming,
+ * generation fencing, and mid-flight cancellation checkpoints via AbortSignal.
+ *
+ * Fencing Invariant:
+ * Every staging step verifies `if (signal.aborted || state.generation !== myGen) return;`
+ * before and after async delays, ensuring that an interrupted scaffolding sequence
+ * immediately stops execution and suppresses subsequent file creation or UI progress events.
+ *
+ * @param {object} params - Scaffolding task parameters.
+ * @param {import('ws').WebSocket} params.ws - Target WebSocket connection.
+ * @param {object} params.state - Stateful connection context tracking active generation.
+ * @param {number} params.myGen - Monotonic generation epoch assigned to this task turn.
+ * @param {string} params.userText - User's prompt defining language/framework preferences.
+ * @param {AbortSignal} params.signal - Cancellation signal tied to turn's AbortController.
+ * @param {(ws: any, obj: any) => void} params.send - Safe WebSocket message dispatcher.
+ * @param {object} params.rimeConfig - Rime TTS voice and model settings for spoken announcements.
+ * @returns {Promise<void>} Resolves when scaffolding completes or is fenced.
+ */
+export async function executeScaffoldTask({
+  ws,
+  state,
+  myGen,
+  userText,
+  signal,
+  send,
+  rimeConfig,
+}) {
   const isTs = /\b(typescript|ts)\b/i.test(userText);
   const isTodo = /\b(todo|todos)\b/i.test(userText);
   const flavor = isTs ? 'TypeScript' : 'JavaScript';
@@ -132,9 +169,21 @@ export async function executeScaffoldTask({ ws, state, myGen, userText, signal, 
   const resourceName = isTodo ? 'todos' : 'items';
   const filesList = [
     { name: 'package.json', path: 'package.json', type: 'config' },
-    { name: isTs ? 'tsconfig.json' : '.env', path: isTs ? 'tsconfig.json' : '.env', type: 'config' },
-    { name: isTs ? 'src/server.ts' : 'server.js', path: isTs ? 'src/server.ts' : 'server.js', type: 'entrypoint' },
-    { name: isTs ? `src/routes/${resourceName}.ts` : `routes/${resourceName}.js`, path: isTs ? `src/routes/${resourceName}.ts` : `routes/${resourceName}.js`, type: 'route' },
+    {
+      name: isTs ? 'tsconfig.json' : '.env',
+      path: isTs ? 'tsconfig.json' : '.env',
+      type: 'config',
+    },
+    {
+      name: isTs ? 'src/server.ts' : 'server.js',
+      path: isTs ? 'src/server.ts' : 'server.js',
+      type: 'entrypoint',
+    },
+    {
+      name: isTs ? `src/routes/${resourceName}.ts` : `routes/${resourceName}.js`,
+      path: isTs ? `src/routes/${resourceName}.ts` : `routes/${resourceName}.js`,
+      type: 'route',
+    },
   ];
 
   // 5. Emit task_complete event

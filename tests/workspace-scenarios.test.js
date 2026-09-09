@@ -63,7 +63,9 @@ function runScenario(query, timeoutMs = 12000) {
 }
 
 test('Workspace Scenario 1: Python Prime Checker generates code block', async () => {
-  const { aiText } = await runScenario('Write a Python program to check whether a number is prime.');
+  const { aiText } = await runScenario(
+    'Write a Python program to check whether a number is prime.'
+  );
   assert.ok(aiText, 'Received ai_text response');
   assert.equal(aiText.visualType, 'code', 'Visual type must be code');
   assert.equal(aiText.language, 'python', 'Language must be python');
@@ -77,8 +79,8 @@ test('Workspace Scenario 2: Binary Search Concept generates clean concept explan
   assert.ok(aiText, 'Received ai_text response');
   assert.ok(
     aiText.text.toLowerCase().includes('binary_search') ||
-    aiText.text.toLowerCase().includes('binary search') ||
-    aiText.spoken.toLowerCase().includes('binary search'),
+      aiText.text.toLowerCase().includes('binary search') ||
+      aiText.spoken.toLowerCase().includes('binary search'),
     'Explanation text covers binary search'
   );
   assert.ok(!aiText.spoken.startsWith('{'), 'Spoken audio never leaks raw JSON');

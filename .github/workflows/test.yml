@@ -28,5 +28,11 @@ jobs:
       - name: Install Dependencies
         run: npm ci
 
+      - name: Lint Codebase (ESLint)
+        run: npm run lint
+
+      - name: Verify Code Formatting (Prettier)
+        run: npm run format:check
+
       - name: Run Test Suite (Zero Secrets / Mock Mode)
         run: npm test

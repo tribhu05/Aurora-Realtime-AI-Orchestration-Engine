@@ -40,7 +40,9 @@ class AuroraAudioPlayer {
       this.gainNode.gain.setValueAtTime(0, this.ctx.currentTime);
     } catch (_) {}
     if (this.sourceNode) {
-      try { this.sourceNode.stop(0); } catch (_) {}
+      try {
+        this.sourceNode.stop(0);
+      } catch (_) {}
       this.sourceNode.disconnect();
       this.sourceNode = null;
     }

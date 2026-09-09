@@ -106,11 +106,13 @@ test('Security & Validation - Sanitizes update_config against injection strings'
         const msg = JSON.parse(raw.toString());
         if (msg.type === 'handshake') {
           // Send malicious speaker string
-          ws.send(JSON.stringify({
-            type: 'update_config',
-            speaker: '<script>alert(1)</script>',
-            modelId: '../../etc/passwd',
-          }));
+          ws.send(
+            JSON.stringify({
+              type: 'update_config',
+              speaker: '<script>alert(1)</script>',
+              modelId: '../../etc/passwd',
+            })
+          );
         }
 
         if (msg.type === 'config_updated') {
@@ -148,7 +150,13 @@ test('Security & Validation - Resilient against rapid double-interrupts', async 
         const msg = JSON.parse(raw.toString());
 
         if (msg.type === 'handshake') {
-          ws.send(JSON.stringify({ type: 'query', text: 'Explain gravity in detail', timestamp: Date.now() }));
+          ws.send(
+            JSON.stringify({
+              type: 'query',
+              text: 'Explain gravity in detail',
+              timestamp: Date.now(),
+            })
+          );
         }
 
         if (msg.type === 'thinking') {
@@ -180,11 +188,17 @@ test('Security & Validation - Clean abort on abrupt client disconnect mid-flight
   const ws = new WebSocket(`ws://localhost:${port}`);
 
   try {
-    await new Promise((resolve, reject) => {
+    await new Promise((resolve) => {
       ws.on('message', (raw) => {
         const msg = JSON.parse(raw.toString());
         if (msg.type === 'handshake') {
-          ws.send(JSON.stringify({ type: 'query', text: 'Explain general relativity', timestamp: Date.now() }));
+          ws.send(
+            JSON.stringify({
+              type: 'query',
+              text: 'Explain general relativity',
+              timestamp: Date.now(),
+            })
+          );
         }
 
         if (msg.type === 'thinking') {

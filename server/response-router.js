@@ -12,9 +12,9 @@ export const RESPONSE_MODES = {
 
 // Spoken word count limits by modality
 export const SPOKEN_BUDGETS = {
-  VOICE: 35,     // Natural, concise conversational answer (max ~40 words)
-  TEXT: 20,      // Brief acknowledgement confirming content is in workspace
-  HYBRID: 25,    // High-level conceptual summary or recommendation (10-25 words)
+  VOICE: 35, // Natural, concise conversational answer (max ~40 words)
+  TEXT: 20, // Brief acknowledgement confirming content is in workspace
+  HYBRID: 25, // High-level conceptual summary or recommendation (10-25 words)
 };
 
 /**
@@ -34,10 +34,14 @@ export function containsStructuredContent(text) {
   if (/^#{1,4}\s+/m.test(text)) return true;
 
   // JSON objects or arrays
-  if (/^\s*[\{\[][\s\S]*[\}\]]\s*$/.test(text.trim())) return true;
+  if (/^\s*[{[][\s\S]*[}\]]\s*$/.test(text.trim())) return true;
 
   // Common programming constructs
-  if (/(?:^|\b)(?:def\s+\w+\s*\(|function\s+\w+\s*\(|const\s+\w+\s*=|let\s+\w+\s*=|var\s+\w+\s*=|class\s+\w+\s*[{:]|int\s+main\s*\(|public:\s*|std::|SELECT\s+[\w*]+\s+FROM|#include\s*<)/i.test(text)) {
+  if (
+    /(?:^|\b)(?:def\s+\w+\s*\(|function\s+\w+\s*\(|const\s+\w+\s*=|let\s+\w+\s*=|var\s+\w+\s*=|class\s+\w+\s*[{:]|int\s+main\s*\(|public:\s*|std::|SELECT\s+[\w*]+\s+FROM|#include\s*<)/i.test(
+      text
+    )
+  ) {
     return true;
   }
 
@@ -64,7 +68,7 @@ export function enforceSpokenBudget(spokenText, mode = 'VOICE') {
     .replace(/```[\s\S]*?```/g, '')
     .replace(/`([^`]+)`/g, '$1')
     .replace(/[*#_~]/g, '')
-    .replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
     .replace(/\|/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -124,24 +128,35 @@ export function deterministicClassify(userText, history = []) {
 
   // 1. Task Scaffolding Intent -> HYBRID
   const taskPatterns = [
-    'create an express', 'scaffold express', 'build express', 'setup express',
-    'scaffold api', 'create a rest api', 'create a todo app', 'create todo app',
-    'scaffold a project'
+    'create an express',
+    'scaffold express',
+    'build express',
+    'setup express',
+    'scaffold api',
+    'create a rest api',
+    'create a todo app',
+    'create todo app',
+    'scaffold a project',
   ];
   if (taskPatterns.some((p) => t.includes(p))) {
     return RESPONSE_MODES.HYBRID;
   }
 
   // 2. Code + Explanation Combination -> HYBRID
-  const hasCodeIntent = /\b(code|program|script|implementation|function|algorithm|class|sql|query|endpoint)\b/i.test(t);
-  const hasExplanationIntent = /\b(explain|why|how|concept|overview|walkthrough|describe|recommend|comparison)\b/i.test(t);
+  const hasCodeIntent =
+    /\b(code|program|script|implementation|function|algorithm|class|sql|query|endpoint)\b/i.test(t);
+  const hasExplanationIntent =
+    /\b(explain|why|how|concept|overview|walkthrough|describe|recommend|comparison)\b/i.test(t);
 
   if (hasCodeIntent && hasExplanationIntent) {
     return RESPONSE_MODES.HYBRID;
   }
 
   // 3. Comparison with recommendation -> HYBRID
-  if (/\b(compare|versus|vs)\b/i.test(t) && /\b(recommend|which is better|pros and cons|choose)\b/i.test(t)) {
+  if (
+    /\b(compare|versus|vs)\b/i.test(t) &&
+    /\b(recommend|which is better|pros and cons|choose)\b/i.test(t)
+  ) {
     return RESPONSE_MODES.HYBRID;
   }
 
@@ -166,14 +181,19 @@ export function deterministicClassify(userText, history = []) {
   }
 
   // 7. Large Lists / Multi-step Documentation -> TEXT
-  if (/\b(10|5|list of|interview questions|steps to|guide to|documentation for)\b/i.test(t) && !/\b(brief|quick|short)\b/i.test(t)) {
+  if (
+    /\b(10|5|list of|interview questions|steps to|guide to|documentation for)\b/i.test(t) &&
+    !/\b(brief|quick|short)\b/i.test(t)
+  ) {
     return RESPONSE_MODES.TEXT;
   }
 
   // 8. Follow-up intent resolution based on context
   if (history && history.length > 0) {
-    const lastUserTurn = history.filter((h) => h.role === 'user').slice(-2);
-    if (/\b(now give me the code|now implement|give me the implementation|show the code)\b/i.test(t)) {
+    const _recentUserTurns = history.filter((h) => h.role === 'user').slice(-2);
+    if (
+      /\b(now give me the code|now implement|give me the implementation|show the code)\b/i.test(t)
+    ) {
       return RESPONSE_MODES.TEXT;
     }
     if (/\b(why does this work|why\?|why does the middle element matter)\b/i.test(t)) {
@@ -219,23 +239,27 @@ export function unwrapNestedJson(obj) {
   const targetContent = obj.content || obj.visualResponse?.content;
   if (typeof targetContent === 'string') {
     const trimmed = targetContent.trim();
-    if (trimmed.startsWith('{') && (
-      trimmed.includes('"spoken"') ||
-      trimmed.includes('"content"') ||
-      trimmed.includes('"type"') ||
-      trimmed.includes('"visualResponse"') ||
-      trimmed.includes('"responseMode"')
-    )) {
+    if (
+      trimmed.startsWith('{') &&
+      (trimmed.includes('"spoken"') ||
+        trimmed.includes('"content"') ||
+        trimmed.includes('"type"') ||
+        trimmed.includes('"visualResponse"') ||
+        trimmed.includes('"responseMode"'))
+    ) {
       const parsedInner = safeParseOrExtract(trimmed);
       if (parsedInner && typeof parsedInner === 'object') {
         if (parsedInner.spoken && !obj.spoken) obj.spoken = parsedInner.spoken;
-        if (parsedInner.spokenResponse && !obj.spokenResponse) obj.spokenResponse = parsedInner.spokenResponse;
-        if (parsedInner.responseMode && !obj.responseMode) obj.responseMode = parsedInner.responseMode;
+        if (parsedInner.spokenResponse && !obj.spokenResponse)
+          obj.spokenResponse = parsedInner.spokenResponse;
+        if (parsedInner.responseMode && !obj.responseMode)
+          obj.responseMode = parsedInner.responseMode;
 
         const innerType = parsedInner.visualResponse?.type || parsedInner.type;
         const innerLang = parsedInner.visualResponse?.language || parsedInner.language;
         const innerTitle = parsedInner.visualResponse?.title || parsedInner.title;
-        const innerContent = parsedInner.visualResponse?.content || parsedInner.content || parsedInner.text;
+        const innerContent =
+          parsedInner.visualResponse?.content || parsedInner.content || parsedInner.text;
 
         if (obj.visualResponse && typeof obj.visualResponse === 'object') {
           if (innerType) obj.visualResponse.type = innerType;
@@ -272,14 +296,14 @@ export function safeParseOrExtract(rawText) {
   if (clean.endsWith('```')) clean = clean.slice(0, -3);
   clean = clean.trim();
 
-  const looksLikeJson = clean.startsWith('{') && (
-    clean.includes('"spoken"') ||
-    clean.includes('"spokenResponse"') ||
-    clean.includes('"visualResponse"') ||
-    clean.includes('"content"') ||
-    clean.includes('"type"') ||
-    clean.includes('"responseMode"')
-  );
+  const looksLikeJson =
+    clean.startsWith('{') &&
+    (clean.includes('"spoken"') ||
+      clean.includes('"spokenResponse"') ||
+      clean.includes('"visualResponse"') ||
+      clean.includes('"content"') ||
+      clean.includes('"type"') ||
+      clean.includes('"responseMode"'));
 
   if (!looksLikeJson && !clean.startsWith('{')) {
     return null;
@@ -373,7 +397,12 @@ export function safeParseOrExtract(rawText) {
  * Ensures model hallucinations, unescaped raw JSON, or misclassifications
  * are deterministically normalized and corrected before reaching Rime TTS or the workspace.
  */
-export function validateAndEnforceContract(rawObj, userText = '', history = [], userOverride = null) {
+export function validateAndEnforceContract(
+  rawObj,
+  userText = '',
+  history = [],
+  userOverride = null
+) {
   const fallbackMode = deterministicClassify(userText, history);
 
   // 1. Basic parsing safety & string unwrapping
@@ -400,13 +429,18 @@ export function validateAndEnforceContract(rawObj, userText = '', history = [], 
   }
 
   // 2. Validate responseMode
-  let mode = String(obj.responseMode || '').toUpperCase().trim();
+  let mode = String(obj.responseMode || '')
+    .toUpperCase()
+    .trim();
   if (![RESPONSE_MODES.VOICE, RESPONSE_MODES.TEXT, RESPONSE_MODES.HYBRID].includes(mode)) {
     mode = fallbackMode;
   }
 
   // Apply user override if explicitly set and valid
-  if (userOverride && [RESPONSE_MODES.VOICE, RESPONSE_MODES.TEXT].includes(userOverride.toUpperCase())) {
+  if (
+    userOverride &&
+    [RESPONSE_MODES.VOICE, RESPONSE_MODES.TEXT].includes(userOverride.toUpperCase())
+  ) {
     mode = userOverride.toUpperCase();
   }
 
@@ -428,12 +462,13 @@ export function validateAndEnforceContract(rawObj, userText = '', history = [], 
   let visualContent = visual.content != null ? String(visual.content).trim() : '';
 
   // Safeguard: Check if visualContent itself is stringified JSON!
-  if (visualContent.startsWith('{') && (
-    visualContent.includes('"spoken"') ||
-    visualContent.includes('"content"') ||
-    visualContent.includes('"type"') ||
-    visualContent.includes('"visualResponse"')
-  )) {
+  if (
+    visualContent.startsWith('{') &&
+    (visualContent.includes('"spoken"') ||
+      visualContent.includes('"content"') ||
+      visualContent.includes('"type"') ||
+      visualContent.includes('"visualResponse"'))
+  ) {
     const unnested = safeParseOrExtract(visualContent);
     if (unnested) {
       if (unnested.spoken && !spoken) spoken = unnested.spoken;
@@ -452,8 +487,11 @@ export function validateAndEnforceContract(rawObj, userText = '', history = [], 
 
   let visualType = ['text', 'code', 'table', 'markdown', 'task'].includes(visual.type)
     ? visual.type
-    : (containsStructuredContent(visualContent) ? 'markdown' : 'text');
-  let visualLanguage = (visualType === 'code' && visual.language) ? String(visual.language).toLowerCase().trim() : null;
+    : containsStructuredContent(visualContent)
+      ? 'markdown'
+      : 'text';
+  let visualLanguage =
+    visualType === 'code' && visual.language ? String(visual.language).toLowerCase().trim() : null;
   let visualTitle = visual.title ? String(visual.title).trim() : null;
 
   // Safeguard: If visualContent contains markdown code fences, strip them for clean code rendering
@@ -468,8 +506,12 @@ export function validateAndEnforceContract(rawObj, userText = '', history = [], 
   // 5. Deterministic Safety Corrections:
   // Rule A1: If visual content is a rich artifact (code block, table, extensive list),
   // but the model incorrectly classified it as VOICE -> Force TEXT or HYBRID!
-  const hasRichVisualContent = visualType === 'code' || visualType === 'table' || visualType === 'task' ||
-    containsStructuredContent(visualContent) || visualContent.length > 350;
+  const hasRichVisualContent =
+    visualType === 'code' ||
+    visualType === 'table' ||
+    visualType === 'task' ||
+    containsStructuredContent(visualContent) ||
+    visualContent.length > 350;
 
   if (mode === RESPONSE_MODES.VOICE && hasRichVisualContent) {
     const wantsExplanation = /\b(explain|how|why|describe|walkthrough)\b/i.test(userText);
@@ -478,10 +520,22 @@ export function validateAndEnforceContract(rawObj, userText = '', history = [], 
 
   // Rule A2: If the model classified as TEXT, but there is NO rich visual content
   // (no code, no table, no structured list, short plain text) and user did not override -> Correct to VOICE!
-  const explicitlyWantsText = /\b(in (the )?workspace|written|show me code|write code|table|json|yaml|schema)\b/i.test(userText);
-  if (mode === RESPONSE_MODES.TEXT && !hasRichVisualContent && !userOverride && !explicitlyWantsText) {
+  const explicitlyWantsText =
+    /\b(in (the )?workspace|written|show me code|write code|table|json|yaml|schema)\b/i.test(
+      userText
+    );
+  if (
+    mode === RESPONSE_MODES.TEXT &&
+    !hasRichVisualContent &&
+    !userOverride &&
+    !explicitlyWantsText
+  ) {
     mode = RESPONSE_MODES.VOICE;
-    if (!spoken || spoken.toLowerCase().includes('workspace') || spoken.toLowerCase().includes('chat')) {
+    if (
+      !spoken ||
+      spoken.toLowerCase().includes('workspace') ||
+      spoken.toLowerCase().includes('chat')
+    ) {
       spoken = visualContent;
     }
   }
@@ -490,10 +544,16 @@ export function validateAndEnforceContract(rawObj, userText = '', history = [], 
   // sanitize it immediately so Rime never speaks raw syntax!
   if (containsStructuredContent(spoken) || spoken.trim().startsWith('{')) {
     if (mode === RESPONSE_MODES.TEXT) {
-      const itemDesc = visualType === 'code' ? (visualTitle || 'code') : (visualType === 'table' ? 'comparison table' : 'response');
+      const itemDesc =
+        visualType === 'code'
+          ? visualTitle || 'code'
+          : visualType === 'table'
+            ? 'comparison table'
+            : 'response';
       spoken = `Done. I've placed the ${itemDesc} in the workspace.`;
     } else if (mode === RESPONSE_MODES.HYBRID) {
-      spoken = "I've summarized the key concept, and placed the full implementation in the workspace.";
+      spoken =
+        "I've summarized the key concept, and placed the full implementation in the workspace.";
     } else {
       // In voice mode with code syntax, move the code into visualResponse and make spoken clean
       if (!visualContent) {
@@ -507,8 +567,17 @@ export function validateAndEnforceContract(rawObj, userText = '', history = [], 
 
   // Rule C: In TEXT mode, Rime should receive ONLY a short acknowledgement.
   if (mode === RESPONSE_MODES.TEXT) {
-    if (!spoken || spoken.length > 120 || (!spoken.toLowerCase().includes('workspace') && !spoken.toLowerCase().includes('chat'))) {
-      const itemDesc = visualType === 'code' ? (visualTitle || 'code implementation') : (visualType === 'table' ? 'comparison table' : 'response');
+    if (
+      !spoken ||
+      spoken.length > 120 ||
+      (!spoken.toLowerCase().includes('workspace') && !spoken.toLowerCase().includes('chat'))
+    ) {
+      const itemDesc =
+        visualType === 'code'
+          ? visualTitle || 'code implementation'
+          : visualType === 'table'
+            ? 'comparison table'
+            : 'response';
       spoken = `Done. I've placed the ${itemDesc} in the workspace.`;
     }
   }

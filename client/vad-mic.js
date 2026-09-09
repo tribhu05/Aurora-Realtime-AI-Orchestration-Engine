@@ -56,7 +56,9 @@ class AuroraMic {
       this.onEnd();
       if (this._wantListening) {
         // Browsers auto-stop the recognizer periodically; restart seamlessly.
-        try { this.recognition.start(); } catch (_) {}
+        try {
+          this.recognition.start();
+        } catch (_) {}
       }
     };
   }
@@ -64,13 +66,17 @@ class AuroraMic {
   start() {
     if (!this.supported) return;
     this._wantListening = true;
-    try { this.recognition.start(); } catch (_) {}
+    try {
+      this.recognition.start();
+    } catch (_) {}
   }
 
   stop() {
     if (!this.supported) return;
     this._wantListening = false;
-    try { this.recognition.stop(); } catch (_) {}
+    try {
+      this.recognition.stop();
+    } catch (_) {}
   }
 
   get listening() {

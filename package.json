@@ -15,7 +15,10 @@
     "test:routing": "node tests/routing-scenarios.test.js",
     "test:barge-in": "node tests/interruption.test.js",
     "test:all": "node --test tests/**/*.test.js",
-    "benchmark": "node benchmarks/barge-in-benchmark.js"
+    "benchmark": "node benchmarks/barge-in-benchmark.js",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "keywords": [
     "voice-ai",
@@ -33,5 +36,11 @@
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.10.0",
+    "globals": "^17.12.0",
+    "prettier": "^3.9.6"
   }
 }

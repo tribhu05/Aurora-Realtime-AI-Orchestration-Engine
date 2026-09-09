@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import WebSocket from 'ws';
 import { createAuroraServer } from '../server/server.js';
 
-test('Barge-in Interruption & Generation Fencing lifecycle', async (t) => {
+test('Barge-in Interruption & Generation Fencing lifecycle', async () => {
   // 1. Start isolated ephemeral server with deterministic mock audio & LLM
   const server = createAuroraServer({
     mock: true,
@@ -49,11 +49,13 @@ test('Barge-in Interruption & Generation Fencing lifecycle', async (t) => {
         if (msg.type === 'handshake') {
           assert.equal(msg.generation, 0, 'Initial handshake generation must be 0');
           // Start Turn 1
-          ws.send(JSON.stringify({
-            type: 'query',
-            text: 'Tell me something interesting about space.',
-            timestamp: Date.now(),
-          }));
+          ws.send(
+            JSON.stringify({
+              type: 'query',
+              text: 'Tell me something interesting about space.',
+              timestamp: Date.now(),
+            })
+          );
         }
 
         if (msg.type === 'user_text' && msg.text.includes('space')) {
@@ -75,16 +77,21 @@ test('Barge-in Interruption & Generation Fencing lifecycle', async (t) => {
           assert.ok(typeof msg.serverTimestamp === 'number', 'Server timestamp included');
 
           // Send Turn 2 recovery prompt immediately
-          ws.send(JSON.stringify({
-            type: 'query',
-            text: 'Actually, tell me a short joke instead.',
-            timestamp: Date.now(),
-          }));
+          ws.send(
+            JSON.stringify({
+              type: 'query',
+              text: 'Actually, tell me a short joke instead.',
+              timestamp: Date.now(),
+            })
+          );
         }
 
         if (msg.type === 'user_text' && msg.text.includes('joke')) {
           turn2Gen = msg.generation;
-          assert.ok(turn2Gen > 2, 'Turn 2 generation must be strictly greater than interrupt generation');
+          assert.ok(
+            turn2Gen > 2,
+            'Turn 2 generation must be strictly greater than interrupt generation'
+          );
         }
 
         // Check if any audio from Turn 1 leaked through
@@ -96,7 +103,9 @@ test('Barge-in Interruption & Generation Fencing lifecycle', async (t) => {
         if (msg.type === 'ai_text' && msg.generation === turn2Gen) {
           turn2ReplyReceived = true;
           assert.ok(
-            msg.text.toLowerCase().includes('joke') || msg.text.toLowerCase().includes('latency') || msg.text.toLowerCase().includes('cross the road'),
+            msg.text.toLowerCase().includes('joke') ||
+              msg.text.toLowerCase().includes('latency') ||
+              msg.text.toLowerCase().includes('cross the road'),
             'Turn 2 reply must answer the recovery joke query, not the cancelled space query'
           );
           assert.equal(msg.responseMode, 'VOICE', 'Joke should be classified as VOICE modality');
@@ -114,7 +123,11 @@ test('Barge-in Interruption & Generation Fencing lifecycle', async (t) => {
 
           // Assertions
           assert.equal(interruptedAckReceived, true, 'Interruption must be acknowledged by server');
-          assert.equal(turn1AudioReceived, false, 'Turn 1 audio MUST be cancelled and NEVER emitted');
+          assert.equal(
+            turn1AudioReceived,
+            false,
+            'Turn 1 audio MUST be cancelled and NEVER emitted'
+          );
           assert.equal(turn2ReplyReceived, true, 'Turn 2 reply must be generated');
           assert.equal(turn2AudioReceived, true, 'Turn 2 audio must be synthesized and delivered');
           assert.equal(turn2DoneReceived, true, 'Turn 2 done event must be emitted');

@@ -13,7 +13,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import WebSocket from 'ws';
 import {
-  RESPONSE_MODES,
   SPOKEN_BUDGETS,
   containsStructuredContent,
   enforceSpokenBudget,
@@ -50,12 +49,14 @@ function runWsQuery(query, options = {}) {
       messages.push(msg);
 
       if (msg.type === 'handshake' && !existingWs) {
-        ws.send(JSON.stringify({
-          type: 'query',
-          text: query,
-          mode: modeOverride || undefined,
-          timestamp: Date.now(),
-        }));
+        ws.send(
+          JSON.stringify({
+            type: 'query',
+            text: query,
+            mode: modeOverride || undefined,
+            timestamp: Date.now(),
+          })
+        );
       }
 
       if (msg.type === 'done' || (msg.type === 'ai_text' && options.resolveOnAiText)) {
@@ -73,12 +74,14 @@ function runWsQuery(query, options = {}) {
 
     if (existingWs) {
       existingWs.on('message', onMessage);
-      existingWs.send(JSON.stringify({
-        type: 'query',
-        text: query,
-        mode: modeOverride || undefined,
-        timestamp: Date.now(),
-      }));
+      existingWs.send(
+        JSON.stringify({
+          type: 'query',
+          text: query,
+          mode: modeOverride || undefined,
+          timestamp: Date.now(),
+        })
+      );
     } else {
       ws.on('message', onMessage);
       ws.on('error', (err) => {
@@ -93,24 +96,44 @@ function runWsQuery(query, options = {}) {
 // SUITE 1: Deterministic Safety Guardrails & Contract Enforcement
 // ---------------------------------------------------------------------------
 test('Routing Guardrails - Structured content detection', () => {
-  assert.equal(containsStructuredContent('def is_prime(n):\n    return True'), true, 'Python code detected');
-  assert.equal(containsStructuredContent('| Name | Speed |\n|---|---|\n| C++ | Fast |'), true, 'Table detected');
-  assert.equal(containsStructuredContent('#include <iostream>\nint main() {}'), true, 'C++ code detected');
-  assert.equal(containsStructuredContent('Paris is the capital of France.'), false, 'Plain text passes clean');
+  assert.equal(
+    containsStructuredContent('def is_prime(n):\n    return True'),
+    true,
+    'Python code detected'
+  );
+  assert.equal(
+    containsStructuredContent('| Name | Speed |\n|---|---|\n| C++ | Fast |'),
+    true,
+    'Table detected'
+  );
+  assert.equal(
+    containsStructuredContent('#include <iostream>\nint main() {}'),
+    true,
+    'C++ code detected'
+  );
+  assert.equal(
+    containsStructuredContent('Paris is the capital of France.'),
+    false,
+    'Plain text passes clean'
+  );
 });
 
 test('Routing Guardrails - Spoken budget sentence-aware trimming', () => {
-  const longSentence = "This is sentence one. This is sentence two. This is sentence three which exceeds the limit of twenty words drastically.";
+  const longSentence =
+    'This is sentence one. This is sentence two. This is sentence three which exceeds the limit of twenty words drastically.';
   const budgeted = enforceSpokenBudget(longSentence, 'TEXT');
   const wordCount = budgeted.split(/\s+/).length;
-  assert.ok(wordCount <= SPOKEN_BUDGETS.TEXT, `Budget exceeded: ${wordCount} > ${SPOKEN_BUDGETS.TEXT}`);
+  assert.ok(
+    wordCount <= SPOKEN_BUDGETS.TEXT,
+    `Budget exceeded: ${wordCount} > ${SPOKEN_BUDGETS.TEXT}`
+  );
   assert.ok(/[.!?]$/.test(budgeted), 'Budgeted text ends with punctuation');
 });
 
 test('Routing Guardrails - Hallucinated VOICE mode recovery', () => {
   const hallucinatedVoice = {
     responseMode: 'VOICE',
-    spokenResponse: "Here is the code: def binary_search(arr, target): return 0",
+    spokenResponse: 'Here is the code: def binary_search(arr, target): return 0',
     visualResponse: {
       type: 'code',
       language: 'python',
@@ -119,21 +142,31 @@ test('Routing Guardrails - Hallucinated VOICE mode recovery', () => {
   };
   const corrected = validateAndEnforceContract(hallucinatedVoice, 'Write binary search in Python');
   assert.equal(corrected.responseMode, 'TEXT', 'Elevated from VOICE to TEXT');
-  assert.equal(containsStructuredContent(corrected.spokenResponse), false, 'Raw code sanitized from spokenResponse');
-  assert.ok(corrected.spokenResponse.includes('workspace'), 'Spoken response directs user to workspace');
+  assert.equal(
+    containsStructuredContent(corrected.spokenResponse),
+    false,
+    'Raw code sanitized from spokenResponse'
+  );
+  assert.ok(
+    corrected.spokenResponse.includes('workspace'),
+    'Spoken response directs user to workspace'
+  );
 });
 
 test('Routing Guardrails - Code syntax in spoken channel sanitized', () => {
   const dirtySpoken = {
     responseMode: 'HYBRID',
-    spokenResponse: "Quicksort divides using `pivot = arr[high]`. Here is the full code.",
+    spokenResponse: 'Quicksort divides using `pivot = arr[high]`. Here is the full code.',
     visualResponse: {
       type: 'code',
       language: 'python',
       content: 'def quicksort(arr): ...',
     },
   };
-  const sanitized = validateAndEnforceContract(dirtySpoken, 'Explain quicksort and write python code');
+  const sanitized = validateAndEnforceContract(
+    dirtySpoken,
+    'Explain quicksort and write python code'
+  );
   assert.equal(sanitized.responseMode, 'HYBRID');
   assert.ok(!sanitized.spokenResponse.includes('`'), 'Backticks stripped from spoken text');
 });
@@ -148,7 +181,11 @@ test('Routing Live - VOICE modality query', async () => {
   assert.equal(lastAiText.visualType, 'text', 'Expected text visualType');
   const voiceWords = (lastAiText.spoken || '').split(/\s+/).length;
   assert.ok(voiceWords <= 35, `Voice spoken budget exceeded: ${voiceWords} words`);
-  assert.equal(containsStructuredContent(lastAiText.spoken), false, 'No structured syntax in speech');
+  assert.equal(
+    containsStructuredContent(lastAiText.spoken),
+    false,
+    'No structured syntax in speech'
+  );
 });
 
 test('Routing Live - TEXT modality query for Code Generation', async () => {
@@ -160,7 +197,9 @@ test('Routing Live - TEXT modality query for Code Generation', async () => {
   assert.ok(textWords <= 20, `Text spoken budget exceeded: ${textWords} words`);
   assert.equal(containsStructuredContent(lastAiText.spoken), false, 'Never read code syntax aloud');
   assert.ok(
-    lastAiText.text.includes('binary_search') || lastAiText.text.includes('int') || lastAiText.text.includes('Binary Search'),
+    lastAiText.text.includes('binary_search') ||
+      lastAiText.text.includes('int') ||
+      lastAiText.text.includes('Binary Search'),
     'Code contains binary search'
   );
 });
@@ -215,7 +254,13 @@ test('Routing Live - Multi-turn conversational modality transitions VOICE -> TEX
       }
     };
     ws.on('message', handler);
-    ws.send(JSON.stringify({ type: 'query', text: 'Now write the Python code for it.', timestamp: Date.now() }));
+    ws.send(
+      JSON.stringify({
+        type: 'query',
+        text: 'Now write the Python code for it.',
+        timestamp: Date.now(),
+      })
+    );
   });
   assert.equal(turn2Ai.responseMode, 'TEXT');
   assert.equal(turn2Ai.visualType, 'code');
@@ -230,7 +275,9 @@ test('Routing Live - Multi-turn conversational modality transitions VOICE -> TEX
       }
     };
     ws.on('message', handler);
-    ws.send(JSON.stringify({ type: 'query', text: 'Why is a base case required?', timestamp: Date.now() }));
+    ws.send(
+      JSON.stringify({ type: 'query', text: 'Why is a base case required?', timestamp: Date.now() })
+    );
   });
   assert.equal(turn3Ai.responseMode, 'VOICE');
 

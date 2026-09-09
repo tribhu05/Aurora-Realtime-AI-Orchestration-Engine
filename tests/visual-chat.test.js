@@ -77,10 +77,16 @@ test('Visual Chat - Code generation separates code block from spoken audio', asy
   assert.ok(!aiText.spoken.includes('#include'), 'Spoken text must not include #include');
   assert.ok(!aiText.spoken.includes('cout'), 'Spoken text must not include cout');
   assert.ok(!aiText.spoken.startsWith('{'), 'Spoken text must not start with JSON brace');
-  assert.ok(aiText.spoken.includes('workspace') || aiText.spoken.includes('chat'), 'Spoken text confirms placement in workspace');
+  assert.ok(
+    aiText.spoken.includes('workspace') || aiText.spoken.includes('chat'),
+    'Spoken text confirms placement in workspace'
+  );
 
   // Visual channel completeness
-  assert.ok(aiText.text.includes('#include <iostream>'), 'Code text contains standard library include');
+  assert.ok(
+    aiText.text.includes('#include <iostream>'),
+    'Code text contains standard library include'
+  );
   assert.ok(aiText.text.includes('reverse'), 'Code text contains reverse logic');
 });
 
@@ -91,12 +97,21 @@ test('Visual Chat - Comparison table renders markdown table with concise speech'
   assert.equal(aiText.responseMode, 'TEXT', 'Response mode must be TEXT');
 
   // Table syntax check
-  assert.ok(aiText.text.includes('| Feature | C++ | Python |'), 'Visual content contains markdown table headers');
-  assert.ok(aiText.text.includes('| :--- | :--- | :--- |'), 'Visual content contains table delimiter');
+  assert.ok(
+    aiText.text.includes('| Feature | C++ | Python |'),
+    'Visual content contains markdown table headers'
+  );
+  assert.ok(
+    aiText.text.includes('| :--- | :--- | :--- |'),
+    'Visual content contains table delimiter'
+  );
 
   // Spoken channel check
   assert.ok(!aiText.spoken.includes('|'), 'Spoken text must never read table pipes aloud');
-  assert.ok(aiText.spoken.includes('workspace') || aiText.spoken.includes('comparison'), 'Spoken text acknowledges table in workspace');
+  assert.ok(
+    aiText.spoken.includes('workspace') || aiText.spoken.includes('comparison'),
+    'Spoken text acknowledges table in workspace'
+  );
 });
 
 test('Visual Chat - Multi-step task scaffolding streams progress and completes with artifacts', async () => {
@@ -113,7 +128,13 @@ test('Visual Chat - Multi-step task scaffolding streams progress and completes w
       messages.push(msg);
 
       if (msg.type === 'handshake') {
-        ws.send(JSON.stringify({ type: 'query', text: 'Create an Express REST API in JavaScript', timestamp: Date.now() }));
+        ws.send(
+          JSON.stringify({
+            type: 'query',
+            text: 'Create an Express REST API in JavaScript',
+            timestamp: Date.now(),
+          })
+        );
       }
 
       if (msg.type === 'task_complete') {
@@ -161,7 +182,13 @@ test('Visual Chat - Mid-flight task barge-in cancels active task and recovers to
 
       if (msg.type === 'handshake') {
         // Start JS task
-        ws.send(JSON.stringify({ type: 'query', text: 'Create an Express REST API in JavaScript', timestamp: Date.now() }));
+        ws.send(
+          JSON.stringify({
+            type: 'query',
+            text: 'Create an Express REST API in JavaScript',
+            timestamp: Date.now(),
+          })
+        );
       }
 
       // Interrupt on first progress event
@@ -169,11 +196,13 @@ test('Visual Chat - Mid-flight task barge-in cancels active task and recovers to
         switched = true;
         ws.send(JSON.stringify({ type: 'interrupt', timestamp: Date.now() }));
         setTimeout(() => {
-          ws.send(JSON.stringify({
-            type: 'query',
-            text: 'Wait! Scaffold an Express REST API in TypeScript instead',
-            timestamp: Date.now(),
-          }));
+          ws.send(
+            JSON.stringify({
+              type: 'query',
+              text: 'Wait! Scaffold an Express REST API in TypeScript instead',
+              timestamp: Date.now(),
+            })
+          );
         }, 50);
       }
 
@@ -195,5 +224,9 @@ test('Visual Chat - Mid-flight task barge-in cancels active task and recovers to
 
   const finalComplete = result.filter((m) => m.type === 'task_complete').pop();
   assert.ok(finalComplete, 'Final task completion event received');
-  assert.equal(finalComplete.primaryCode.language, 'typescript', 'Recovered task completed in TypeScript');
+  assert.equal(
+    finalComplete.primaryCode.language,
+    'typescript',
+    'Recovered task completed in TypeScript'
+  );
 });

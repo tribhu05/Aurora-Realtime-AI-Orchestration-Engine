@@ -31,22 +31,32 @@ test('Response Router - containsStructuredContent detector', () => {
   assert.equal(containsStructuredContent('### Algorithm Overview\nHere is how it works.'), true);
   // Conversational text should NOT trigger detector
   assert.equal(containsStructuredContent('Paris is the capital of France.'), false);
-  assert.equal(containsStructuredContent('Binary search works by repeatedly halving the search interval.'), false);
+  assert.equal(
+    containsStructuredContent('Binary search works by repeatedly halving the search interval.'),
+    false
+  );
 });
 
 test('Response Router - enforceSpokenBudget trimming', () => {
-  const longSpeech = 'First sentence is short. Second sentence explains the details thoroughly. Third sentence exceeds our word limits substantially.';
-  
+  const longSpeech =
+    'First sentence is short. Second sentence explains the details thoroughly. Third sentence exceeds our word limits substantially.';
+
   // TEXT budget: max 20 words
   const textBudgeted = enforceSpokenBudget(longSpeech, 'TEXT');
   const textWords = textBudgeted.split(/\s+/).length;
-  assert.ok(textWords <= SPOKEN_BUDGETS.TEXT, `TEXT budget exceeded: ${textWords} > ${SPOKEN_BUDGETS.TEXT}`);
+  assert.ok(
+    textWords <= SPOKEN_BUDGETS.TEXT,
+    `TEXT budget exceeded: ${textWords} > ${SPOKEN_BUDGETS.TEXT}`
+  );
   assert.match(textBudgeted, /[.!?]$/, 'Budgeted text ends with punctuation');
 
   // VOICE budget: max 35 words
   const voiceBudgeted = enforceSpokenBudget(longSpeech, 'VOICE');
   const voiceWords = voiceBudgeted.split(/\s+/).length;
-  assert.ok(voiceWords <= SPOKEN_BUDGETS.VOICE, `VOICE budget exceeded: ${voiceWords} > ${SPOKEN_BUDGETS.VOICE}`);
+  assert.ok(
+    voiceWords <= SPOKEN_BUDGETS.VOICE,
+    `VOICE budget exceeded: ${voiceWords} > ${SPOKEN_BUDGETS.VOICE}`
+  );
 
   // Strips code fences and backticks from speech
   const dirtySpeech = 'Check `code` in ```def foo(): pass``` right now.';
@@ -61,20 +71,32 @@ test('Response Router - enforceSpokenBudget trimming', () => {
 
 test('Response Router - deterministicClassify intent routing', () => {
   // Scaffolding intent -> HYBRID
-  assert.equal(deterministicClassify('Create an Express REST API in JavaScript'), RESPONSE_MODES.HYBRID);
+  assert.equal(
+    deterministicClassify('Create an Express REST API in JavaScript'),
+    RESPONSE_MODES.HYBRID
+  );
   assert.equal(deterministicClassify('Scaffold Express Todo App'), RESPONSE_MODES.HYBRID);
 
   // Pure code requests -> TEXT
   assert.equal(deterministicClassify('Write a binary search function in C++'), RESPONSE_MODES.TEXT);
-  assert.equal(deterministicClassify('Write a Python program to check whether a number is prime'), RESPONSE_MODES.TEXT);
-  assert.equal(deterministicClassify('Write a C++ program to reverse a string'), RESPONSE_MODES.TEXT);
+  assert.equal(
+    deterministicClassify('Write a Python program to check whether a number is prime'),
+    RESPONSE_MODES.TEXT
+  );
+  assert.equal(
+    deterministicClassify('Write a C++ program to reverse a string'),
+    RESPONSE_MODES.TEXT
+  );
 
   // Table / comparison requests -> TEXT
   assert.equal(deterministicClassify('Compare React and Vue in a table'), RESPONSE_MODES.TEXT);
   assert.equal(deterministicClassify('Compare Python and C++ in a table'), RESPONSE_MODES.TEXT);
 
   // Explanation + Code -> HYBRID
-  assert.equal(deterministicClassify('Explain quicksort and write a python implementation'), RESPONSE_MODES.HYBRID);
+  assert.equal(
+    deterministicClassify('Explain quicksort and write a python implementation'),
+    RESPONSE_MODES.HYBRID
+  );
 
   // Conversational questions -> VOICE
   assert.equal(deterministicClassify('What is the capital of Japan?'), RESPONSE_MODES.VOICE);
@@ -136,9 +158,16 @@ test('Response Router - validateAndEnforceContract safety rules', () => {
       content: 'int binarySearch() { return 0; }',
     },
   };
-  const correctedVoice = validateAndEnforceContract(hallucinatedVoice, 'Write binary search in C++');
+  const correctedVoice = validateAndEnforceContract(
+    hallucinatedVoice,
+    'Write binary search in C++'
+  );
   assert.equal(correctedVoice.responseMode, 'TEXT', 'Elevated to TEXT modality');
-  assert.equal(containsStructuredContent(correctedVoice.spokenResponse), false, 'Spoken channel sanitized');
+  assert.equal(
+    containsStructuredContent(correctedVoice.spokenResponse),
+    false,
+    'Spoken channel sanitized'
+  );
 
   // Rule B: Code syntax in spoken channel sanitized immediately
   const rawCodeInSpeech = {
@@ -150,22 +179,37 @@ test('Response Router - validateAndEnforceContract safety rules', () => {
       content: 'def is_prime(n):\n    return True',
     },
   };
-  const sanitizedSpeech = validateAndEnforceContract(rawCodeInSpeech, 'Write prime checker in Python');
-  assert.equal(containsStructuredContent(sanitizedSpeech.spokenResponse), false, 'Code syntax stripped from speech');
+  const sanitizedSpeech = validateAndEnforceContract(
+    rawCodeInSpeech,
+    'Write prime checker in Python'
+  );
+  assert.equal(
+    containsStructuredContent(sanitizedSpeech.spokenResponse),
+    false,
+    'Code syntax stripped from speech'
+  );
   assert.ok(sanitizedSpeech.spokenResponse.includes('workspace'), 'Directs user to workspace');
 
   // Rule C: TEXT mode short acknowledgement
   const verboseText = {
     responseMode: 'TEXT',
-    spokenResponse: 'I have carefully reviewed the specification, determined the best pattern, initialized the data structures, and written the complete program in the chat for you.',
+    spokenResponse:
+      'I have carefully reviewed the specification, determined the best pattern, initialized the data structures, and written the complete program in the chat for you.',
     visualResponse: { type: 'code', content: 'code here' },
   };
   const shortText = validateAndEnforceContract(verboseText, 'Write code');
-  assert.ok(shortText.spokenResponse.split(/\s+/).length <= SPOKEN_BUDGETS.TEXT, 'Spoken text within TEXT budget');
+  assert.ok(
+    shortText.spokenResponse.split(/\s+/).length <= SPOKEN_BUDGETS.TEXT,
+    'Spoken text within TEXT budget'
+  );
 
   // User override
   const overridden = validateAndEnforceContract(
-    { responseMode: 'VOICE', spokenResponse: 'Explanation here', visualResponse: { type: 'text', content: 'Text' } },
+    {
+      responseMode: 'VOICE',
+      spokenResponse: 'Explanation here',
+      visualResponse: { type: 'text', content: 'Text' },
+    },
     'What is recursion?',
     [],
     'TEXT'

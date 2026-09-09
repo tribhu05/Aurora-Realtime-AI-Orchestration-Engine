@@ -16,7 +16,7 @@ function computeStats(values) {
   const max = sorted[count - 1];
   const sum = sorted.reduce((acc, v) => acc + v, 0);
   const mean = Number((sum / count).toFixed(3));
-  const p50 = sorted[Math.floor(count * 0.50)];
+  const p50 = sorted[Math.floor(count * 0.5)];
   const p95 = sorted[Math.floor(count * 0.95)];
   const p99 = sorted[Math.floor(count * 0.99)];
   const variance = sorted.reduce((acc, v) => acc + Math.pow(v - mean, 2), 0) / count;
@@ -85,11 +85,13 @@ async function benchmarkWebSocketBargeIn(serverPort, iterations = 30) {
 
         if (msg.type === 'handshake') {
           // Send active query
-          ws.send(JSON.stringify({
-            type: 'query',
-            text: `Benchmark query turn ${i + 1}: Explain quantum computing in detail`,
-            timestamp: Date.now(),
-          }));
+          ws.send(
+            JSON.stringify({
+              type: 'query',
+              text: `Benchmark query turn ${i + 1}: Explain quantum computing in detail`,
+              timestamp: Date.now(),
+            })
+          );
         }
 
         if (msg.type === 'user_text') {
@@ -99,10 +101,12 @@ async function benchmarkWebSocketBargeIn(serverPort, iterations = 30) {
         if (msg.type === 'thinking' && !interrupted) {
           interrupted = true;
           tSend = performance.now();
-          ws.send(JSON.stringify({
-            type: 'interrupt',
-            timestamp: Date.now(),
-          }));
+          ws.send(
+            JSON.stringify({
+              type: 'interrupt',
+              timestamp: Date.now(),
+            })
+          );
         }
 
         if (msg.type === 'interrupted') {
@@ -146,7 +150,9 @@ async function runBenchmarks() {
 
   console.log('1. Measuring Web Audio Synchronous Mute Latency (1,000 cycles)...');
   const muteStats = benchmarkAudioMute(1000);
-  console.log(`   P50: ${muteStats.p50} ms | P95: ${muteStats.p95} ms | Max: ${muteStats.max} ms | Mean: ${muteStats.mean} ms\n`);
+  console.log(
+    `   P50: ${muteStats.p50} ms | P95: ${muteStats.p95} ms | Max: ${muteStats.max} ms | Mean: ${muteStats.mean} ms\n`
+  );
 
   console.log('2. Starting Ephemeral Aurora Server for Live WebSocket Measurements...');
   const server = createAuroraServer({ mock: true, mockAudio: true, delayMs: 400, quiet: true });
@@ -163,7 +169,7 @@ async function runBenchmarks() {
 
     console.table([
       {
-        'Metric': 'Web Audio Synchronous Mute (t_mute)',
+        Metric: 'Web Audio Synchronous Mute (t_mute)',
         'Sample (N)': muteStats.count,
         'Min (ms)': muteStats.min,
         'P50 (ms)': muteStats.p50,
@@ -173,7 +179,7 @@ async function runBenchmarks() {
         'Mean (ms)': muteStats.mean,
       },
       {
-        'Metric': 'Server Abort & Fencing (t_server_abort)',
+        Metric: 'Server Abort & Fencing (t_server_abort)',
         'Sample (N)': wsResults.serverStats.count,
         'Min (ms)': wsResults.serverStats.min,
         'P50 (ms)': wsResults.serverStats.p50,
@@ -183,7 +189,7 @@ async function runBenchmarks() {
         'Mean (ms)': wsResults.serverStats.mean,
       },
       {
-        'Metric': 'WS Interruption RTT (t_rtt_ack)',
+        Metric: 'WS Interruption RTT (t_rtt_ack)',
         'Sample (N)': wsResults.rttStats.count,
         'Min (ms)': wsResults.rttStats.min,
         'P50 (ms)': wsResults.rttStats.p50,
@@ -194,7 +200,9 @@ async function runBenchmarks() {
       },
     ]);
 
-    console.log(`🛡️  Stale Audio Packets Received: ${wsResults.stalePacketsReceived} (100% suppression rate)`);
+    console.log(
+      `🛡️  Stale Audio Packets Received: ${wsResults.stalePacketsReceived} (100% suppression rate)`
+    );
     console.log('===============================================================\n');
 
     return { muteStats, wsResults };

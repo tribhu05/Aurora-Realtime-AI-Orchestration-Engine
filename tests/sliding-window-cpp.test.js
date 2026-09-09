@@ -31,20 +31,24 @@ test('Multi-turn C++ code generation eliminates raw JSON leakage', async () => {
 
         if (msg.type === 'handshake') {
           turn = 1;
-          ws.send(JSON.stringify({
-            type: 'query',
-            text: 'Explain sliding window algorithm',
-            timestamp: Date.now(),
-          }));
+          ws.send(
+            JSON.stringify({
+              type: 'query',
+              text: 'Explain sliding window algorithm',
+              timestamp: Date.now(),
+            })
+          );
         }
 
         if (msg.type === 'ai_text' && turn === 1) {
           turn = 2;
-          ws.send(JSON.stringify({
-            type: 'query',
-            text: 'I want it in C++',
-            timestamp: Date.now(),
-          }));
+          ws.send(
+            JSON.stringify({
+              type: 'query',
+              text: 'I want it in C++',
+              timestamp: Date.now(),
+            })
+          );
         } else if (msg.type === 'ai_text' && turn === 2) {
           clearTimeout(timeout);
           ws.close();
@@ -52,19 +56,45 @@ test('Multi-turn C++ code generation eliminates raw JSON leakage', async () => {
           try {
             // Strict assertions against raw JSON leakage
             assert.equal(msg.visualType, 'code', 'Visual type must be "code"');
-            assert.ok(msg.language === 'cpp' || msg.language === 'c++', `Language should be cpp, got: ${msg.language}`);
-            assert.ok(!msg.text.trim().startsWith('{'), 'CRITICAL: msg.text must NOT start with raw JSON brace');
-            assert.ok(!msg.text.includes('"spoken"'), 'CRITICAL: msg.text must NOT contain "spoken" JSON key');
-            assert.ok(!msg.text.includes('"visualResponse"'), 'CRITICAL: msg.text must NOT contain "visualResponse" JSON key');
-            assert.ok(!msg.text.includes('"content"'), 'CRITICAL: msg.text must NOT contain "content" JSON key');
             assert.ok(
-              msg.text.includes('#include') || msg.text.includes('vector') || msg.text.includes('int '),
+              msg.language === 'cpp' || msg.language === 'c++',
+              `Language should be cpp, got: ${msg.language}`
+            );
+            assert.ok(
+              !msg.text.trim().startsWith('{'),
+              'CRITICAL: msg.text must NOT start with raw JSON brace'
+            );
+            assert.ok(
+              !msg.text.includes('"spoken"'),
+              'CRITICAL: msg.text must NOT contain "spoken" JSON key'
+            );
+            assert.ok(
+              !msg.text.includes('"visualResponse"'),
+              'CRITICAL: msg.text must NOT contain "visualResponse" JSON key'
+            );
+            assert.ok(
+              !msg.text.includes('"content"'),
+              'CRITICAL: msg.text must NOT contain "content" JSON key'
+            );
+            assert.ok(
+              msg.text.includes('#include') ||
+                msg.text.includes('vector') ||
+                msg.text.includes('int '),
               'msg.text must contain actual C++ code'
             );
 
-            assert.ok(!msg.spoken.trim().startsWith('{'), 'CRITICAL: msg.spoken must NOT start with raw JSON brace');
-            assert.ok(!msg.spoken.includes('#include'), 'CRITICAL: msg.spoken must NOT speak C++ #include syntax');
-            assert.ok(!msg.spoken.includes('"spoken"'), 'CRITICAL: msg.spoken must NOT contain JSON keys');
+            assert.ok(
+              !msg.spoken.trim().startsWith('{'),
+              'CRITICAL: msg.spoken must NOT start with raw JSON brace'
+            );
+            assert.ok(
+              !msg.spoken.includes('#include'),
+              'CRITICAL: msg.spoken must NOT speak C++ #include syntax'
+            );
+            assert.ok(
+              !msg.spoken.includes('"spoken"'),
+              'CRITICAL: msg.spoken must NOT contain JSON keys'
+            );
 
             resolve();
           } catch (err) {

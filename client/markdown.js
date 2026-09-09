@@ -39,10 +39,13 @@
     if (!headerLine.includes('|') || !sepLine.includes('|')) return null;
 
     // Verify separator row matches markdown table syntax
-    const sepParts = sepLine.split('|').map((s) => s.trim()).filter((s, idx, arr) => {
-      // ignore empty leading/trailing from outer pipes
-      return idx > 0 && idx < arr.length - 1 ? true : s.length > 0;
-    });
+    const sepParts = sepLine
+      .split('|')
+      .map((s) => s.trim())
+      .filter((s, idx, arr) => {
+        // ignore empty leading/trailing from outer pipes
+        return idx > 0 && idx < arr.length - 1 ? true : s.length > 0;
+      });
 
     const isTableSep = sepParts.every((p) => /^:?-+:?$/.test(p));
     if (!isTableSep || sepParts.length === 0) return null;
@@ -112,7 +115,10 @@
     out = out.replace(/~~([^~]+)~~/g, '<del>$1</del>');
 
     // Links [title](url)
-    out = out.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="md-link">$1</a>');
+    out = out.replace(
+      /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+      '<a href="$2" target="_blank" rel="noopener noreferrer" class="md-link">$1</a>'
+    );
 
     return out;
   }
@@ -138,7 +144,12 @@
       }
 
       // Check if this might be a markdown table
-      if (trimmed.includes('|') && i + 1 < lines.length && lines[i + 1].trim().includes('|') && lines[i + 1].includes('-')) {
+      if (
+        trimmed.includes('|') &&
+        i + 1 < lines.length &&
+        lines[i + 1].trim().includes('|') &&
+        lines[i + 1].includes('-')
+      ) {
         const tableLines = [];
         while (i < lines.length && lines[i].trim().includes('|')) {
           tableLines.push(lines[i]);
@@ -204,7 +215,14 @@
 
       // Regular paragraph
       const paraLines = [];
-      while (i < lines.length && lines[i].trim() && !lines[i].trim().startsWith('#') && !lines[i].trim().startsWith('>') && !/^[-*+]\s+/.test(lines[i].trim()) && !/^\d+\.\s+/.test(lines[i].trim())) {
+      while (
+        i < lines.length &&
+        lines[i].trim() &&
+        !lines[i].trim().startsWith('#') &&
+        !lines[i].trim().startsWith('>') &&
+        !/^[-*+]\s+/.test(lines[i].trim()) &&
+        !/^\d+\.\s+/.test(lines[i].trim())
+      ) {
         if (lines[i].trim().includes('|') && i + 1 < lines.length && lines[i + 1].includes('-')) {
           break; // Stop paragraph if table begins
         }
