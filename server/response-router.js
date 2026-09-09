@@ -37,7 +37,7 @@ export function containsStructuredContent(text) {
   if (/^\s*[\{\[][\s\S]*[\}\]]\s*$/.test(text.trim())) return true;
 
   // Common programming constructs
-  if (/(?:^|\b)(?:def\s+\w+\s*\(|function\s+\w+\s*\(|const\s+\w+\s*=|class\s+\w+\s*[{:]|int\s+main\s*\(|public:\s*|std::|SELECT\s+[\w*]+\s+FROM)\b|#include\s*</i.test(text)) {
+  if (/(?:^|\b)(?:def\s+\w+\s*\(|function\s+\w+\s*\(|const\s+\w+\s*=|let\s+\w+\s*=|var\s+\w+\s*=|class\s+\w+\s*[{:]|int\s+main\s*\(|public:\s*|std::|SELECT\s+[\w*]+\s+FROM|#include\s*<)/i.test(text)) {
     return true;
   }
 

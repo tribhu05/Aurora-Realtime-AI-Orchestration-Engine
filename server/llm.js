@@ -283,6 +283,68 @@ print("Factorial of 5 is:", factorial(5))  # 120`
     });
   }
 
+  // Follow-up: "Now write the Python code for it."
+  if ((has('code for it', 'now write', 'write the python code') && has('python')) || (has('for it') && has('code'))) {
+    return finalize({
+      responseMode: 'TEXT',
+      spokenResponse: "Done. I've placed the recursive Python code in the workspace.",
+      visualResponse: {
+        type: 'code',
+        language: 'python',
+        title: 'Recursive Factorial in Python',
+        content: `def factorial(n: int) -> int:
+    """Calculate factorial recursively with a base case."""
+    if n <= 1:
+        return 1
+    return n * factorial(n - 1)
+
+# Example usage:
+print("Factorial of 5:", factorial(5))  # Output: 120`,
+      },
+    });
+  }
+
+  // Base case conceptual query
+  if (has('base case', 'why is a base case')) {
+    return finalize({
+      responseMode: 'VOICE',
+      spokenResponse: "A base case is required to terminate recursive calls and prevent an infinite loop or call stack overflow.",
+      visualResponse: {
+        type: 'text',
+        content: "A base case is the terminating condition in a recursive algorithm that stops further recursive calls and prevents infinite recursion and stack overflow errors.",
+      },
+    });
+  }
+
+  // Quicksort explanation + implementation -> HYBRID
+  if (has('quicksort', 'quick sort')) {
+    const isHybrid = has('explain', 'concept', 'why', 'how') || has('implementation', 'python');
+    return finalize({
+      responseMode: isHybrid ? 'HYBRID' : 'TEXT',
+      spokenResponse: isHybrid
+        ? "Quicksort uses divide-and-conquer to partition arrays around a pivot. I've placed the Python code in the workspace."
+        : "Done. I've written the quicksort algorithm in the workspace.",
+      visualResponse: {
+        type: 'code',
+        language: 'python',
+        title: 'Quicksort Algorithm in Python',
+        content: `def quicksort(arr: list[int]) -> list[int]:
+    """Sort an array using recursive divide-and-conquer partitioning."""
+    if len(arr) <= 1:
+        return arr
+    pivot = arr[len(arr) // 2]
+    left = [x for x in arr if x < pivot]
+    middle = [x for x in arr if x == pivot]
+    right = [x for x in arr if x > pivot]
+    return quicksort(left) + middle + quicksort(right)
+
+# Example:
+numbers = [38, 27, 43, 3, 9, 82, 10]
+print("Sorted:", quicksort(numbers))`,
+      },
+    });
+  }
+
   // Sliding window algorithm & C++ follow-ups
   if (has('sliding window') || (has('c++', 'cpp', 'in c++', 'in cpp') && (has('sliding') || has('window') || has('want it in c++') || has('want it in cpp')))) {
     return finalize({

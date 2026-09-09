@@ -1,164 +1,199 @@
 // tests/visual-chat.test.js
 // Automated test suite for Aurora's Visual Chat & Output System.
 // Tests:
-// 1. Spoken vs Visual Separation (Spoken brevity, visual richness)
-// 2. Code Generation (C++ reverse string -> visualType: code, language: cpp)
-// 3. Table Generation (Language comparison -> visualType: table)
-// 4. Task Execution (Scaffold Express REST API -> task_started, progress, complete)
-// 5. Mid-Flight Task Barge-in (Cancel in-flight task A and switch cleanly to task B)
+// 1. Spoken vs Visual Separation for Code (C++ reverse string)
+// 2. Structured Comparison Table (C++ vs Python)
+// 3. Multi-Step Task Scaffolding (Express REST API)
+// 4. Mid-Flight Task Barge-In & Switching (Cancel JS -> Switch to TS)
+// Runs entirely offline on an ephemeral server with zero external secrets.
 
+import test from 'node:test';
+import assert from 'node:assert/strict';
 import WebSocket from 'ws';
+import { createAuroraServer } from '../server/server.js';
 
-const URL = 'ws://localhost:3000';
+let server;
+let wsUrl;
 
-async function runVisualChatTestSuite() {
-  console.log('====================================================');
-  console.log('🧪 RUNNING AURORA VISUAL CHAT & OUTPUT TEST SUITE');
-  console.log(`📡 Connecting to: ${URL}`);
-  console.log('====================================================\n');
+test.before(async () => {
+  server = createAuroraServer({ mock: true, mockAudio: true, quiet: true });
+  const { port } = await server.listen(0);
+  wsUrl = `ws://localhost:${port}`;
+});
 
-  const ws = new WebSocket(URL);
+test.after(async () => {
+  if (server) await server.close();
+});
 
-  let currentGen = 0;
-  let testStep = 0;
-  let taskProgressCount = 0;
+function queryWs(text) {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(wsUrl);
+    const messages = [];
+    const timeout = setTimeout(() => {
+      ws.close();
+      reject(new Error(`Timeout on query: "${text}"`));
+    }, 10000);
 
-  ws.on('open', () => {
-    console.log('✓ WebSocket connected successfully.\n');
-  });
+    ws.on('message', (raw) => {
+      const msg = JSON.parse(raw.toString());
+      messages.push(msg);
 
-  ws.on('message', (raw) => {
-    const msg = JSON.parse(raw.toString());
-
-    switch (msg.type) {
-      case 'handshake':
-        currentGen = msg.generation;
-        console.log(`[HANDSHAKE] Gen: #${currentGen}, TTS: ${msg.rimeConfigured}, LLM: ${msg.llmConfigured}`);
-        startTest1();
-        break;
-
-      case 'ai_text':
-        handleAiText(msg);
-        break;
-
-      case 'task_started':
-        console.log(`  -> [TASK STARTED] ${msg.title} (${msg.totalSteps} steps)`);
-        break;
-
-      case 'task_progress':
-        taskProgressCount++;
-        console.log(`  -> [TASK PROGRESS] Step ${msg.stepIndex + 1}: ${msg.details}`);
-        if (testStep === 4 && taskProgressCount === 2) {
-          // Mid-flight task barge-in: Interrupt and switch to TypeScript!
-          console.log('\n  -> ⚡ USER BARGE-IN MID-TASK! "WAIT! Use TypeScript instead"');
-          ws.send(JSON.stringify({ type: 'interrupt' }));
-          setTimeout(() => {
-            testStep = 5;
-            ws.send(JSON.stringify({ type: 'query', text: 'Wait! Scaffold an Express REST API in TypeScript instead' }));
-          }, 50);
-        }
-        break;
-
-      case 'task_complete':
-        console.log(`  -> [TASK COMPLETE] ${msg.title}`);
-        if (msg.primaryCode) {
-          console.log(`     Primary Code: ${msg.primaryCode.filename} (${msg.primaryCode.language}) - ${msg.primaryCode.code.length} bytes`);
-        }
-        if (testStep === 3) {
-          console.log('✅ TEST 3 PASSED: Task execution completed with streaming progress and code scaffolding.\n');
-          startTest4();
-        } else if (testStep === 5) {
-          if (msg.primaryCode?.language === 'typescript') {
-            console.log('✅ TEST 5 PASSED: Barge-in cancelled JavaScript task and cleanly completed TypeScript task!\n');
-            finishSuite();
-          } else {
-            console.error('❌ TEST 5 FAILED: Expected TypeScript code but got:', msg.primaryCode?.language);
-            process.exit(1);
-          }
-        }
-        break;
-
-      case 'interrupted':
-        console.log(`  -> [INTERRUPT ACK] Gen #${msg.oldGeneration} cancelled -> #${msg.newGeneration}`);
-        break;
-    }
-  });
-
-  function startTest1() {
-    testStep = 1;
-    console.log('--- TEST 1: C++ Code Request (Visual Code Block + Short Spoken Summary) ---');
-    ws.send(JSON.stringify({ type: 'query', text: 'Write a C++ program to reverse a string.' }));
-  }
-
-  function startTest2() {
-    testStep = 2;
-    console.log('--- TEST 2: Comparison Table Request (Visual Table + Short Spoken Summary) ---');
-    ws.send(JSON.stringify({ type: 'query', text: 'Compare C++ and Python in a table.' }));
-  }
-
-  function startTest3() {
-    testStep = 3;
-    console.log('--- TEST 3: Multi-Step Task (Express REST API Scaffolding) ---');
-    ws.send(JSON.stringify({ type: 'query', text: 'Create an Express REST API in JavaScript' }));
-  }
-
-  function startTest4() {
-    testStep = 4;
-    taskProgressCount = 0;
-    console.log('--- TEST 4 & 5: Task Barge-In Interruption & Recovery ---');
-    console.log('  -> Starting JavaScript scaffolding task...');
-    ws.send(JSON.stringify({ type: 'query', text: 'Create an Express REST API in JavaScript' }));
-  }
-
-  function handleAiText(msg) {
-    if (testStep === 1) {
-      console.log(`  -> Visual Type: "${msg.visualType}", Language: "${msg.language}"`);
-      console.log(`  -> Spoken (Rime TTS): "${msg.spoken}"`);
-      console.log(`  -> Code Length: ${msg.text.length} characters`);
-
-      if (msg.visualType === 'code' && (msg.language === 'cpp' || msg.language === 'c++')) {
-        if (msg.spoken && !msg.spoken.includes('#include') && !msg.spoken.includes('cout')) {
-          console.log('✅ TEST 1 PASSED: Code separated cleanly from spoken channel!\n');
-          startTest2();
-          return;
-        }
+      if (msg.type === 'handshake') {
+        ws.send(JSON.stringify({ type: 'query', text, timestamp: Date.now() }));
       }
-      console.error('❌ TEST 1 FAILED:', msg);
-      process.exit(1);
-    }
 
-    if (testStep === 2) {
-      console.log(`  -> Visual Type: "${msg.visualType}"`);
-      console.log(`  -> Spoken (Rime TTS): "${msg.spoken}"`);
-      console.log(`  -> Content Table Detected: ${msg.text.includes('|')}`);
-
-      if (msg.visualType === 'table' && msg.text.includes('|')) {
-        if (msg.spoken && !msg.spoken.includes('|')) {
-          console.log('✅ TEST 2 PASSED: Table formatted visually with concise spoken confirmation!\n');
-          startTest3();
-          return;
-        }
+      if (msg.type === 'done') {
+        clearTimeout(timeout);
+        ws.close();
+        resolve({
+          messages,
+          aiText: messages.find((m) => m.type === 'ai_text'),
+          done: msg,
+        });
       }
-      console.error('❌ TEST 2 FAILED:', msg);
-      process.exit(1);
-    }
-  }
 
-  function finishSuite() {
-    console.log('====================================================');
-    console.log('🎉 ALL 5 VISUAL CHAT & TASK TESTS PASSED 100%');
-    console.log('====================================================');
-    ws.close();
-    process.exit(0);
-  }
+      if (msg.type === 'error') {
+        clearTimeout(timeout);
+        ws.close();
+        reject(new Error(msg.message));
+      }
+    });
 
-  setTimeout(() => {
-    console.error('❌ Test suite timed out after 30s.');
-    process.exit(1);
-  }, 30000);
+    ws.on('error', (err) => {
+      clearTimeout(timeout);
+      reject(err);
+    });
+  });
 }
 
-runVisualChatTestSuite().catch((err) => {
-  console.error('Test suite error:', err);
-  process.exit(1);
+test('Visual Chat - Code generation separates code block from spoken audio', async () => {
+  const { aiText } = await queryWs('Write a C++ program to reverse a string.');
+  assert.ok(aiText, 'ai_text message received');
+  assert.equal(aiText.visualType, 'code', 'Visual type must be code');
+  assert.equal(aiText.language, 'cpp', 'Language must be cpp');
+  assert.equal(aiText.responseMode, 'TEXT', 'Response mode must be TEXT');
+
+  // Spoken channel safety: NEVER read code aloud
+  assert.ok(!aiText.spoken.includes('#include'), 'Spoken text must not include #include');
+  assert.ok(!aiText.spoken.includes('cout'), 'Spoken text must not include cout');
+  assert.ok(!aiText.spoken.startsWith('{'), 'Spoken text must not start with JSON brace');
+  assert.ok(aiText.spoken.includes('workspace') || aiText.spoken.includes('chat'), 'Spoken text confirms placement in workspace');
+
+  // Visual channel completeness
+  assert.ok(aiText.text.includes('#include <iostream>'), 'Code text contains standard library include');
+  assert.ok(aiText.text.includes('reverse'), 'Code text contains reverse logic');
+});
+
+test('Visual Chat - Comparison table renders markdown table with concise speech', async () => {
+  const { aiText } = await queryWs('Compare C++ and Python in a table.');
+  assert.ok(aiText, 'ai_text message received');
+  assert.equal(aiText.visualType, 'table', 'Visual type must be table');
+  assert.equal(aiText.responseMode, 'TEXT', 'Response mode must be TEXT');
+
+  // Table syntax check
+  assert.ok(aiText.text.includes('| Feature | C++ | Python |'), 'Visual content contains markdown table headers');
+  assert.ok(aiText.text.includes('| :--- | :--- | :--- |'), 'Visual content contains table delimiter');
+
+  // Spoken channel check
+  assert.ok(!aiText.spoken.includes('|'), 'Spoken text must never read table pipes aloud');
+  assert.ok(aiText.spoken.includes('workspace') || aiText.spoken.includes('comparison'), 'Spoken text acknowledges table in workspace');
+});
+
+test('Visual Chat - Multi-step task scaffolding streams progress and completes with artifacts', async () => {
+  const result = await new Promise((resolve, reject) => {
+    const ws = new WebSocket(wsUrl);
+    const messages = [];
+    const timeout = setTimeout(() => {
+      ws.close();
+      reject(new Error('Timeout on task scaffolding test'));
+    }, 12000);
+
+    ws.on('message', (raw) => {
+      const msg = JSON.parse(raw.toString());
+      messages.push(msg);
+
+      if (msg.type === 'handshake') {
+        ws.send(JSON.stringify({ type: 'query', text: 'Create an Express REST API in JavaScript', timestamp: Date.now() }));
+      }
+
+      if (msg.type === 'task_complete') {
+        clearTimeout(timeout);
+        ws.close();
+        resolve(messages);
+      }
+    });
+
+    ws.on('error', (err) => {
+      clearTimeout(timeout);
+      reject(err);
+    });
+  });
+
+  const taskStarted = result.find((m) => m.type === 'task_started');
+  assert.ok(taskStarted, 'Received task_started event');
+  assert.equal(taskStarted.flavor, 'JavaScript');
+  assert.ok(taskStarted.totalSteps > 0, 'Task has defined steps');
+
+  const progressEvents = result.filter((m) => m.type === 'task_progress');
+  assert.ok(progressEvents.length >= 2, 'Received streaming task_progress events');
+
+  const taskComplete = result.find((m) => m.type === 'task_complete');
+  assert.ok(taskComplete, 'Received task_complete event');
+  assert.ok(taskComplete.files && taskComplete.files.length > 0, 'Created project files');
+  assert.ok(taskComplete.primaryCode, 'Generated primary code artifact');
+  assert.equal(taskComplete.primaryCode.language, 'javascript');
+});
+
+test('Visual Chat - Mid-flight task barge-in cancels active task and recovers to new task', async () => {
+  const result = await new Promise((resolve, reject) => {
+    const ws = new WebSocket(wsUrl);
+    const messages = [];
+    let switched = false;
+
+    const timeout = setTimeout(() => {
+      ws.close();
+      reject(new Error('Timeout on mid-flight task barge-in test'));
+    }, 15000);
+
+    ws.on('message', (raw) => {
+      const msg = JSON.parse(raw.toString());
+      messages.push(msg);
+
+      if (msg.type === 'handshake') {
+        // Start JS task
+        ws.send(JSON.stringify({ type: 'query', text: 'Create an Express REST API in JavaScript', timestamp: Date.now() }));
+      }
+
+      // Interrupt on first progress event
+      if (msg.type === 'task_progress' && !switched) {
+        switched = true;
+        ws.send(JSON.stringify({ type: 'interrupt', timestamp: Date.now() }));
+        setTimeout(() => {
+          ws.send(JSON.stringify({
+            type: 'query',
+            text: 'Wait! Scaffold an Express REST API in TypeScript instead',
+            timestamp: Date.now(),
+          }));
+        }, 50);
+      }
+
+      if (msg.type === 'task_complete' && switched && msg.primaryCode?.language === 'typescript') {
+        clearTimeout(timeout);
+        ws.close();
+        resolve(messages);
+      }
+    });
+
+    ws.on('error', (err) => {
+      clearTimeout(timeout);
+      reject(err);
+    });
+  });
+
+  const interruptedAck = result.find((m) => m.type === 'interrupted');
+  assert.ok(interruptedAck, 'Interruption acknowledged during active task execution');
+
+  const finalComplete = result.filter((m) => m.type === 'task_complete').pop();
+  assert.ok(finalComplete, 'Final task completion event received');
+  assert.equal(finalComplete.primaryCode.language, 'typescript', 'Recovered task completed in TypeScript');
 });

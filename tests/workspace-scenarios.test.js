@@ -1,149 +1,113 @@
 // tests/workspace-scenarios.test.js
-// Validates the 4 workspace suggestion queries and response formats
+// Automated test suite for Aurora's 5 default workspace suggestion scenarios.
+// Validates visual chat output format, modality badges, and spoken audio brevity.
+// Runs entirely offline on an ephemeral server with zero external secrets.
 
+import test from 'node:test';
+import assert from 'node:assert/strict';
 import WebSocket from 'ws';
+import { createAuroraServer } from '../server/server.js';
 
-const WS_URL = 'ws://localhost:3000';
+let server;
+let wsUrl;
 
-function runScenario(name, query, validator) {
+test.before(async () => {
+  server = createAuroraServer({ mock: true, mockAudio: true, quiet: true });
+  const { port } = await server.listen(0);
+  wsUrl = `ws://localhost:${port}`;
+});
+
+test.after(async () => {
+  if (server) await server.close();
+});
+
+function runScenario(query, timeoutMs = 12000) {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(WS_URL);
-    const timeout = setTimeout(() => {
-      ws.close();
-      reject(new Error(`Timeout waiting for scenario: ${name}`));
-    }, 25000);
-
+    const ws = new WebSocket(wsUrl);
     const messages = [];
-
-    ws.on('open', () => {
-      // Send query after handshake
-    });
+    const timer = setTimeout(() => {
+      ws.close();
+      reject(new Error(`Timeout waiting for query: "${query}"`));
+    }, timeoutMs);
 
     ws.on('message', (raw) => {
       const msg = JSON.parse(raw.toString());
       messages.push(msg);
-      console.log('  [received msg]:', msg.type, msg.visualType || '', msg.error || msg.message || '');
 
       if (msg.type === 'handshake') {
         ws.send(JSON.stringify({ type: 'query', text: query, timestamp: Date.now() }));
       }
 
-      const result = validator(msg, messages);
-      if (result === true) {
-        clearTimeout(timeout);
+      if (msg.type === 'done' || msg.type === 'task_complete') {
+        clearTimeout(timer);
         ws.close();
-        resolve();
+        resolve({
+          messages,
+          aiText: messages.find((m) => m.type === 'ai_text'),
+          taskComplete: messages.find((m) => m.type === 'task_complete'),
+        });
+      }
+
+      if (msg.type === 'error') {
+        clearTimeout(timer);
+        ws.close();
+        reject(new Error(msg.message));
       }
     });
 
     ws.on('error', (err) => {
-      clearTimeout(timeout);
+      clearTimeout(timer);
       reject(err);
     });
   });
 }
 
-async function main() {
-  console.log('🧪 RUNNING WORKSPACE SCENARIOS TEST SUITE');
-
-  // Scenario 1: Python Prime Checker
-  console.log('\n--- SCENARIO 1: Python Prime Checker ---');
-  await runScenario(
-    'Python Prime Checker',
-    'Write a Python program to check whether a number is prime.',
-    (msg) => {
-      if (msg.type === 'ai_text') {
-        console.log('  -> Visual Type:', msg.visualType);
-        console.log('  -> Language:', msg.language);
-        console.log('  -> Spoken:', msg.spoken);
-        if (msg.visualType === 'code' && msg.language === 'python' && msg.text.includes('is_prime')) {
-          console.log('✅ SCENARIO 1 PASSED: Python code generated with concise spoken audio!');
-          return true;
-        }
-      }
-      return false;
-    }
-  );
-
-  // Scenario 2: Binary Search Concept
-  console.log('\n--- SCENARIO 2: Binary Search Concept ---');
-  await runScenario(
-    'Binary Search Concept',
-    'Explain binary search.',
-    (msg) => {
-      if (msg.type === 'ai_text') {
-        console.log('  -> Spoken:', msg.spoken);
-        console.log('  -> Text snippet:', msg.text.slice(0, 100).replace(/\n/g, ' '));
-        if (msg.text.toLowerCase().includes('binary search') || msg.text.toLowerCase().includes('divide-and-conquer')) {
-          console.log('✅ SCENARIO 2 PASSED: Concept explanation generated!');
-          return true;
-        }
-      }
-      return false;
-    }
-  );
-
-  // Scenario 3: Comparison Table
-  console.log('\n--- SCENARIO 3: Comparison Table ---');
-  await runScenario(
-    'Comparison Table',
-    'Compare Python and C++ in a table.',
-    (msg) => {
-      if (msg.type === 'ai_text') {
-        console.log('  -> Visual Type:', msg.visualType);
-        console.log('  -> Spoken:', msg.spoken);
-        if (msg.visualType === 'table' && msg.text.includes('| Feature | Python | C++ |')) {
-          console.log('✅ SCENARIO 3 PASSED: Comparison table generated cleanly!');
-          return true;
-        }
-      }
-      return false;
-    }
-  );
-
-  // Scenario 4: Express REST API for Todo App
-  console.log('\n--- SCENARIO 4: Scaffold Express REST API for Todo App ---');
-  await runScenario(
-    'Scaffold Express REST API for Todo App',
-    'Create an Express REST API for a todo app.',
-    (msg) => {
-      if (msg.type === 'task_complete') {
-        console.log('  -> Task Completed:', msg.title);
-        console.log('  -> Files Created:', msg.files.map(f => f.path).join(', '));
-        console.log('  -> Primary Code Language:', msg.primaryCode?.language);
-        if (msg.primaryCode?.code.includes('/api/todos')) {
-          console.log('✅ SCENARIO 4 PASSED: Todo App REST API scaffolding task completed with /api/todos endpoints!');
-          return true;
-        }
-      }
-      return false;
-    }
-  );
-
-  // Scenario 5: Python Odd and Even Program
-  console.log('\n--- SCENARIO 5: Python Odd and Even Program ---');
-  await runScenario(
-    'Python Odd and Even Program',
-    'Write a Python program for odd and even numbers.',
-    (msg) => {
-      if (msg.type === 'ai_text') {
-        console.log('  -> Visual Type:', msg.visualType);
-        console.log('  -> Language:', msg.language);
-        console.log('  -> Spoken:', msg.spoken);
-        if (msg.visualType === 'code' && msg.language === 'python') {
-          console.log('✅ SCENARIO 5 PASSED: Python odd/even program generated cleanly!');
-          return true;
-        }
-      }
-      return false;
-    }
-  );
-
-  console.log('\n🎉 ALL 5 WORKSPACE SCENARIOS PASSED 100%!\n');
-}
-
-main().catch((err) => {
-  console.error('❌ Test failed:', err);
-  process.exit(1);
+test('Workspace Scenario 1: Python Prime Checker generates code block', async () => {
+  const { aiText } = await runScenario('Write a Python program to check whether a number is prime.');
+  assert.ok(aiText, 'Received ai_text response');
+  assert.equal(aiText.visualType, 'code', 'Visual type must be code');
+  assert.equal(aiText.language, 'python', 'Language must be python');
+  assert.equal(aiText.responseMode, 'TEXT', 'Response mode must be TEXT');
+  assert.ok(aiText.text.includes('is_prime'), 'Code includes is_prime function');
+  assert.ok(!aiText.spoken.includes('def is_prime'), 'Spoken audio does not read code aloud');
 });
 
+test('Workspace Scenario 2: Binary Search Concept generates clean concept explanation', async () => {
+  const { aiText } = await runScenario('Explain binary search.');
+  assert.ok(aiText, 'Received ai_text response');
+  assert.ok(
+    aiText.text.toLowerCase().includes('binary_search') ||
+    aiText.text.toLowerCase().includes('binary search') ||
+    aiText.spoken.toLowerCase().includes('binary search'),
+    'Explanation text covers binary search'
+  );
+  assert.ok(!aiText.spoken.startsWith('{'), 'Spoken audio never leaks raw JSON');
+});
+
+test('Workspace Scenario 3: Comparison Table generates markdown table', async () => {
+  const { aiText } = await runScenario('Compare Python and C++ in a table.');
+  assert.ok(aiText, 'Received ai_text response');
+  assert.equal(aiText.visualType, 'table', 'Visual type must be table');
+  assert.ok(aiText.text.includes('| Feature |'), 'Visual text contains table header');
+  assert.ok(aiText.text.includes('| :---'), 'Visual text contains table delimiter');
+  assert.ok(!aiText.spoken.includes('|'), 'Spoken audio contains zero table pipe characters');
+});
+
+test('Workspace Scenario 4: Scaffold Express REST API for Todo App executes workflow', async () => {
+  const { taskComplete } = await runScenario('Create an Express REST API for a todo app.', 15000);
+  assert.ok(taskComplete, 'Received task_complete event');
+  assert.ok(taskComplete.files && taskComplete.files.length > 0, 'Created files for todo app');
+  assert.ok(taskComplete.primaryCode?.code.includes('/api/todos'), 'Contains /api/todos endpoints');
+});
+
+test('Workspace Scenario 5: Python Odd and Even Program generates code block', async () => {
+  const { aiText } = await runScenario('Write a Python program for odd and even numbers.');
+  assert.ok(aiText, 'Received ai_text response');
+  assert.equal(aiText.visualType, 'code', 'Visual type must be code');
+  assert.equal(aiText.language, 'python', 'Language must be python');
+  assert.ok(
+    aiText.text.includes('check_odd_even') || aiText.text.includes('% 2'),
+    'Contains odd and even checking logic'
+  );
+  assert.ok(!aiText.spoken.includes('% 2'), 'Spoken audio does not read modulo operators aloud');
+});

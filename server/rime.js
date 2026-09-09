@@ -20,7 +20,12 @@ export const RIME_MODELS = [
 ];
 
 export async function synthesizeSpeech(text, config, signal) {
-  const { apiKey, modelId = 'mistv3', speaker = 'astra', audioFormat = 'mp3', lang = 'en' } = config;
+  const { apiKey, modelId = 'mistv3', speaker = 'astra', audioFormat = 'mp3', lang = 'en', mockAudio = false } = config || {};
+
+  if (mockAudio) {
+    // Deterministic mock audio buffer for offline testing and CI
+    return Buffer.alloc(128, 0xaa);
+  }
 
   if (!apiKey) {
     // No key configured -> let the caller fall back to local TTS.

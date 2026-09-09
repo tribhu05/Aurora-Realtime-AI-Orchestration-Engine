@@ -7,11 +7,14 @@
   "scripts": {
     "start": "node server/server.js",
     "dev": "node --watch server/server.js",
-    "test": "node tests/interruption-test.js",
+    "test": "node --test tests/**/*.test.js",
+    "test:unit": "node --test tests/unit/**/*.test.js",
+    "test:integration": "node --test tests/*.test.js",
     "test:visual": "node tests/visual-chat.test.js",
     "test:workspace": "node tests/workspace-scenarios.test.js",
     "test:routing": "node tests/routing-scenarios.test.js",
-    "test:all": "node tests/routing-scenarios.test.js && node tests/interruption-test.js && node tests/visual-chat.test.js && node tests/workspace-scenarios.test.js"
+    "test:barge-in": "node tests/interruption.test.js",
+    "test:all": "node --test tests/**/*.test.js"
   },
   "keywords": [
     "voice-ai",

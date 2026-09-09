@@ -20,7 +20,6 @@ import { isTaskRequest, executeScaffoldTask } from './tasks.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const PORT = process.env.PORT || 3000;
-let ARTIFICIAL_DELAY_MS = Number(process.env.ARTIFICIAL_DELAY_MS || 0);
 
 // Treat obvious template placeholders ("your_..._key_here") as unset so the
 // app cleanly falls back to offline demo mode instead of failing API calls.
@@ -29,193 +28,246 @@ function realKey(v) {
   return /^your_.*_here$/i.test(v.trim()) ? '' : v.trim();
 }
 
-const RIME_CONFIG = {
-  apiKey: realKey(process.env.RIME_API_KEY),
-  modelId: process.env.RIME_MODEL_ID || 'mistv3',
-  speaker: process.env.RIME_SPEAKER || 'astra',
-  audioFormat: process.env.RIME_AUDIO_FORMAT || 'mp3',
-};
+/**
+ * Creates an Aurora HTTP + WebSocket Server instance.
+ * Supports running on ephemeral ports (port: 0) and deterministic mock mode
+ * for CI and automated testing without real API secrets.
+ */
+export function createAuroraServer(options = {}) {
+  const quiet = options.quiet ?? false;
+  const mock = options.mock ?? false;
+  let artificialDelayMs = options.delayMs ?? Number(process.env.ARTIFICIAL_DELAY_MS || 0);
 
-const LLM_CONFIG = {
-  provider: process.env.LLM_PROVIDER || 'gemini',
-  apiKey: realKey(process.env.LLM_API_KEY),
-  model: process.env.LLM_MODEL || 'gemini-3.5-flash-lite',
-};
-
-const app = express();
-app.use(cors());
-app.use(express.json());
-app.use(express.static(path.join(__dirname, '..', 'client')));
-
-app.get('/health', (_req, res) => res.json({ ok: true }));
-
-app.get('/config', (_req, res) =>
-  res.json({
-    rimeConfigured: Boolean(RIME_CONFIG.apiKey),
-    llmConfigured: Boolean(LLM_CONFIG.apiKey),
-    speaker: RIME_CONFIG.speaker,
-    modelId: RIME_CONFIG.modelId,
-    llmProvider: LLM_CONFIG.provider,
-    llmModel: LLM_CONFIG.model,
-    delayMs: ARTIFICIAL_DELAY_MS,
-  })
-);
-
-app.get('/api/voices', (_req, res) => {
-  res.json({
-    speakers: RIME_SPEAKERS,
-    models: RIME_MODELS,
-    activeSpeaker: RIME_CONFIG.speaker,
-    activeModel: RIME_CONFIG.modelId,
-    rimeConfigured: Boolean(RIME_CONFIG.apiKey),
-  });
-});
-
-app.post('/api/preview-tts', async (req, res) => {
-  try {
-    const { text = 'Hello from Rime voice synthesis.', speaker = RIME_CONFIG.speaker, modelId = RIME_CONFIG.modelId } = req.body;
-    if (!RIME_CONFIG.apiKey) {
-      return res.json({ ok: false, fallback: true, message: 'No Rime API key configured. Browser speech will be used.' });
-    }
-    const buf = await synthesizeSpeech(text, {
-      ...RIME_CONFIG,
-      speaker,
-      modelId,
-    });
-    if (!buf) {
-      return res.json({ ok: false, fallback: true });
-    }
-    res.json({
-      ok: true,
-      audio: buf.toString('base64'),
-      format: RIME_CONFIG.audioFormat,
-      speaker,
-      modelId,
-    });
-  } catch (err) {
-    res.status(500).json({ ok: false, error: err.message });
-  }
-});
-
-app.post('/api/keys', (req, res) => {
-  const { llmApiKey, llmProvider = 'groq', llmModel } = req.body;
-  if (typeof llmApiKey === 'string' && llmApiKey.trim()) {
-    LLM_CONFIG.apiKey = llmApiKey.trim();
-    LLM_CONFIG.provider = llmProvider;
-    if (llmModel && llmModel.trim()) {
-      LLM_CONFIG.model = llmModel.trim();
-    } else {
-      LLM_CONFIG.model = llmProvider === 'gemini' ? 'gemini-3.5-flash-lite' : (llmProvider === 'openai' ? 'gpt-4o-mini' : 'llama-3.1-8b-instant');
-    }
-    console.log(`🧠 Online LLM Brain activated: ${LLM_CONFIG.provider} (${LLM_CONFIG.model})`);
-    return res.json({
-      ok: true,
-      llmConfigured: true,
-      provider: LLM_CONFIG.provider,
-      model: LLM_CONFIG.model,
-    });
-  }
-  res.json({ ok: false, error: 'API key is required' });
-});
-
-const httpServer = createServer(app);
-const wss = new WebSocketServer({ server: httpServer });
-
-wss.on('connection', (ws) => {
-  if (ws._socket) {
-    ws._socket.setNoDelay(true);
-  }
-  const sessionId = randomUUID();
-  const state = {
-    generation: 0,
-    activeController: null,
-    history: [], // only what the user actually heard / said
+  const rimeConfig = {
+    apiKey: mock ? '' : (options.rimeApiKey ?? realKey(process.env.RIME_API_KEY)),
+    modelId: options.rimeModelId || process.env.RIME_MODEL_ID || 'mistv3',
+    speaker: options.rimeSpeaker || process.env.RIME_SPEAKER || 'astra',
+    audioFormat: options.rimeAudioFormat || process.env.RIME_AUDIO_FORMAT || 'mp3',
+    mockAudio: options.mockAudio ?? mock,
   };
 
-  send(ws, {
-    type: 'handshake',
-    sessionId,
-    generation: state.generation,
-    rimeConfigured: Boolean(RIME_CONFIG.apiKey),
-    llmConfigured: Boolean(LLM_CONFIG.apiKey),
-    speaker: RIME_CONFIG.speaker,
-    modelId: RIME_CONFIG.modelId,
-    audioFormat: RIME_CONFIG.audioFormat,
-    llmProvider: LLM_CONFIG.provider,
-    llmModel: LLM_CONFIG.model,
+  const llmConfig = {
+    provider: options.llmProvider || process.env.LLM_PROVIDER || 'gemini',
+    apiKey: mock ? '' : (options.llmApiKey ?? realKey(process.env.LLM_API_KEY)),
+    model: options.llmModel || process.env.LLM_MODEL || 'gemini-3.5-flash-lite',
+  };
+
+  const app = express();
+  app.use(cors());
+  app.use(express.json());
+  app.use(express.static(path.join(__dirname, '..', 'client')));
+
+  app.get('/health', (_req, res) => res.json({ ok: true }));
+
+  app.get('/config', (_req, res) =>
+    res.json({
+      rimeConfigured: Boolean(rimeConfig.apiKey),
+      llmConfigured: Boolean(llmConfig.apiKey),
+      speaker: rimeConfig.speaker,
+      modelId: rimeConfig.modelId,
+      llmProvider: llmConfig.provider,
+      llmModel: llmConfig.model,
+      delayMs: artificialDelayMs,
+    })
+  );
+
+  app.get('/api/voices', (_req, res) => {
+    res.json({
+      speakers: RIME_SPEAKERS,
+      models: RIME_MODELS,
+      activeSpeaker: rimeConfig.speaker,
+      activeModel: rimeConfig.modelId,
+      rimeConfigured: Boolean(rimeConfig.apiKey),
+    });
   });
 
-  ws.on('message', (raw) => {
-    let msg;
+  app.post('/api/preview-tts', async (req, res) => {
     try {
-      msg = JSON.parse(raw.toString());
-    } catch {
-      return;
-    }
-
-    if (msg.type === 'update_config') {
-      if (typeof msg.speaker === 'string' && msg.speaker.trim()) {
-        RIME_CONFIG.speaker = msg.speaker.trim();
+      const { text = 'Hello from Rime voice synthesis.', speaker = rimeConfig.speaker, modelId = rimeConfig.modelId } = req.body;
+      if (!rimeConfig.apiKey && !rimeConfig.mockAudio) {
+        return res.json({ ok: false, fallback: true, message: 'No Rime API key configured. Browser speech will be used.' });
       }
-      if (typeof msg.modelId === 'string' && msg.modelId.trim()) {
-        RIME_CONFIG.modelId = msg.modelId.trim();
-      }
-      send(ws, {
-        type: 'config_updated',
-        speaker: RIME_CONFIG.speaker,
-        modelId: RIME_CONFIG.modelId,
+      const buf = await synthesizeSpeech(text, {
+        ...rimeConfig,
+        speaker,
+        modelId,
       });
-      return;
-    }
-
-    if (msg.type === 'set_delay') {
-      const ms = Number(msg.delayMs);
-      if (!isNaN(ms) && ms >= 0 && ms <= 10000) {
-        ARTIFICIAL_DELAY_MS = ms;
-        send(ws, { type: 'delay_updated', delayMs: ARTIFICIAL_DELAY_MS });
+      if (!buf) {
+        return res.json({ ok: false, fallback: true });
       }
-      return;
-    }
-
-    if (msg.type === 'interrupt') {
-      const ackedGen = state.generation;
-      if (state.activeController) {
-        state.activeController.abort();
-        state.activeController = null;
-      }
-      state.generation += 1;
-      send(ws, {
-        type: 'interrupted',
-        oldGeneration: ackedGen,
-        newGeneration: state.generation,
-        serverTimestamp: Date.now(),
-        clientTimestamp: msg.timestamp || null,
+      res.json({
+        ok: true,
+        audio: buf.toString('base64'),
+        format: rimeConfig.audioFormat,
+        speaker,
+        modelId,
       });
-      return;
-    }
-
-    if (msg.type === 'query' && typeof msg.text === 'string' && msg.text.trim()) {
-      // A fresh query always cancels whatever was in flight first.
-      if (state.activeController) {
-        state.activeController.abort();
-        state.activeController = null;
-      }
-      state.generation += 1;
-      const myGen = state.generation;
-      handleTurn(ws, state, myGen, msg.text.trim(), msg.mode).catch((err) => {
-        if (err?.name === 'AbortError') return;
-        console.error('[turn error]', err);
-        send(ws, { type: 'error', generation: myGen, message: 'Something went wrong on my end.' });
-      });
+    } catch (err) {
+      res.status(500).json({ ok: false, error: err.message });
     }
   });
 
-  ws.on('close', () => {
-    if (state.activeController) state.activeController.abort();
+  app.post('/api/keys', (req, res) => {
+    const { llmApiKey, llmProvider = 'groq', llmModel } = req.body;
+    if (typeof llmApiKey === 'string' && llmApiKey.trim()) {
+      llmConfig.apiKey = llmApiKey.trim();
+      llmConfig.provider = llmProvider;
+      if (llmModel && llmModel.trim()) {
+        llmConfig.model = llmModel.trim();
+      } else {
+        llmConfig.model = llmProvider === 'gemini' ? 'gemini-3.5-flash-lite' : (llmProvider === 'openai' ? 'gpt-4o-mini' : 'llama-3.1-8b-instant');
+      }
+      if (!quiet) console.log(`🧠 Online LLM Brain activated: ${llmConfig.provider} (${llmConfig.model})`);
+      return res.json({
+        ok: true,
+        llmConfigured: true,
+        provider: llmConfig.provider,
+        model: llmConfig.model,
+      });
+    }
+    res.json({ ok: false, error: 'API key is required' });
   });
-});
 
-async function handleTurn(ws, state, myGen, userText, userOverride = null) {
+  const httpServer = createServer(app);
+  const wss = new WebSocketServer({ server: httpServer });
+
+  wss.on('connection', (ws) => {
+    if (ws._socket) {
+      ws._socket.setNoDelay(true);
+    }
+    const sessionId = randomUUID();
+    const state = {
+      generation: 0,
+      activeController: null,
+      history: [], // only what the user actually heard / said
+    };
+
+    send(ws, {
+      type: 'handshake',
+      sessionId,
+      generation: state.generation,
+      rimeConfigured: Boolean(rimeConfig.apiKey),
+      llmConfigured: Boolean(llmConfig.apiKey),
+      speaker: rimeConfig.speaker,
+      modelId: rimeConfig.modelId,
+      audioFormat: rimeConfig.audioFormat,
+      llmProvider: llmConfig.provider,
+      llmModel: llmConfig.model,
+    });
+
+    ws.on('message', (raw) => {
+      let msg;
+      try {
+        msg = JSON.parse(raw.toString());
+      } catch {
+        return;
+      }
+
+      if (msg.type === 'update_config') {
+        if (typeof msg.speaker === 'string' && msg.speaker.trim()) {
+          rimeConfig.speaker = msg.speaker.trim();
+        }
+        if (typeof msg.modelId === 'string' && msg.modelId.trim()) {
+          rimeConfig.modelId = msg.modelId.trim();
+        }
+        send(ws, {
+          type: 'config_updated',
+          speaker: rimeConfig.speaker,
+          modelId: rimeConfig.modelId,
+        });
+        return;
+      }
+
+      if (msg.type === 'set_delay') {
+        const ms = Number(msg.delayMs);
+        if (!isNaN(ms) && ms >= 0 && ms <= 10000) {
+          artificialDelayMs = ms;
+          send(ws, { type: 'delay_updated', delayMs: artificialDelayMs });
+        }
+        return;
+      }
+
+      if (msg.type === 'interrupt') {
+        const ackedGen = state.generation;
+        if (state.activeController) {
+          state.activeController.abort();
+          state.activeController = null;
+        }
+        state.generation += 1;
+        send(ws, {
+          type: 'interrupted',
+          oldGeneration: ackedGen,
+          newGeneration: state.generation,
+          serverTimestamp: Date.now(),
+          clientTimestamp: msg.timestamp || null,
+        });
+        return;
+      }
+
+      if (msg.type === 'query' && typeof msg.text === 'string' && msg.text.trim()) {
+        // A fresh query always cancels whatever was in flight first.
+        if (state.activeController) {
+          state.activeController.abort();
+          state.activeController = null;
+        }
+        state.generation += 1;
+        const myGen = state.generation;
+        handleTurn({
+          ws,
+          state,
+          myGen,
+          userText: msg.text.trim(),
+          userOverride: msg.mode,
+          rimeConfig,
+          llmConfig,
+          getDelayMs: () => artificialDelayMs,
+        }).catch((err) => {
+          if (err?.name === 'AbortError') return;
+          console.error('[turn error]', err);
+          send(ws, { type: 'error', generation: myGen, message: 'Something went wrong on my end.' });
+        });
+      }
+    });
+
+    ws.on('close', () => {
+      if (state.activeController) state.activeController.abort();
+    });
+  });
+
+  return {
+    app,
+    httpServer,
+    wss,
+    rimeConfig,
+    llmConfig,
+    listen(port = 0) {
+      return new Promise((resolve) => {
+        const server = httpServer.listen(port, () => {
+          const addr = server.address();
+          const boundPort = typeof addr === 'object' && addr ? addr.port : port;
+          if (!quiet) {
+            console.log(`✨ Aurora is listening on http://localhost:${boundPort}`);
+            console.log(`   Rime TTS:  ${rimeConfig.apiKey ? 'configured (' + rimeConfig.speaker + ')' : (rimeConfig.mockAudio ? 'mock audio mode' : 'NOT configured — using browser speech fallback')}`);
+            console.log(`   LLM:       ${llmConfig.apiKey ? 'configured (' + llmConfig.provider + ')' : 'NOT configured — using offline demo replies'}`);
+          }
+          resolve({ port: boundPort, server, httpServer });
+        });
+      });
+    },
+    close() {
+      return new Promise((resolve, reject) => {
+        for (const client of wss.clients) {
+          try { client.terminate(); } catch (_) {}
+        }
+        wss.close(() => {
+          httpServer.close((err) => (err ? reject(err) : resolve()));
+        });
+      });
+    },
+  };
+}
+
+async function handleTurn({ ws, state, myGen, userText, userOverride = null, rimeConfig, llmConfig, getDelayMs }) {
   const turnStartTime = Date.now();
   send(ws, { type: 'user_text', text: userText, generation: myGen, timestamp: turnStartTime });
   state.history.push({ role: 'user', content: userText });
@@ -233,7 +285,7 @@ async function handleTurn(ws, state, myGen, userText, userOverride = null) {
         userText,
         signal: controller.signal,
         send,
-        rimeConfig: RIME_CONFIG,
+        rimeConfig,
       });
     } catch (err) {
       if (err?.name === 'AbortError') return;
@@ -251,9 +303,9 @@ async function handleTurn(ws, state, myGen, userText, userOverride = null) {
   let replyObj;
   try {
     replyObj = await getAssistantReply({
-      provider: LLM_CONFIG.provider,
-      apiKey: LLM_CONFIG.apiKey,
-      model: LLM_CONFIG.model,
+      provider: llmConfig.provider,
+      apiKey: llmConfig.apiKey,
+      model: llmConfig.model,
       messages: state.history,
       signal: controller.signal,
       userOverride,
@@ -291,8 +343,9 @@ async function handleTurn(ws, state, myGen, userText, userOverride = null) {
     timestamp: Date.now(),
   });
 
-  if (ARTIFICIAL_DELAY_MS > 0) {
-    await sleep(ARTIFICIAL_DELAY_MS, controller.signal);
+  const delayMs = getDelayMs ? getDelayMs() : 0;
+  if (delayMs > 0) {
+    await sleep(delayMs, controller.signal);
   }
   if (isStale(state, myGen)) return;
 
@@ -303,7 +356,7 @@ async function handleTurn(ws, state, myGen, userText, userOverride = null) {
   const t1 = Date.now();
   let audioBuffer = null;
   try {
-    audioBuffer = await synthesizeSpeech(spokenText, RIME_CONFIG, controller.signal);
+    audioBuffer = await synthesizeSpeech(spokenText, rimeConfig, controller.signal);
   } catch (err) {
     if (err?.name === 'AbortError') return;
     console.error('[rime error]', err.message);
@@ -318,9 +371,9 @@ async function handleTurn(ws, state, myGen, userText, userOverride = null) {
     send(ws, {
       type: 'audio',
       generation: myGen,
-      speaker: RIME_CONFIG.speaker,
-      modelId: RIME_CONFIG.modelId,
-      format: RIME_CONFIG.audioFormat,
+      speaker: rimeConfig.speaker,
+      modelId: rimeConfig.modelId,
+      format: rimeConfig.audioFormat,
       data: audioBuffer.toString('base64'),
       ttsMs,
       llmMs,
@@ -348,7 +401,7 @@ function isStale(state, myGen) {
 }
 
 function send(ws, obj) {
-  if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(obj));
+  if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify(obj));
 }
 
 function sleep(ms, signal) {
@@ -361,8 +414,12 @@ function sleep(ms, signal) {
   });
 }
 
-httpServer.listen(PORT, () => {
-  console.log(`✨ Aurora is listening on http://localhost:${PORT}`);
-  console.log(`   Rime TTS:  ${RIME_CONFIG.apiKey ? 'configured (' + RIME_CONFIG.speaker + ')' : 'NOT configured — using browser speech fallback'}`);
-  console.log(`   LLM:       ${LLM_CONFIG.apiKey ? 'configured (' + LLM_CONFIG.provider + ')' : 'NOT configured — using offline demo replies'}`);
-});
+const isDirectRun = process.argv[1] && (
+  fileURLToPath(import.meta.url) === path.resolve(process.argv[1]) ||
+  process.argv[1].endsWith('server.js')
+);
+
+if (isDirectRun) {
+  const instance = createAuroraServer();
+  instance.listen(PORT);
+}
