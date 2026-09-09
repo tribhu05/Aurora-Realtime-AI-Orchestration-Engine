@@ -1,0 +1,32 @@
+{
+  "name": "interruptible-rime-agent",
+  "version": "1.0.0",
+  "description": "Full-duplex interruptible voice AI assistant powered by Rime TTS with sub-30ms cancellation and generation fencing.",
+  "type": "module",
+  "main": "server/server.js",
+  "scripts": {
+    "start": "node server/server.js",
+    "dev": "node --watch server/server.js",
+    "test": "node tests/interruption-test.js",
+    "test:visual": "node tests/visual-chat.test.js",
+    "test:workspace": "node tests/workspace-scenarios.test.js",
+    "test:all": "node tests/interruption-test.js && node tests/visual-chat.test.js && node tests/workspace-scenarios.test.js"
+  },
+  "keywords": [
+    "voice-ai",
+    "rime-tts",
+    "interruption",
+    "barge-in",
+    "realtime",
+    "full-duplex",
+    "websockets"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "ws": "^8.18.0"
+  }
+}
