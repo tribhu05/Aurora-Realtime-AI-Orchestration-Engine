@@ -21,6 +21,8 @@ services:
         value: groq
       - key: LLM_MODEL
         value: llama-3.1-8b-instant
+      - key: FRONTEND_URL
+        value: https://aurora-realtime-ai-orchestration-engine.vercel.app
       - key: RIME_API_KEY
         sync: false
       - key: LLM_API_KEY

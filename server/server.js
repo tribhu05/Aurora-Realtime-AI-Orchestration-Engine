@@ -96,11 +96,67 @@ export function createAuroraServer(options = {}) {
   };
 
   const app = express();
-  app.use(cors());
+
+  // Normalize rewritten URLs from Vercel serverless functions
+  app.use((req, _res, next) => {
+    const matchedPath =
+      req.headers['x-matched-path'] ||
+      req.headers['x-forwarded-uri'] ||
+      req.headers['x-original-url'];
+
+    if (
+      matchedPath &&
+      (req.url.includes('index.js') || req.url === '/api' || req.url === '/api/index')
+    ) {
+      req.url = matchedPath;
+    } else if (req.url.startsWith('/api/index.js') || req.url.startsWith('/index.js')) {
+      const match = req.url.match(/[?&](?:path|1)=([^&]+)/);
+      if (match) {
+        req.url = `/api/${decodeURIComponent(match[1])}`;
+      }
+    }
+    next();
+  });
+
+  const allowedOrigins = [
+    process.env.FRONTEND_URL,
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'http://127.0.0.1:3000',
+  ].filter(Boolean);
+
+  app.use(
+    cors({
+      origin: (origin, callback) => {
+        if (!origin) return callback(null, true);
+        try {
+          const parsed = new URL(origin);
+          if (
+            allowedOrigins.includes(origin) ||
+            /\.vercel\.app$/.test(parsed.hostname) ||
+            /^(localhost|127\.0\.0\.1)$/.test(parsed.hostname)
+          ) {
+            return callback(null, true);
+          }
+        } catch (_) {}
+        return callback(null, true);
+      },
+      credentials: true,
+      methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+      allowedHeaders: [
+        'Content-Type',
+        'Authorization',
+        'x-matched-path',
+        'x-forwarded-uri',
+        'x-original-url',
+      ],
+    })
+  );
+
   app.use(express.json());
   app.use(express.static(path.join(__dirname, '..', 'client')));
 
-  app.get('/health', (_req, res) => res.json({ ok: true }));
+  app.get(['/health', '/api/health'], (_req, res) => res.json({ ok: true }));
 
   app.get(['/config', '/api/config'], (_req, res) =>
     res.json({
@@ -115,7 +171,7 @@ export function createAuroraServer(options = {}) {
     })
   );
 
-  app.get('/api/voices', (_req, res) => {
+  app.get(['/voices', '/api/voices'], (_req, res) => {
     res.json({
       speakers: RIME_SPEAKERS,
       models: RIME_MODELS,
@@ -256,7 +312,7 @@ export function createAuroraServer(options = {}) {
     }
   });
 
-  app.post('/api/preview-tts', async (req, res) => {
+  app.post(['/preview-tts', '/api/preview-tts'], async (req, res) => {
     try {
       const {
         text = 'Hello from Rime voice synthesis.',
@@ -290,7 +346,7 @@ export function createAuroraServer(options = {}) {
     }
   });
 
-  app.post('/api/keys', (req, res) => {
+  app.post(['/keys', '/api/keys'], (req, res) => {
     const { llmApiKey, llmProvider = 'groq', llmModel } = req.body;
     if (typeof llmApiKey === 'string' && llmApiKey.trim()) {
       llmConfig.apiKey = llmApiKey.trim();

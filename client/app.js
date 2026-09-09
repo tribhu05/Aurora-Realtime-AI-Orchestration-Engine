@@ -247,19 +247,21 @@
     });
   });
 
-  // ---------- WebSocket Connection ----------
-  function getBackendWsUrl() {
-    // 1. Check URL parameters (?backend=... or ?ws=...)
+  // ---------- Backend URL Resolution & WebSocket Connection ----------
+  function getBackendHttpUrl() {
+    // 1. Check URL parameters (?backend=... or ?api=...)
     try {
       const params = new URLSearchParams(window.location.search);
-      const queryBackend = params.get('backend') || params.get('ws');
-      if (queryBackend) {
-        const clean = queryBackend
-          .trim()
-          .replace(/^https?:\/\//, '')
-          .replace(/^wss?:\/\//, '');
-        const scheme = queryBackend.startsWith('ws://') ? 'ws' : 'wss';
-        return `${scheme}://${clean}`;
+      const queryBackend = params.get('backend') || params.get('api');
+      if (queryBackend && queryBackend.trim()) {
+        let clean = queryBackend.trim().replace(/\/+$/, '');
+        if (!/^https?:\/\//i.test(clean) && !/^wss?:\/\//i.test(clean)) {
+          const scheme = window.location.protocol === 'https:' ? 'https://' : 'http://';
+          clean = scheme + clean;
+        } else {
+          clean = clean.replace(/^wss:\/\//i, 'https://').replace(/^ws:\/\//i, 'http://');
+        }
+        return clean;
       }
     } catch (_) {}
 
@@ -267,22 +269,67 @@
     try {
       const saved = localStorage.getItem('aurora-backend-url');
       if (saved && saved.trim()) {
-        const clean = saved
-          .trim()
-          .replace(/^https?:\/\//, '')
-          .replace(/^wss?:\/\//, '');
-        const scheme = saved.startsWith('ws://')
-          ? 'ws'
-          : location.protocol === 'https:'
-            ? 'wss'
-            : 'ws';
-        return `${scheme}://${clean}`;
+        let clean = saved.trim().replace(/\/+$/, '');
+        if (!/^https?:\/\//i.test(clean) && !/^wss?:\/\//i.test(clean)) {
+          const scheme = window.location.protocol === 'https:' ? 'https://' : 'http://';
+          clean = scheme + clean;
+        } else {
+          clean = clean.replace(/^wss:\/\//i, 'https://').replace(/^ws:\/\//i, 'http://');
+        }
+        return clean;
       }
     } catch (_) {}
 
-    // 3. Same-origin fallback
-    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    return `${proto}://${location.host}`;
+    // 3. Localhost development auto-detection
+    const isLocalhost =
+      window.location.hostname === 'localhost' ||
+      window.location.hostname === '127.0.0.1' ||
+      window.location.hostname === '[::1]';
+
+    if (isLocalhost) {
+      const devUrl =
+        (window.AURORA_CONFIG && window.AURORA_CONFIG.developmentBackendUrl) ||
+        'http://localhost:3000';
+      return devUrl.replace(/\/+$/, '');
+    }
+
+    // 4. Global runtime config (window.AURORA_CONFIG / window.AURORA_BACKEND_URL)
+    const configuredProd =
+      window.AURORA_BACKEND_URL ||
+      (window.AURORA_CONFIG && window.AURORA_CONFIG.productionBackendUrl);
+    if (configuredProd && typeof configuredProd === 'string' && configuredProd.trim()) {
+      return configuredProd.trim().replace(/\/+$/, '');
+    }
+
+    // 5. Same-origin fallback
+    return window.location.origin;
+  }
+
+  function getBackendWsUrl() {
+    const httpUrl = getBackendHttpUrl();
+    try {
+      const parsed = new URL(httpUrl, window.location.href);
+      // Mixed content prevention: if page is HTTPS, ALWAYS use WSS
+      const isHttps =
+        window.location.protocol === 'https:' ||
+        parsed.protocol === 'https:' ||
+        parsed.protocol === 'wss:';
+      const wsProto = isHttps ? 'wss:' : 'ws:';
+      return `${wsProto}//${parsed.host}`;
+    } catch (_) {
+      const clean = httpUrl.replace(/^https?:\/\//i, '').replace(/^wss?:\/\//i, '');
+      const isHttps = window.location.protocol === 'https:' || httpUrl.startsWith('https:');
+      return `${isHttps ? 'wss' : 'ws'}://${clean}`;
+    }
+  }
+
+  function apiUrl(endpoint) {
+    const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+    const base = getBackendHttpUrl();
+    if (!base || base === window.location.origin) {
+      return cleanEndpoint;
+    }
+    return `${base.replace(/\/+$/, '')}${cleanEndpoint}`;
   }
 
   function connect() {
@@ -297,7 +344,7 @@
 
     ws.onopen = () => {
       wsReady = true;
-      setConnStatus(true);
+      setConnStatus(true, 'Online (Realtime)');
       dbgWs.textContent = 'Connected (Realtime)';
       log(`WebSocket connected (${wsTarget})`);
     };
@@ -306,9 +353,9 @@
       wsReady = false;
       if (httpHealthy) {
         setConnStatus(true, 'Online (HTTP)');
-        dbgWs.textContent = 'HTTP Mode (Serverless)';
+        dbgWs.textContent = 'HTTP Mode (Active)';
       } else {
-        setConnStatus(false, 'Offline');
+        setConnStatus(false, 'Connecting…');
         dbgWs.textContent = 'Disconnected — reconnecting…';
       }
       log('WebSocket closed, using HTTP fallback');
@@ -332,18 +379,36 @@
 
   let httpHealthy = false;
   async function initHttpConfig() {
+    const primaryUrl = apiUrl('/api/config');
     try {
-      const res = await fetch('/api/config');
+      const res = await fetch(primaryUrl);
       if (res.ok) {
         const data = await res.json();
         httpHealthy = true;
         applyServerConfig(data);
         if (!wsReady) {
           setConnStatus(true, 'Online (HTTP)');
-          dbgWs.textContent = 'HTTP Mode (Serverless)';
+          dbgWs.textContent = 'HTTP Mode (Active)';
         }
+        return;
       }
     } catch (_) {}
+
+    // Fallback to same-origin if cross-origin failed
+    if (primaryUrl !== '/api/config') {
+      try {
+        const res = await fetch('/api/config');
+        if (res.ok) {
+          const data = await res.json();
+          httpHealthy = true;
+          applyServerConfig(data);
+          if (!wsReady) {
+            setConnStatus(true, 'Online (HTTP)');
+            dbgWs.textContent = 'HTTP Mode (Serverless)';
+          }
+        }
+      } catch (_) {}
+    }
   }
   initHttpConfig();
 
@@ -796,19 +861,44 @@
       }));
 
     const turnStartTime = Date.now();
+    let targetTurnUrl = apiUrl('/api/turn');
+    let res;
     try {
-      const res = await fetch('/api/turn', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text: cleanText,
-          mode,
-          history,
-          speaker: currentActiveSpeaker,
-          modelId: currentActiveModel,
-        }),
-        signal: abortCtrl.signal,
-      });
+      try {
+        res = await fetch(targetTurnUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            text: cleanText,
+            mode,
+            history,
+            speaker: currentActiveSpeaker,
+            modelId: currentActiveModel,
+          }),
+          signal: abortCtrl.signal,
+        });
+      } catch (fetchErr) {
+        if (fetchErr.name === 'AbortError') throw fetchErr;
+        // If cross-origin fetch failed (e.g. backend unreachable or cold starting), retry with same-origin /api/turn
+        if (targetTurnUrl !== '/api/turn') {
+          log(`Remote backend unreachable (${targetTurnUrl}), retrying same-origin /api/turn`);
+          targetTurnUrl = '/api/turn';
+          res = await fetch(targetTurnUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              text: cleanText,
+              mode,
+              history,
+              speaker: currentActiveSpeaker,
+              modelId: currentActiveModel,
+            }),
+            signal: abortCtrl.signal,
+          });
+        } else {
+          throw fetchErr;
+        }
+      }
 
       if (myGen < currentGen) {
         stalePacketsDiscarded += 1;
@@ -818,7 +908,20 @@
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || `Server responded with ${res.status}`);
+        let userMessage;
+        if (res.status === 404) {
+          userMessage =
+            'Server route not found (404). Please verify backend deployment and API routes.';
+        } else if (res.status === 401 || res.status === 403) {
+          userMessage = `Authentication error (${res.status}). Please check your API keys.`;
+        } else if (res.status === 429) {
+          userMessage = 'Rate limit exceeded (429). Please wait a moment before trying again.';
+        } else if (res.status >= 500) {
+          userMessage = errData.error || `Internal server error (${res.status}). Please try again.`;
+        } else {
+          userMessage = errData.error || `Server responded with ${res.status}`;
+        }
+        throw new Error(userMessage);
       }
 
       const data = await res.json();
@@ -880,7 +983,16 @@
         return;
       }
       console.error('HTTP turn error:', err);
-      captionAi.textContent = `“Sorry, an error occurred: ${err.message || 'please try again'}”`;
+      const isNetworkError =
+        err instanceof TypeError ||
+        (err.message &&
+          (err.message.includes('fetch') ||
+            err.message.includes('NetworkError') ||
+            err.message.includes('Failed to fetch')));
+      const displayMsg = isNetworkError
+        ? 'Unable to reach backend service. Verify backend URL in Settings.'
+        : err.message || 'please try again';
+      captionAi.textContent = `“Sorry, an error occurred: ${displayMsg}”`;
       setUiState('idle');
     } finally {
       if (activeHttpAbortController === abortCtrl) {
@@ -1398,9 +1510,16 @@
   // ---------- Voice Studio Setup ----------
   async function loadVoiceStudio() {
     try {
-      const res = await fetch('/api/voices');
-      const data = await res.json();
-      renderVoiceStudio(data.speakers || [], data.models || []);
+      let res;
+      try {
+        res = await fetch(apiUrl('/api/voices'));
+      } catch (_) {
+        res = await fetch('/api/voices');
+      }
+      if (res && res.ok) {
+        const data = await res.json();
+        renderVoiceStudio(data.speakers || [], data.models || []);
+      }
     } catch (err) {
       console.error('Failed to load voices', err);
     }
@@ -1491,7 +1610,7 @@
   async function previewVoice(speakerId) {
     if (ttsPreviewStatus) ttsPreviewStatus.textContent = `Synthesizing sample with ${speakerId}…`;
     try {
-      const res = await fetch('/api/preview-tts', {
+      const res = await fetch(apiUrl('/api/preview-tts'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1523,7 +1642,7 @@
   async function previewVoiceCustom(text) {
     if (ttsPreviewStatus) ttsPreviewStatus.textContent = 'Synthesizing with Rime…';
     try {
-      const res = await fetch('/api/preview-tts', {
+      const res = await fetch(apiUrl('/api/preview-tts'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ speaker: currentActiveSpeaker, text }),
@@ -1561,7 +1680,11 @@
   if (backendUrlInput) {
     try {
       const savedBackend = localStorage.getItem('aurora-backend-url');
-      if (savedBackend) backendUrlInput.value = savedBackend;
+      if (savedBackend) {
+        backendUrlInput.value = savedBackend;
+      } else {
+        backendUrlInput.placeholder = getBackendHttpUrl();
+      }
     } catch (_) {}
   }
 
@@ -1589,6 +1712,8 @@
           ws.close();
         } catch (_) {}
       }
+      initHttpConfig();
+      loadVoiceStudio();
       connect();
     });
   }
@@ -1609,7 +1734,7 @@
       }
       if (llmStatusMsg) llmStatusMsg.textContent = 'Activating online LLM brain…';
       try {
-        const res = await fetch('/api/keys', {
+        const res = await fetch(apiUrl('/api/keys'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ llmApiKey: key, llmProvider: provider }),

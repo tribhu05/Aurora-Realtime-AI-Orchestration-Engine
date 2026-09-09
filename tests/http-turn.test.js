@@ -118,3 +118,80 @@ test('HTTP API - POST /api/preview-tts synthesizes sample voice audio', async ()
   assert.strictEqual(data.ok, true);
   assert.ok(data.audio);
 });
+
+test('HTTP API - GET /health and /api/health return status ok', async () => {
+  for (const path of ['/health', '/api/health']) {
+    const res = await fetch(`${baseUrl}${path}`);
+    assert.strictEqual(res.status, 200);
+    const data = await res.json();
+    assert.strictEqual(data.ok, true);
+  }
+});
+
+test('HTTP API - GET /voices and /api/voices return voice studio catalog', async () => {
+  for (const path of ['/voices', '/api/voices']) {
+    const res = await fetch(`${baseUrl}${path}`);
+    assert.strictEqual(res.status, 200);
+    const data = await res.json();
+    assert.ok(Array.isArray(data.speakers));
+    assert.ok(Array.isArray(data.models));
+    assert.ok(data.speakers.length > 0);
+  }
+});
+
+test('HTTP API - POST /turn and /preview-tts route aliases function correctly', async () => {
+  const turnRes = await fetch(`${baseUrl}/turn`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: 'Hello Aurora' }),
+  });
+  assert.strictEqual(turnRes.status, 200);
+  const turnData = await turnRes.json();
+  assert.strictEqual(turnData.ok, true);
+
+  const ttsRes = await fetch(`${baseUrl}/preview-tts`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ speaker: 'astra', text: 'Alias test' }),
+  });
+  assert.strictEqual(ttsRes.status, 200);
+  const ttsData = await ttsRes.json();
+  assert.strictEqual(ttsData.ok, true);
+});
+
+test('HTTP API - Vercel Serverless rewrite normalization with x-matched-path', async () => {
+  const res = await fetch(`${baseUrl}/api/index.js?1=turn`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-matched-path': '/api/turn',
+    },
+    body: JSON.stringify({ text: 'Testing rewrite normalization' }),
+  });
+  assert.strictEqual(res.status, 200);
+  const data = await res.json();
+  assert.strictEqual(data.ok, true);
+});
+
+test('HTTP API - Vercel Serverless rewrite normalization with query param fallback', async () => {
+  const res = await fetch(`${baseUrl}/api/index.js?1=turn`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: 'Testing query fallback normalization' }),
+  });
+  assert.strictEqual(res.status, 200);
+  const data = await res.json();
+  assert.strictEqual(data.ok, true);
+});
+
+test('HTTP API - CORS headers allow Vercel origins with credentials', async () => {
+  const vercelOrigin = 'https://aurora-realtime-ai-orchestration-engine.vercel.app';
+  const res = await fetch(`${baseUrl}/api/config`, {
+    headers: {
+      Origin: vercelOrigin,
+    },
+  });
+  assert.strictEqual(res.status, 200);
+  assert.strictEqual(res.headers.get('access-control-allow-origin'), vercelOrigin);
+  assert.strictEqual(res.headers.get('access-control-allow-credentials'), 'true');
+});
