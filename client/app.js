@@ -75,6 +75,9 @@
   const btnApplyDelay = $('btnApplyDelay');
   const btnClearLog = $('btnClearLog');
   const debugLog = $('debugLog');
+  const backendUrlInput = $('backendUrlInput');
+  const btnSaveBackendUrl = $('btnSaveBackendUrl');
+  const backendStatusMsg = $('backendStatusMsg');
 
   // Right panel
   const stepper = $('stepper');
@@ -245,15 +248,58 @@
   });
 
   // ---------- WebSocket Connection ----------
-  function connect() {
+  function getBackendWsUrl() {
+    // 1. Check URL parameters (?backend=... or ?ws=...)
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const queryBackend = params.get('backend') || params.get('ws');
+      if (queryBackend) {
+        const clean = queryBackend
+          .trim()
+          .replace(/^https?:\/\//, '')
+          .replace(/^wss?:\/\//, '');
+        const scheme = queryBackend.startsWith('ws://') ? 'ws' : 'wss';
+        return `${scheme}://${clean}`;
+      }
+    } catch (_) {}
+
+    // 2. Check localStorage
+    try {
+      const saved = localStorage.getItem('aurora-backend-url');
+      if (saved && saved.trim()) {
+        const clean = saved
+          .trim()
+          .replace(/^https?:\/\//, '')
+          .replace(/^wss?:\/\//, '');
+        const scheme = saved.startsWith('ws://')
+          ? 'ws'
+          : location.protocol === 'https:'
+            ? 'wss'
+            : 'ws';
+        return `${scheme}://${clean}`;
+      }
+    } catch (_) {}
+
+    // 3. Same-origin fallback
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    ws = new WebSocket(`${proto}://${location.host}`);
+    return `${proto}://${location.host}`;
+  }
+
+  function connect() {
+    const wsTarget = getBackendWsUrl();
+    try {
+      ws = new WebSocket(wsTarget);
+    } catch (e) {
+      console.warn('Failed to initialize WebSocket to', wsTarget, e);
+      setTimeout(connect, 2000);
+      return;
+    }
 
     ws.onopen = () => {
       wsReady = true;
       setConnStatus(true);
       dbgWs.textContent = 'Connected (Realtime)';
-      log('WebSocket connected');
+      log(`WebSocket connected (${wsTarget})`);
     };
 
     ws.onclose = () => {
@@ -1338,6 +1384,42 @@
       if (wsReady) {
         ws.send(JSON.stringify({ type: 'set_delay', delayMs: val }));
       }
+    });
+  }
+
+  // ---------- Backend Server Connection ----------
+  if (backendUrlInput) {
+    try {
+      const savedBackend = localStorage.getItem('aurora-backend-url');
+      if (savedBackend) backendUrlInput.value = savedBackend;
+    } catch (_) {}
+  }
+
+  if (btnSaveBackendUrl) {
+    btnSaveBackendUrl.addEventListener('click', () => {
+      const url = backendUrlInput ? backendUrlInput.value.trim() : '';
+      try {
+        if (url) {
+          localStorage.setItem('aurora-backend-url', url);
+          if (backendStatusMsg) {
+            backendStatusMsg.style.color = '#7ee3a8';
+            backendStatusMsg.textContent = `Connecting to ${url}…`;
+          }
+        } else {
+          localStorage.removeItem('aurora-backend-url');
+          if (backendStatusMsg) {
+            backendStatusMsg.style.color = '#7ee3a8';
+            backendStatusMsg.textContent = 'Reset to default origin.';
+          }
+        }
+      } catch (_) {}
+
+      if (ws) {
+        try {
+          ws.close();
+        } catch (_) {}
+      }
+      connect();
     });
   }
 

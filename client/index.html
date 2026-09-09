@@ -489,6 +489,36 @@ Hello! This is Aurora speaking with Rime ultra-low latency voice synthesis.</tex
               <dd id="dbgLlm">—</dd>
             </dl>
 
+            <h4 class="section-subtitle">Real-Time Backend Server</h4>
+            <div class="llm-config-box" style="margin-bottom: 20px">
+              <p style="font-size: 12.5px; color: var(--ink-secondary); margin-bottom: 12px">
+                Connect to a dedicated Aurora WebSocket host (e.g. Render, Railway, or
+                localhost:3000). Leave empty to connect to the current origin.
+              </p>
+              <div style="display: flex; gap: 10px">
+                <input
+                  type="text"
+                  id="backendUrlInput"
+                  placeholder="e.g. aurora.onrender.com or localhost:3000"
+                  autocomplete="off"
+                  style="
+                    flex: 1;
+                    background: rgba(0, 0, 0, 0.3);
+                    border: 1px solid var(--border-subtle);
+                    border-radius: 8px;
+                    padding: 9px 12px;
+                    color: var(--ink);
+                    font-size: 13px;
+                    outline: none;
+                  "
+                />
+                <button id="btnSaveBackendUrl" class="primary-btn" style="white-space: nowrap">
+                  Connect Server
+                </button>
+              </div>
+              <div class="preview-status" id="backendStatusMsg" style="margin-top: 8px"></div>
+            </div>
+
             <h4 class="section-subtitle">Online LLM Brain (Gemini / Groq / OpenAI)</h4>
             <div class="llm-config-box">
               <p style="font-size: 12.5px; color: var(--ink-secondary); margin-bottom: 12px">
