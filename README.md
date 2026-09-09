@@ -102,7 +102,7 @@ graph TD
 
 ### 1. Clone & Install
 ```bash
-git clone https://github.com/<YOUR_GITHUB_USERNAME>/aurora.git
+git clone https://github.com/tribhu05/Aurora-Realtime-AI-Orchestration-Engine.git
 cd aurora
 npm install
 ```
@@ -119,14 +119,14 @@ Edit `.env`:
 PORT=3000
 
 # Rime TTS Credentials
-RIME_API_KEY=your_rime_api_key_here
+RIME_API_KEY
 RIME_MODEL_ID=mistv3
 RIME_SPEAKER=astra
 RIME_AUDIO_FORMAT=mp3
 
 # LLM Brain Credentials
 LLM_PROVIDER=gemini
-LLM_API_KEY=your_gemini_or_groq_api_key_here
+LLM_API_KEY
 LLM_MODEL=gemini-3.5-flash-lite
 ```
 
