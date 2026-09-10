@@ -250,8 +250,15 @@ export function parseStructuredResponse(
 
 // --- Local, key-free fallback so the app works seamlessly out of the box ---
 export function localFallbackReply(messages, userOverride = null) {
-  const userQuery =
-    messages && messages.length > 0 ? messages[messages.length - 1]?.content || '' : '';
+  let userQuery = '';
+  if (typeof messages === 'string') {
+    userQuery = messages;
+  } else if (Array.isArray(messages) && messages.length > 0) {
+    const lastMsg = messages[messages.length - 1];
+    userQuery = typeof lastMsg === 'string' ? lastMsg : (lastMsg?.content || lastMsg?.text || '');
+  } else if (messages && typeof messages === 'object' && messages.content) {
+    userQuery = messages.content;
+  }
   const last = userQuery.toLowerCase().trim();
 
   const finalize = (obj) => {
@@ -617,6 +624,28 @@ print("Index of 23:", binary_search(nums, 23))  # 5`,
   }
 
   // Standard conversational intents -> VOICE
+  if (has('france') && has('capital')) {
+    return finalize({
+      responseMode: 'VOICE',
+      spokenResponse: 'The capital of France is Paris.',
+      visualResponse: {
+        type: 'text',
+        content: 'The capital of France is Paris.',
+      },
+    });
+  }
+
+  if (has('japan') && has('capital')) {
+    return finalize({
+      responseMode: 'VOICE',
+      spokenResponse: 'The capital of Japan is Tokyo.',
+      visualResponse: {
+        type: 'text',
+        content: 'The capital of Japan is Tokyo.',
+      },
+    });
+  }
+
   if (
     has('solar system', 'planet', 'planets', 'sun', 'mars', 'earth', 'moon', 'jupiter', 'saturn')
   ) {

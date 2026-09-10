@@ -59,6 +59,9 @@ class AuroraAudioPlayer {
 
   /** Play base64-encoded audio (mp3/wav). Resolves when playback finishes naturally. */
   async playBase64(base64, mimeType = 'audio/mpeg', generation = null) {
+    if (!base64 || typeof base64 !== 'string') {
+      return Promise.resolve();
+    }
     this._ensureContext();
     if (this.ctx.state === 'suspended') await this.ctx.resume();
     this.stop();
@@ -67,22 +70,27 @@ class AuroraAudioPlayer {
       this.cacheAudio(generation, base64, mimeType);
     }
 
-    const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
-    const audioBuffer = await this.ctx.decodeAudioData(bytes.buffer.slice(0));
+    try {
+      const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+      const audioBuffer = await this.ctx.decodeAudioData(bytes.buffer.slice(0));
 
-    const source = this.ctx.createBufferSource();
-    source.buffer = audioBuffer;
-    source.connect(this.gainNode);
-    this.gainNode.gain.setValueAtTime(1, this.ctx.currentTime);
-    this.sourceNode = source;
+      const source = this.ctx.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(this.gainNode);
+      this.gainNode.gain.setValueAtTime(1, this.ctx.currentTime);
+      this.sourceNode = source;
 
-    return new Promise((resolve) => {
-      source.onended = () => {
-        if (this.sourceNode === source) this.sourceNode = null;
-        resolve();
-      };
-      source.start(0);
-    });
+      return new Promise((resolve) => {
+        source.onended = () => {
+          if (this.sourceNode === source) this.sourceNode = null;
+          resolve();
+        };
+        source.start(0);
+      });
+    } catch (e) {
+      console.warn('Failed to decode or play audio buffer:', e);
+      return Promise.resolve();
+    }
   }
 
   /** Play audio directly from URL (e.g. pre-synthesized studio voice clips). */

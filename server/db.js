@@ -7,7 +7,14 @@
  * 3. Telemetry events (barge-in interrupts, budget limits, fallbacks).
  */
 
-import { DatabaseSync } from 'node:sqlite';
+let DatabaseSyncClass = null;
+try {
+  const sqlite = await import('node:sqlite');
+  DatabaseSyncClass = sqlite.DatabaseSync;
+} catch (_) {
+  DatabaseSyncClass = null;
+}
+
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -40,16 +47,34 @@ export class AuroraDatabase {
   constructor(dbPath) {
     this.dbPath = getDbPath(dbPath);
     this.isMemory = this.dbPath === ':memory:';
+    this.isFallbackStore = false;
 
-    if (!this.isMemory) {
-      const dir = path.dirname(this.dbPath);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
+    if (!DatabaseSyncClass) {
+      this.initFallbackStore();
+      return;
     }
 
-    this.db = new DatabaseSync(this.dbPath);
-    this.initSchema();
+    try {
+      if (!this.isMemory) {
+        const dir = path.dirname(this.dbPath);
+        if (!fs.existsSync(dir)) {
+          fs.mkdirSync(dir, { recursive: true });
+        }
+      }
+
+      this.db = new DatabaseSyncClass(this.dbPath);
+      this.initSchema();
+    } catch (err) {
+      console.warn('[DB] SQLite failed to initialize, using memory fallback store:', err.message);
+      this.initFallbackStore();
+    }
+  }
+
+  initFallbackStore() {
+    this.isFallbackStore = true;
+    this.memorySessions = new Map();
+    this.memoryTurns = new Map();
+    this.memoryEvents = [];
   }
 
   /**
@@ -156,6 +181,32 @@ export class AuroraDatabase {
     const speaker = defaultSpeaker || 'astra';
     const model = defaultModel || 'mistv3';
 
+    if (this.isFallbackStore) {
+      const existing = this.memorySessions.get(id);
+      if (existing) {
+        return this.formatSession(existing);
+      }
+      const now = Date.now();
+      const sessionTitle =
+        title ||
+        `Conversation ${new Date(now).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`;
+      const row = {
+        id,
+        title: sessionTitle,
+        created_at: now,
+        updated_at: now,
+        total_turns: 0,
+        total_prompt_tokens: 0,
+        total_completion_tokens: 0,
+        total_cost_usd: 0.0,
+        active_speaker: speaker,
+        active_model: model,
+        summary: '',
+      };
+      this.memorySessions.set(id, row);
+      return this.formatSession(row);
+    }
+
     const existing = this.db.prepare('SELECT * FROM sessions WHERE id = ?').get(id);
     if (existing) {
       return this.formatSession(existing);
@@ -185,6 +236,23 @@ export class AuroraDatabase {
    * Updates an existing session's metadata.
    */
   updateSession(sessionId, updates = {}) {
+    if (this.isFallbackStore) {
+      const s = this.memorySessions.get(sessionId);
+      if (!s) return;
+      if (updates.title !== undefined) s.title = updates.title;
+      const speaker = updates.speaker !== undefined ? updates.speaker : updates.active_speaker;
+      const model =
+        updates.modelId !== undefined
+          ? updates.modelId
+          : updates.model !== undefined
+            ? updates.model
+            : updates.active_model;
+      if (speaker !== undefined) s.active_speaker = speaker;
+      if (model !== undefined) s.active_model = model;
+      if (updates.summary !== undefined) s.summary = updates.summary;
+      s.updated_at = Date.now();
+      return;
+    }
     const fields = [];
     const values = [];
 
@@ -251,6 +319,53 @@ export class AuroraDatabase {
       turn.visualTitle ||
       (typeof turn.visualPayload === 'object' && turn.visualPayload?.title) ||
       '';
+
+    if (this.isFallbackStore) {
+      const s = this.memorySessions.get(sessionId);
+      if (s) {
+        s.total_turns = (s.total_turns || 0) + 1;
+        s.total_prompt_tokens = (s.total_prompt_tokens || 0) + promptTokens;
+        s.total_completion_tokens = (s.total_completion_tokens || 0) + completionTokens;
+        s.total_cost_usd = Number(((s.total_cost_usd || 0.0) + costUsd).toFixed(6));
+        s.updated_at = now;
+        if (turn.userText && turn.userText.trim() && s.total_turns <= 1) {
+          s.title = turn.userText.trim().slice(0, 48);
+        }
+      }
+      let turns = this.memoryTurns.get(sessionId);
+      if (!turns) {
+        turns = [];
+        this.memoryTurns.set(sessionId, turns);
+      }
+      const rec = {
+        id,
+        session_id: sessionId,
+        generation: turn.generation || (s ? s.total_turns : 1),
+        role: turn.role || 'assistant',
+        user_text: turn.userText || '',
+        assistant_text: assistantText,
+        spoken_text: turn.spokenText || '',
+        response_mode: turn.responseMode || 'VOICE',
+        visual_type: visualType,
+        visual_title: visualTitle,
+        stt_ms: Number(turn.sttMs || 0),
+        llm_ms: Number(turn.llmMs || 0),
+        tts_ms: Number(turn.ttsMs || 0),
+        barge_in_ms: Number(turn.bargeInMs || 0),
+        total_ms: Number(turn.totalMs || 0),
+        prompt_tokens: promptTokens,
+        completion_tokens: completionTokens,
+        cost_usd: costUsd,
+        speaker: turn.speaker || 'astra',
+        model_id: turn.modelId || 'mistv3',
+        llm_model: turn.llmModel || 'gemini-3.5-flash-lite',
+        interrupted: turn.interrupted ? 1 : 0,
+        fallback_used: turn.fallbackUsed ? 1 : 0,
+        created_at: now,
+      };
+      turns.push(rec);
+      return this.formatTurn(rec);
+    }
 
     this.db
       .prepare(
@@ -345,6 +460,22 @@ export class AuroraDatabase {
    * @param {number} [bargeInMs=0]
    */
   markInterrupted(sessionId, generationOrBargeInMs = 0, bargeInMs = 0) {
+    if (this.isFallbackStore) {
+      const turns = this.memoryTurns.get(sessionId) || [];
+      if (bargeInMs !== 0) {
+        const t = turns.find((x) => x.generation === generationOrBargeInMs);
+        if (t) {
+          t.interrupted = 1;
+          t.barge_in_ms = bargeInMs;
+        }
+      } else if (turns.length > 0) {
+        const last = turns[turns.length - 1];
+        last.interrupted = 1;
+        last.barge_in_ms = Number(generationOrBargeInMs) || 0;
+      }
+      return;
+    }
+
     if (bargeInMs !== 0) {
       this.db
         .prepare(
@@ -382,6 +513,11 @@ export class AuroraDatabase {
    * @returns {Array<object>}
    */
   getSessionTurns(sessionId, limit = 100) {
+    if (this.isFallbackStore) {
+      const turns = this.memoryTurns.get(sessionId) || [];
+      return turns.slice(0, limit).map((r) => this.formatTurn(r));
+    }
+
     const rows = this.db
       .prepare(
         `
@@ -399,6 +535,21 @@ export class AuroraDatabase {
    * Formats turns into standard message history for the LLM context.
    */
   getSessionMessagesForContext(sessionId, limit = 10) {
+    if (this.isFallbackStore) {
+      const turns = this.memoryTurns.get(sessionId) || [];
+      const slice = turns.filter((t) => t.user_text).slice(-limit);
+      const messages = [];
+      slice.forEach((t) => {
+        if (t.user_text) {
+          messages.push({ role: 'user', content: t.user_text });
+        }
+        if (t.assistant_text) {
+          messages.push({ role: 'assistant', content: t.assistant_text });
+        }
+      });
+      return messages;
+    }
+
     const turns = this.db
       .prepare(
         `
@@ -429,6 +580,13 @@ export class AuroraDatabase {
    * Lists all sessions with turn count and cost.
    */
   listSessions(limit = 20) {
+    if (this.isFallbackStore) {
+      const all = Array.from(this.memorySessions.values())
+        .sort((a, b) => b.updated_at - a.updated_at)
+        .slice(0, limit);
+      return all.map((s) => this.formatSession(s));
+    }
+
     const rows = this.db
       .prepare(
         `
@@ -449,6 +607,11 @@ export class AuroraDatabase {
    * Deletes a session and cascading turns.
    */
   deleteSession(sessionId) {
+    if (this.isFallbackStore) {
+      this.memorySessions.delete(sessionId);
+      this.memoryTurns.delete(sessionId);
+      return;
+    }
     this.db.prepare('DELETE FROM sessions WHERE id = ?').run(sessionId);
   }
 
@@ -476,6 +639,16 @@ export class AuroraDatabase {
     }
 
     const dataJson = typeof payload === 'string' ? payload : JSON.stringify(payload);
+    if (this.isFallbackStore) {
+      this.memoryEvents.push({
+        id: randomUUID(),
+        session_id: sessionId || null,
+        event_type: eventType,
+        data_json: dataJson,
+        timestamp: Date.now(),
+      });
+      return;
+    }
     this.db
       .prepare(
         `
@@ -490,6 +663,71 @@ export class AuroraDatabase {
    * Calculates lifetime aggregate telemetry across all sessions and turns.
    */
   getAggregateTelemetry() {
+    if (this.isFallbackStore) {
+      const sessions = Array.from(this.memorySessions.values());
+      const allTurns = Array.from(this.memoryTurns.values()).flat();
+      const totalTurns = sessions.reduce((sum, s) => sum + (s.total_turns || 0), 0);
+      const totalPromptTokens = sessions.reduce((sum, s) => sum + (s.total_prompt_tokens || 0), 0);
+      const totalCompletionTokens = sessions.reduce(
+        (sum, s) => sum + (s.total_completion_tokens || 0),
+        0
+      );
+      const totalCostUsd = Number(sessions.reduce((sum, s) => sum + (s.total_cost_usd || 0), 0).toFixed(5));
+      const avgSttMs = allTurns.length
+        ? Number((allTurns.reduce((a, b) => a + (b.stt_ms || 0), 0) / allTurns.length).toFixed(1))
+        : 0;
+      const avgLlmMs = allTurns.length
+        ? Number((allTurns.reduce((a, b) => a + (b.llm_ms || 0), 0) / allTurns.length).toFixed(1))
+        : 0;
+      const avgTtsMs = allTurns.length
+        ? Number((allTurns.reduce((a, b) => a + (b.tts_ms || 0), 0) / allTurns.length).toFixed(1))
+        : 0;
+      const avgTotalMs = allTurns.length
+        ? Number((allTurns.reduce((a, b) => a + (b.total_ms || 0), 0) / allTurns.length).toFixed(1))
+        : 0;
+      const avgBargeInMs = allTurns.length
+        ? Number((allTurns.reduce((a, b) => a + (b.barge_in_ms || 0), 0) / allTurns.length).toFixed(2))
+        : 0;
+      const totalInterruptions = allTurns.filter((t) => t.interrupted).length;
+      return {
+        totalSessions: sessions.length,
+        sessions: {
+          sessionCount: sessions.length,
+          totalTurns,
+          totalPromptTokens,
+          totalCompletionTokens,
+          totalCostUsd,
+        },
+        lifetime: {
+          totalSessions: sessions.length,
+          totalTurns,
+          totalTokens: totalPromptTokens + totalCompletionTokens,
+          totalCostUsd,
+          avgSttMs,
+          avgLlmMs,
+          avgTtsMs,
+          avgTotalMs,
+          avgBargeInMs,
+          totalInterruptions,
+        },
+        latencies: {
+          avgSttMs,
+          avgLlmMs,
+          avgTtsMs,
+          avgTotalMs,
+          avgBargeInMs,
+          totalInterruptions,
+        },
+        tokens: {
+          totalPromptTokens,
+          totalCompletionTokens,
+          totalTokens: totalPromptTokens + totalCompletionTokens,
+          totalCostUsd,
+        },
+        recentTurns: allTurns.slice(-10),
+        recentEvents: this.memoryEvents.slice(-10),
+      };
+    }
     const sessionStats = this.db
       .prepare(
         `
@@ -606,6 +844,14 @@ export class AuroraDatabase {
    * Health check verifying SQLite read and write capabilities.
    */
   healthCheck() {
+    if (this.isFallbackStore) {
+      return {
+        ok: true,
+        status: 'connected',
+        mode: 'memory-fallback',
+        path: ':memory:',
+      };
+    }
     try {
       this.db.prepare('SELECT 1').get();
       return {
@@ -623,6 +869,7 @@ export class AuroraDatabase {
    * Closes the database.
    */
   close() {
+    if (this.isFallbackStore) return;
     this.db.close();
   }
 }

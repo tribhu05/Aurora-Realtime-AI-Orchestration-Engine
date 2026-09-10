@@ -42,7 +42,7 @@ export const DEFAULT_LATENCY_THRESHOLDS = {
   llmMaxMs: 3500,
   ttsMaxMs: 1500,
   totalMaxMs: 5000,
-  llmTimeoutMs: 8000,
+  llmTimeoutMs: 15000,
 };
 
 /**
