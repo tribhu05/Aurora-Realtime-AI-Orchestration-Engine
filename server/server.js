@@ -19,7 +19,6 @@ import express from 'express';
 import cors from 'cors';
 import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
-import { randomUUID } from 'crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -99,8 +98,9 @@ export function createAuroraServer(options = {}) {
 
   const llmConfig = {
     provider: options.llmProvider || process.env.LLM_PROVIDER || 'gemini',
-    apiKey:
-      mock ? '' : (options.llmApiKey ?? realKey(process.env.LLM_API_KEY || process.env.GEMINI_API_KEY)),
+    apiKey: mock
+      ? ''
+      : (options.llmApiKey ?? realKey(process.env.LLM_API_KEY || process.env.GEMINI_API_KEY)),
     model: options.llmModel || process.env.LLM_MODEL || 'gemini-3.5-flash-lite',
   };
 
@@ -285,15 +285,16 @@ export function createAuroraServer(options = {}) {
       const forceLocal = budgetStatus.exceeded;
 
       const turnStartTime = Date.now();
-      const conversationHistory = Array.isArray(history) && history.length > 0
-        ? history.filter(
-            (h) =>
-              h &&
-              typeof h === 'object' &&
-              typeof h.role === 'string' &&
-              typeof h.content === 'string'
-          )
-        : db.getSessionMessagesForContext(sessionId, 20);
+      const conversationHistory =
+        Array.isArray(history) && history.length > 0
+          ? history.filter(
+              (h) =>
+                h &&
+                typeof h === 'object' &&
+                typeof h.role === 'string' &&
+                typeof h.content === 'string'
+            )
+          : db.getSessionMessagesForContext(sessionId, 20);
       conversationHistory.push({ role: 'user', content: userText });
 
       // 1. Task request check
@@ -512,13 +513,15 @@ export function createAuroraServer(options = {}) {
       });
     } catch (err) {
       if (err?.code === 'LLM_REQUEST_FAILED') {
-        return res.status(err.status && err.status >= 400 && err.status < 500 ? err.status : 502).json({
-          ok: false,
-          error: {
-            code: 'LLM_REQUEST_FAILED',
-            message: err.message || 'Gemini request failed',
-          },
-        });
+        return res
+          .status(err.status && err.status >= 400 && err.status < 500 ? err.status : 502)
+          .json({
+            ok: false,
+            error: {
+              code: 'LLM_REQUEST_FAILED',
+              message: err.message || 'Gemini request failed',
+            },
+          });
       }
       console.error('[turn error]', sanitizeError(err));
       res.status(500).json({ ok: false, error: 'Internal server error processing turn.' });
@@ -623,11 +626,7 @@ export function createAuroraServer(options = {}) {
       }
     } catch (_) {}
 
-    const session = db.getOrCreateSession(
-      querySessionId,
-      rimeConfig.speaker,
-      rimeConfig.modelId
-    );
+    const session = db.getOrCreateSession(querySessionId, rimeConfig.speaker, rimeConfig.modelId);
     const sessionId = session.id;
 
     const state = {
@@ -725,8 +724,7 @@ export function createAuroraServer(options = {}) {
         state.generation += 1;
         const serverProcessingNs = Number(process.hrtime.bigint() - t0);
         const serverProcessingMs = Number((serverProcessingNs / 1e6).toFixed(3));
-        const bargeInMs =
-          typeof msg.bargeInMs === 'number' ? msg.bargeInMs : serverProcessingMs;
+        const bargeInMs = typeof msg.bargeInMs === 'number' ? msg.bargeInMs : serverProcessingMs;
 
         db.markInterrupted(state.sessionId, bargeInMs);
         db.recordTelemetryEvent(state.sessionId, 'barge_in', {

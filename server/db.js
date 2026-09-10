@@ -305,9 +305,7 @@ export class AuroraDatabase {
 
     const assistantText =
       turn.assistantText ||
-      (typeof turn.visualPayload === 'string'
-        ? turn.visualPayload
-        : turn.visualPayload?.content) ||
+      (typeof turn.visualPayload === 'string' ? turn.visualPayload : turn.visualPayload?.content) ||
       turn.spokenText ||
       '';
 
@@ -620,8 +618,8 @@ export class AuroraDatabase {
    * Supports recordTelemetryEvent(sessionId, eventType, data) and recordTelemetryEvent(eventType, sessionId, data).
    */
   recordTelemetryEvent(first, second, data = {}) {
-    let sessionId = null;
-    let eventType = 'custom';
+    let sessionId;
+    let eventType;
     let payload = data;
 
     if (
@@ -672,7 +670,9 @@ export class AuroraDatabase {
         (sum, s) => sum + (s.total_completion_tokens || 0),
         0
       );
-      const totalCostUsd = Number(sessions.reduce((sum, s) => sum + (s.total_cost_usd || 0), 0).toFixed(5));
+      const totalCostUsd = Number(
+        sessions.reduce((sum, s) => sum + (s.total_cost_usd || 0), 0).toFixed(5)
+      );
       const avgSttMs = allTurns.length
         ? Number((allTurns.reduce((a, b) => a + (b.stt_ms || 0), 0) / allTurns.length).toFixed(1))
         : 0;
@@ -686,7 +686,9 @@ export class AuroraDatabase {
         ? Number((allTurns.reduce((a, b) => a + (b.total_ms || 0), 0) / allTurns.length).toFixed(1))
         : 0;
       const avgBargeInMs = allTurns.length
-        ? Number((allTurns.reduce((a, b) => a + (b.barge_in_ms || 0), 0) / allTurns.length).toFixed(2))
+        ? Number(
+            (allTurns.reduce((a, b) => a + (b.barge_in_ms || 0), 0) / allTurns.length).toFixed(2)
+          )
         : 0;
       const totalInterruptions = allTurns.filter((t) => t.interrupted).length;
       return {

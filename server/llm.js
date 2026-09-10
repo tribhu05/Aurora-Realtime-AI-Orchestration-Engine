@@ -111,9 +111,7 @@ export async function getAssistantReply({
     const safeBody = (parsedMessage || body)
       .replace(/(Bearer\s+)[a-zA-Z0-9_.-]+([a-zA-Z0-9]{4})/gi, '$1***REDACTED***$2')
       .replace(/(key=)[a-zA-Z0-9_.-]+([a-zA-Z0-9]{4})/gi, '$1***REDACTED***$2');
-    console.error(
-      `[Gemini Error] HTTP ${res.status}: ${safeBody.slice(0, 150)}`
-    );
+    console.error(`[Gemini Error] HTTP ${res.status}: ${safeBody.slice(0, 150)}`);
     const err = new Error(
       safeBody
         ? `Gemini request failed: ${safeBody.slice(0, 120)}`
@@ -255,7 +253,7 @@ export function localFallbackReply(messages, userOverride = null) {
     userQuery = messages;
   } else if (Array.isArray(messages) && messages.length > 0) {
     const lastMsg = messages[messages.length - 1];
-    userQuery = typeof lastMsg === 'string' ? lastMsg : (lastMsg?.content || lastMsg?.text || '');
+    userQuery = typeof lastMsg === 'string' ? lastMsg : lastMsg?.content || lastMsg?.text || '';
   } else if (messages && typeof messages === 'object' && messages.content) {
     userQuery = messages.content;
   }

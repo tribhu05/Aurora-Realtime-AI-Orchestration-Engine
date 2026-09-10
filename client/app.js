@@ -438,7 +438,9 @@
   }
 
   function switchView(target) {
-    navItems.forEach((b) => b.classList.toggle('active', b.dataset.view === target || b.dataset.target === target));
+    navItems.forEach((b) =>
+      b.classList.toggle('active', b.dataset.view === target || b.dataset.target === target)
+    );
     if (target === 'companion' || target === 'home') {
       closeDrawer();
       setMainExperience('companion');
@@ -478,7 +480,11 @@
 
   if (navVoiceStudio) {
     navVoiceStudio.addEventListener('click', () => {
-      if (settingsDrawer && settingsDrawer.classList.contains('open') && _activeSettingsSection === 'voice') {
+      if (
+        settingsDrawer &&
+        settingsDrawer.classList.contains('open') &&
+        _activeSettingsSection === 'voice'
+      ) {
         closeDrawer();
         return;
       }
@@ -492,7 +498,11 @@
 
   if (navTranscripts) {
     navTranscripts.addEventListener('click', () => {
-      if (settingsDrawer && settingsDrawer.classList.contains('open') && _activeSettingsSection === 'transcripts') {
+      if (
+        settingsDrawer &&
+        settingsDrawer.classList.contains('open') &&
+        _activeSettingsSection === 'transcripts'
+      ) {
         closeDrawer();
         return;
       }
@@ -503,7 +513,11 @@
 
   if (navTelemetry) {
     navTelemetry.addEventListener('click', () => {
-      if (settingsDrawer && settingsDrawer.classList.contains('open') && _activeSettingsSection === 'telemetry') {
+      if (
+        settingsDrawer &&
+        settingsDrawer.classList.contains('open') &&
+        _activeSettingsSection === 'telemetry'
+      ) {
         closeDrawer();
         return;
       }
@@ -514,7 +528,11 @@
 
   if (navConfig) {
     navConfig.addEventListener('click', () => {
-      if (settingsDrawer && settingsDrawer.classList.contains('open') && _activeSettingsSection === 'config') {
+      if (
+        settingsDrawer &&
+        settingsDrawer.classList.contains('open') &&
+        _activeSettingsSection === 'config'
+      ) {
         closeDrawer();
         return;
       }
@@ -1127,11 +1145,14 @@
           player.cacheAudio(msg.generation, audioData, mime);
           updateCardAudioState(msg.generation, true);
 
-          player.playBase64(audioData, mime, msg.generation).then(() => {
-            if (msg.generation === currentGen) afterSpeaking();
-          }).catch(() => {
-            if (msg.generation === currentGen) afterSpeaking();
-          });
+          player
+            .playBase64(audioData, mime, msg.generation)
+            .then(() => {
+              if (msg.generation === currentGen) afterSpeaking();
+            })
+            .catch(() => {
+              if (msg.generation === currentGen) afterSpeaking();
+            });
         } else {
           // If Rime TTS returned null audio, check if browser speech should speak or complete
           afterSpeaking();
@@ -1305,7 +1326,13 @@
 
     if (ws && wsReady && ws.readyState === WebSocket.OPEN) {
       try {
-        ws.send(JSON.stringify({ type: 'interrupt', timestamp: Date.now(), bargeInMs: player.lastMuteLatencyMs }));
+        ws.send(
+          JSON.stringify({
+            type: 'interrupt',
+            timestamp: Date.now(),
+            bargeInMs: player.lastMuteLatencyMs,
+          })
+        );
       } catch (_) {}
     }
 
@@ -1556,8 +1583,7 @@ executeTask();`,
           userProvider === 'groq'
             ? 'https://api.groq.com/openai/v1/chat/completions'
             : 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
-        const model =
-          userProvider === 'groq' ? 'llama-3.1-8b-instant' : 'gemini-2.5-flash';
+        const model = userProvider === 'groq' ? 'llama-3.1-8b-instant' : 'gemini-2.5-flash';
         const res = await fetch(endpoint, {
           method: 'POST',
           headers: {
@@ -1904,7 +1930,12 @@ executeTask();`,
   const inputShell = $('inputShell');
   if (inputShell && typeInput) {
     inputShell.addEventListener('click', (e) => {
-      if (e.target !== micBtn && !micBtn?.contains(e.target) && e.target !== btnPlusTools && !btnPlusTools?.contains(e.target)) {
+      if (
+        e.target !== micBtn &&
+        !micBtn?.contains(e.target) &&
+        e.target !== btnPlusTools &&
+        !btnPlusTools?.contains(e.target)
+      ) {
         typeInput.focus();
       }
     });
@@ -2307,10 +2338,13 @@ executeTask();`,
       if (hudLlmModel) hudLlmModel.textContent = turnMetrics.modelId || currentActiveModel;
       if (hudTts) hudTts.textContent = turnMetrics.ttsMs != null ? `${turnMetrics.ttsMs} ms` : '—';
       if (hudTtsVoice) hudTtsVoice.textContent = turnMetrics.speaker || currentActiveSpeaker;
-      if (hudTtfa) hudTtfa.textContent = turnMetrics.totalMs != null ? `${turnMetrics.totalMs} ms` : '—';
+      if (hudTtfa)
+        hudTtfa.textContent = turnMetrics.totalMs != null ? `${turnMetrics.totalMs} ms` : '—';
       if (hudStt) hudStt.textContent = `STT: ${turnMetrics.sttMs || 0} ms`;
-      if (hudMute && turnMetrics.bargeInMs != null) hudMute.textContent = `${turnMetrics.bargeInMs} ms`;
-      if (hudAck && turnMetrics.bargeInMs != null) hudAck.textContent = `ACK: ${turnMetrics.bargeInMs} ms`;
+      if (hudMute && turnMetrics.bargeInMs != null)
+        hudMute.textContent = `${turnMetrics.bargeInMs} ms`;
+      if (hudAck && turnMetrics.bargeInMs != null)
+        hudAck.textContent = `ACK: ${turnMetrics.bargeInMs} ms`;
 
       if (hudTurnCost) hudTurnCost.textContent = `$${(turnMetrics.costUsd || 0).toFixed(4)}`;
       if (hudTurnTokens) hudTurnTokens.textContent = `${turnMetrics.totalTokens || 0} tokens`;
@@ -2331,7 +2365,9 @@ executeTask();`,
     if (sessionMetrics) {
       if (sessionMetrics.sessionId) {
         currentSessionId = sessionMetrics.sessionId;
-        try { localStorage.setItem('aurora-session-id', currentSessionId); } catch (_) {}
+        try {
+          localStorage.setItem('aurora-session-id', currentSessionId);
+        } catch (_) {}
         if (dbgSession) dbgSession.textContent = currentSessionId;
       }
       const spent = sessionMetrics.totalCostUsd || 0;
@@ -2341,7 +2377,8 @@ executeTask();`,
 
       if (hudSessionCost) hudSessionCost.textContent = `$${spent.toFixed(4)}`;
       if (hudSessionTokens) hudSessionTokens.textContent = `${tokens} tokens`;
-      if (budgetUsageLabel) budgetUsageLabel.textContent = `Session Budget: $${spent.toFixed(2)} / $${cap.toFixed(2)}`;
+      if (budgetUsageLabel)
+        budgetUsageLabel.textContent = `Session Budget: $${spent.toFixed(2)} / $${cap.toFixed(2)}`;
       if (budgetPctLabel) budgetPctLabel.textContent = `${pct}%`;
       if (budgetFill) {
         budgetFill.style.width = `${pct}%`;
@@ -2350,8 +2387,10 @@ executeTask();`,
     }
 
     if (lifetimeMetrics) {
-      if (hudLifetimeCost) hudLifetimeCost.textContent = `$${(lifetimeMetrics.totalCostUsd || 0).toFixed(4)}`;
-      if (hudLifetimeTurns) hudLifetimeTurns.textContent = `${lifetimeMetrics.totalTurns || 0} turns`;
+      if (hudLifetimeCost)
+        hudLifetimeCost.textContent = `$${(lifetimeMetrics.totalCostUsd || 0).toFixed(4)}`;
+      if (hudLifetimeTurns)
+        hudLifetimeTurns.textContent = `${lifetimeMetrics.totalTurns || 0} turns`;
     }
   }
 
@@ -2393,11 +2432,13 @@ executeTask();`,
         const data = await res.json();
         renderSessionList(data.sessions || []);
       } else {
-        sessionList.innerHTML = '<p class="empty-hint" style="padding:10px 0;">Could not load sessions.</p>';
+        sessionList.innerHTML =
+          '<p class="empty-hint" style="padding:10px 0;">Could not load sessions.</p>';
       }
     } catch (err) {
       console.warn('Failed to load sessions', err);
-      sessionList.innerHTML = '<p class="empty-hint" style="padding:10px 0;">Failed to load sessions.</p>';
+      sessionList.innerHTML =
+        '<p class="empty-hint" style="padding:10px 0;">Failed to load sessions.</p>';
     } finally {
       if (sessionListLoading) sessionListLoading.style.display = 'none';
     }
@@ -2407,7 +2448,8 @@ executeTask();`,
     if (!sessionList) return;
     sessionList.innerHTML = '';
     if (!sessions || sessions.length === 0) {
-      sessionList.innerHTML = '<p class="empty-hint" style="padding: 10px 0;">No saved sessions yet. Turns will be recorded in SQLite automatically.</p>';
+      sessionList.innerHTML =
+        '<p class="empty-hint" style="padding: 10px 0;">No saved sessions yet. Turns will be recorded in SQLite automatically.</p>';
       return;
     }
 
@@ -2417,7 +2459,14 @@ executeTask();`,
       card.className = `session-card ${isActive ? 'active' : ''}`;
       card.dataset.sessionId = s.id;
 
-      const dateStr = s.created_at ? new Date(s.created_at).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Recent';
+      const dateStr = s.created_at
+        ? new Date(s.created_at).toLocaleDateString([], {
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+          })
+        : 'Recent';
       const title = s.title || `Session ${s.id.slice(0, 8)}`;
       const costStr = `$${(s.total_cost_usd || 0).toFixed(4)}`;
       const turns = s.turn_count || 0;
@@ -2455,14 +2504,20 @@ executeTask();`,
 
   async function loadSession(sessionId) {
     try {
-      const res = await fetchWithTimeout(apiUrl(`/api/transcripts/sessions/${sessionId}`), {}, 4000);
+      const res = await fetchWithTimeout(
+        apiUrl(`/api/transcripts/sessions/${sessionId}`),
+        {},
+        4000
+      );
       if (!res || !res.ok) throw new Error('Failed to fetch session');
       const data = await res.json();
       const session = data.session;
       const turns = data.turns || [];
 
       currentSessionId = session.id;
-      try { localStorage.setItem('aurora-session-id', currentSessionId); } catch (_) {}
+      try {
+        localStorage.setItem('aurora-session-id', currentSessionId);
+      } catch (_) {}
       if (dbgSession) dbgSession.textContent = currentSessionId;
 
       if (session.speaker) {
@@ -2534,7 +2589,9 @@ executeTask();`,
         const data = await res.json();
         const session = data.session;
         currentSessionId = session.id;
-        try { localStorage.setItem('aurora-session-id', currentSessionId); } catch (_) {}
+        try {
+          localStorage.setItem('aurora-session-id', currentSessionId);
+        } catch (_) {}
         if (dbgSession) dbgSession.textContent = currentSessionId;
         clearAllChat();
         updateTelemetryDisplay(
@@ -2567,7 +2624,9 @@ executeTask();`,
   async function deleteSession(sessionId) {
     if (!confirm('Are you sure you want to delete this session transcript?')) return;
     try {
-      const res = await fetch(apiUrl(`/api/transcripts/sessions/${sessionId}`), { method: 'DELETE' });
+      const res = await fetch(apiUrl(`/api/transcripts/sessions/${sessionId}`), {
+        method: 'DELETE',
+      });
       if (res && res.ok) {
         if (currentSessionId === sessionId) {
           createNewSession();
@@ -2595,7 +2654,11 @@ executeTask();`,
 
     transcript.forEach((t) => {
       const role = t.role === 'user' ? '### User' : '### Aurora';
-      const time = t.time ? (t.time instanceof Date ? t.time.toLocaleTimeString() : String(t.time)) : '';
+      const time = t.time
+        ? t.time instanceof Date
+          ? t.time.toLocaleTimeString()
+          : String(t.time)
+        : '';
       md += `${role} (${time})\n\n${t.text}\n\n`;
     });
 
@@ -2622,7 +2685,11 @@ executeTask();`,
       };
       if (currentSessionId) {
         try {
-          const res = await fetchWithTimeout(apiUrl(`/api/transcripts/sessions/${currentSessionId}`), {}, 3000);
+          const res = await fetchWithTimeout(
+            apiUrl(`/api/transcripts/sessions/${currentSessionId}`),
+            {},
+            3000
+          );
           if (res && res.ok) {
             const data = await res.json();
             exportData = {

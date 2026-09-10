@@ -145,7 +145,9 @@ export async function synthesizeSpeech(text, config, signal) {
     if (signal?.aborted) {
       throw Object.assign(new Error('aborted'), { name: 'AbortError' });
     }
-    console.warn(`[Rime TTS warning] Synthesis timed out or failed (${err.message}). Falling back to browser speech.`);
+    console.warn(
+      `[Rime TTS warning] Synthesis timed out or failed (${err.message}). Falling back to browser speech.`
+    );
     return null;
   }
 }

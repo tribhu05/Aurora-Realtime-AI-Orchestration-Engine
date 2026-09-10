@@ -9,9 +9,6 @@ import {
   calculateTurnCost,
   checkSessionBudget,
   isLatencyExceeded,
-  DEFAULT_SESSION_BUDGET_CAP_USD,
-  DEFAULT_LATENCY_THRESHOLDS,
-  MODEL_PRICING,
 } from '../server/governance.js';
 
 test('Cost Governance - Token Estimation Heuristics', () => {
@@ -19,7 +16,8 @@ test('Cost Governance - Token Estimation Heuristics', () => {
   assert.strictEqual(estimateTokens(null), 0);
   // 'Hello world' has 11 chars -> Math.ceil(11 / 4) = 3
   assert.strictEqual(estimateTokens('Hello world'), 3);
-  const sample = 'This is a longer sentence intended to verify character-based token estimation accuracy.';
+  const sample =
+    'This is a longer sentence intended to verify character-based token estimation accuracy.';
   assert.ok(estimateTokens(sample) > 15);
 });
 

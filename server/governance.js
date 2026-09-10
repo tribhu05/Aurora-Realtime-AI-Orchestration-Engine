@@ -149,8 +149,7 @@ export function isLatencyExceeded(stageOrElapsed, elapsedOrThreshold) {
   if (typeof stageOrElapsed === 'string') {
     const stage = stageOrElapsed.toLowerCase();
     const threshold =
-      DEFAULT_LATENCY_THRESHOLDS[`${stage}MaxMs`] ||
-      DEFAULT_LATENCY_THRESHOLDS.totalMaxMs;
+      DEFAULT_LATENCY_THRESHOLDS[`${stage}MaxMs`] || DEFAULT_LATENCY_THRESHOLDS.totalMaxMs;
     return Number(elapsedOrThreshold) > threshold;
   }
   return Number(stageOrElapsed) > Number(elapsedOrThreshold);

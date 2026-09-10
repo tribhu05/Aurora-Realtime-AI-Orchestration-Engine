@@ -5,10 +5,6 @@ import { WebSocket } from 'ws';
 const BASE_URL = 'http://localhost:3000';
 const WS_URL = 'ws://localhost:3000';
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 async function runScenario7_DeploymentEndpoints() {
   console.log('\n========================================');
   console.log('SCENARIO 7: Deployment Endpoints Validation');
@@ -46,7 +42,9 @@ async function runScenario7_DeploymentEndpoints() {
   // Test /api/voices
   const voicesRes = await fetch(`${BASE_URL}/api/voices`);
   const voicesData = await voicesRes.json();
-  console.log(`✓ /api/voices returned ${voicesData.speakers?.length} speakers and ${voicesData.models?.length} models`);
+  console.log(
+    `✓ /api/voices returned ${voicesData.speakers?.length} speakers and ${voicesData.models?.length} models`
+  );
 
   // Test static file serving /
   const staticRes = await fetch(`${BASE_URL}/`);
@@ -79,11 +77,15 @@ async function runScenario1_BasicTextQuery() {
   }
 
   const data = await res.json();
-  console.log(`✓ Turn completed in ${duration}ms (totalMs: ${data.totalMs}ms, llmMs: ${data.llmMs}ms, ttsMs: ${data.ttsMs}ms)`);
+  console.log(
+    `✓ Turn completed in ${duration}ms (totalMs: ${data.totalMs}ms, llmMs: ${data.llmMs}ms, ttsMs: ${data.ttsMs}ms)`
+  );
   console.log(`✓ Response Mode: ${data.responseMode}`);
   console.log(`✓ Spoken Response: "${data.spokenResponse}"`);
   console.log(`✓ Visual Response:`, JSON.stringify(data.visualResponse));
-  console.log(`✓ Audio returned: ${data.audio ? `${data.audio.length} bytes base64` : 'null (browser fallback)'}`);
+  console.log(
+    `✓ Audio returned: ${data.audio ? `${data.audio.length} bytes base64` : 'null (browser fallback)'}`
+  );
 
   const content = (data.visualResponse?.content || data.spokenResponse || '').toLowerCase();
   if (!content.includes('paris')) {
@@ -97,7 +99,8 @@ async function runScenario2_CodeQuery() {
   console.log('SCENARIO 2: Code Generation Query (Live Gemini)');
   console.log('========================================');
 
-  const query = 'Write a JavaScript function to check if a string is a palindrome. Return only the code.';
+  const query =
+    'Write a JavaScript function to check if a string is a palindrome. Return only the code.';
   const t0 = Date.now();
   const res = await fetch(`${BASE_URL}/api/turn`, {
     method: 'POST',
@@ -123,10 +126,17 @@ async function runScenario2_CodeQuery() {
   if (data.visualResponse?.type !== 'code') {
     throw new Error(`Expected visualResponse.type === 'code', got: ${data.visualResponse?.type}`);
   }
-  if (!data.visualResponse?.content?.includes('palindrome') && !data.visualResponse?.content?.includes('reverse')) {
+  if (
+    !data.visualResponse?.content?.includes('palindrome') &&
+    !data.visualResponse?.content?.includes('reverse')
+  ) {
     throw new Error(`Expected code implementation for palindrome`);
   }
-  if (data.spokenResponse.includes('```') || data.spokenResponse.includes('{') || data.spokenResponse.includes('function(')) {
+  if (
+    data.spokenResponse.includes('```') ||
+    data.spokenResponse.includes('{') ||
+    data.spokenResponse.includes('function(')
+  ) {
     throw new Error(`Spoken response leaked raw code syntax: ${data.spokenResponse}`);
   }
   console.log('>>> SCENARIO 2 PASSED!\n');
@@ -182,19 +192,23 @@ async function runScenario4_BargeInInterruption() {
     let interruptedReceived = false;
 
     ws.on('open', () => {
-      ws.send(JSON.stringify({
-        type: 'query',
-        text: 'Explain quantum computing in detail.',
-        timestamp: Date.now(),
-      }));
+      ws.send(
+        JSON.stringify({
+          type: 'query',
+          text: 'Explain quantum computing in detail.',
+          timestamp: Date.now(),
+        })
+      );
 
       setTimeout(() => {
         console.log('⚡ User barged in! Sending interrupt packet...');
-        ws.send(JSON.stringify({
-          type: 'interrupt',
-          bargeInMs: 4,
-          timestamp: Date.now(),
-        }));
+        ws.send(
+          JSON.stringify({
+            type: 'interrupt',
+            bargeInMs: 4,
+            timestamp: Date.now(),
+          })
+        );
       }, 100);
     });
 
@@ -207,15 +221,21 @@ async function runScenario4_BargeInInterruption() {
         console.log(`✓ User text registered at Gen #${msg.generation}`);
       } else if (msg.type === 'interrupted') {
         interruptedReceived = true;
-        console.log(`✓ Interrupted ACK received: Gen #${msg.oldGeneration} -> #${msg.newGeneration} (Server processing: ${msg.serverProcessingMs}ms)`);
-        
-        ws.send(JSON.stringify({
-          type: 'query',
-          text: 'What is 2 + 2?',
-          timestamp: Date.now(),
-        }));
+        console.log(
+          `✓ Interrupted ACK received: Gen #${msg.oldGeneration} -> #${msg.newGeneration} (Server processing: ${msg.serverProcessingMs}ms)`
+        );
+
+        ws.send(
+          JSON.stringify({
+            type: 'query',
+            text: 'What is 2 + 2?',
+            timestamp: Date.now(),
+          })
+        );
       } else if (msg.type === 'ai_text') {
-        console.log(`✓ AI response received for Gen #${msg.generation}: "${msg.spoken?.slice(0, 50)}..."`);
+        console.log(
+          `✓ AI response received for Gen #${msg.generation}: "${msg.spoken?.slice(0, 50)}..."`
+        );
         if (interruptedReceived && msg.generation > generation) {
           console.log(`✓ New generation #${msg.generation} successfully answered!`);
           ws.close();
@@ -244,17 +264,21 @@ async function runScenario5_StaleResultRejection() {
     let stalePacketsReceived = 0;
 
     ws.on('open', () => {
-      ws.send(JSON.stringify({
-        type: 'query',
-        text: 'Write a full essay on ancient Roman architecture.',
-      }));
+      ws.send(
+        JSON.stringify({
+          type: 'query',
+          text: 'Write a full essay on ancient Roman architecture.',
+        })
+      );
 
       setTimeout(() => {
         console.log('Dispatching second query to invalidate first generation...');
-        ws.send(JSON.stringify({
-          type: 'query',
-          text: 'Hello Aurora!',
-        }));
+        ws.send(
+          JSON.stringify({
+            type: 'query',
+            text: 'Hello Aurora!',
+          })
+        );
       }, 50);
     });
 
