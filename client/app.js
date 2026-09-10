@@ -17,6 +17,13 @@
 
   // Layout & Views
   const navItems = document.querySelectorAll('.nav-item');
+  const views = {
+    home: $('view-home'),
+    conversation: $('view-conversation'),
+    voice: $('view-voice'),
+    history: $('view-history'),
+    settings: $('view-settings'),
+  };
 
   // Header
   const connDot = $('connDot');
@@ -28,6 +35,9 @@
   const captionUser = $('captionUser');
   const captionAi = $('captionAi');
   const cancelPill = $('cancelPill');
+  const suggestionChips = $('suggestionChips');
+  const centerConversationWrapper = $('centerConversationWrapper');
+  const chatHeader = $('chatHeader');
   const chatArea = $('chatArea');
   const chatAreaConv = $('chatAreaConv');
   const btnClearChat = $('btnClearChat');
@@ -78,32 +88,6 @@
   const btnSaveBackendUrl = $('btnSaveBackendUrl');
   const backendStatusMsg = $('backendStatusMsg');
 
-  // Telemetry HUD & Latency Breakdown
-  const hudLlm = $('hudLlm');
-  const hudLlmModel = $('hudLlmModel');
-  const hudTts = $('hudTts');
-  const hudTtsVoice = $('hudTtsVoice');
-  const hudStt = $('hudStt');
-  const hudDegradationBadge = $('hudDegradationBadge');
-
-  // Cost Governance & Budget
-  const hudTurnCost = $('hudTurnCost');
-  const hudTurnTokens = $('hudTurnTokens');
-  const hudSessionCost = $('hudSessionCost');
-  const hudSessionTokens = $('hudSessionTokens');
-  const hudLifetimeCost = $('hudLifetimeCost');
-  const hudLifetimeTurns = $('hudLifetimeTurns');
-  const budgetUsageLabel = $('budgetUsageLabel');
-  const budgetPctLabel = $('budgetPctLabel');
-  const budgetFill = $('budgetFill');
-  const dbgSession = $('dbgSession');
-
-  // Sessions & Transcripts Elements
-  const sessionList = $('sessionList');
-  const sessionListLoading = $('sessionListLoading');
-  const btnNewSession = $('btnNewSession');
-  const btnExportMarkdown = $('btnExportMarkdown');
-
   // Right panel
   const stepper = $('stepper');
   const timeEls = {
@@ -121,21 +105,13 @@
   const qaLogs = $('qaLogs');
   const qaConv = $('qaConv');
   const qaHelp = $('qaHelp');
-  const appSidebar = $('appSidebar');
+  const sidebar = $('sidebar');
   const btnToggleSidebar = $('btnToggleSidebar');
+  const btnCloseSidebar = $('btnCloseSidebar');
+  const inspectorPanel = $('inspectorPanel');
+  const btnToggleInspector = $('btnToggleInspector');
+  const btnCloseInspector = $('btnCloseInspector');
   const sidebarBackdrop = $('sidebarBackdrop');
-  const navCompanion = $('navCompanion');
-  const navConversation = $('navConversation');
-  const navConvBadge = $('navConvBadge');
-  const navVoiceStudio = $('navVoiceStudio');
-  const navTranscripts = $('navTranscripts');
-  const navTelemetry = $('navTelemetry');
-  const navConfig = $('navConfig');
-  const drawerSectionVoice = $('drawerSectionVoice');
-  const drawerSectionTranscripts = $('drawerSectionTranscripts');
-  const drawerSectionTelemetry = $('drawerSectionTelemetry');
-  const drawerSectionConfig = $('drawerSectionConfig');
-  const drawerNavTabs = $('drawerNavTabs');
 
   // Core Audio & State
   const player = new window.AuroraAudioPlayer();
@@ -151,18 +127,8 @@
   let stepTimers = {};
   let stepIntervals = {};
   let transcript = [];
-  let currentSessionId = null;
-  try {
-    currentSessionId = localStorage.getItem('aurora-session-id') || null;
-  } catch (_) {}
   let currentActiveSpeaker = 'astra';
-  try {
-    currentActiveSpeaker = localStorage.getItem('aurora-speaker') || 'astra';
-  } catch (_) {}
   let currentActiveModel = 'mistv3';
-  try {
-    currentActiveModel = localStorage.getItem('aurora-model') || 'mistv3';
-  } catch (_) {}
   let isRunningAutomatedTest = false;
 
   const DEFAULT_SPEAKERS = [
@@ -225,22 +191,7 @@
     },
   ];
 
-  // ---------- Slidebar Integrated Settings Panel ----------
-  let _activeSettingsSection = null;
-
-  function setActiveSettingsNav(target) {
-    _activeSettingsSection = target;
-    const settingsButtons = [navVoiceStudio, navTranscripts, navTelemetry, navConfig];
-    settingsButtons.forEach((btn) => {
-      if (btn) btn.classList.toggle('active', Boolean(target) && btn.dataset.target === target);
-    });
-    if (drawerNavTabs) {
-      drawerNavTabs.querySelectorAll('.drawer-tab').forEach((tab) => {
-        tab.classList.toggle('active', Boolean(target) && tab.dataset.target === target);
-      });
-    }
-  }
-
+  // ---------- Slide-Over Drawer for Voice Studio & Settings ----------
   function openDrawer() {
     if (settingsDrawer) settingsDrawer.classList.add('open');
     if (drawerBackdrop) drawerBackdrop.classList.add('open');
@@ -249,149 +200,14 @@
   function closeDrawer() {
     if (settingsDrawer) settingsDrawer.classList.remove('open');
     if (drawerBackdrop) drawerBackdrop.classList.remove('open');
-    setActiveSettingsNav(null);
   }
 
-  function openDrawerTo(sectionEl, targetName = null) {
-    openDrawer();
-    if (targetName) {
-      setActiveSettingsNav(targetName);
-    }
-    if (sectionEl) {
-      setTimeout(() => {
-        sectionEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }, 80);
-    }
-    if (window.innerWidth <= 900 && appRoot) {
-      appRoot.classList.remove('sidebar-open');
-      if (btnToggleSidebar) btnToggleSidebar.classList.remove('active');
-    }
-  }
-
+  if (btnOpenSettings) btnOpenSettings.addEventListener('click', openDrawer);
   if (btnCloseSettings) btnCloseSettings.addEventListener('click', closeDrawer);
   if (drawerBackdrop) drawerBackdrop.addEventListener('click', closeDrawer);
 
-  // ---------- Settings Dropdown & Slide-Over Drawer ----------
-  const settingsDropdown = $('settingsDropdown');
-  const settingsMenuWrap = $('settingsMenuWrap');
-  const menuItemProfile = $('menuItemProfile');
-  const menuItemPreferences = $('menuItemPreferences');
-  const menuItemKeys = $('menuItemKeys');
-  const menuItemSignOut = $('menuItemSignOut');
-
-  function toggleSettingsDropdown(force) {
-    if (!settingsDropdown) return;
-    const isVisible = settingsDropdown.style.display !== 'none';
-    const next = typeof force === 'boolean' ? force : !isVisible;
-    settingsDropdown.style.display = next ? 'block' : 'none';
-    if (btnOpenSettings) {
-      btnOpenSettings.setAttribute('aria-expanded', String(next));
-    }
-  }
-
-  function closeSettingsDropdown() {
-    toggleSettingsDropdown(false);
-  }
-
-  if (btnOpenSettings) {
-    btnOpenSettings.addEventListener('click', (e) => {
-      e.stopPropagation();
-      toggleSettingsDropdown();
-    });
-  }
-
-  if (menuItemProfile) {
-    menuItemProfile.addEventListener('click', () => {
-      closeSettingsDropdown();
-      openDrawerTo(drawerSectionTelemetry, 'telemetry');
-      fetchTelemetryData();
-    });
-  }
-
-  if (menuItemPreferences) {
-    menuItemPreferences.addEventListener('click', () => {
-      closeSettingsDropdown();
-      if (!speakersGrid || speakersGrid.children.length === 0) {
-        renderVoiceStudio(DEFAULT_SPEAKERS, DEFAULT_MODELS);
-      }
-      loadVoiceStudio();
-      openDrawerTo(drawerSectionVoice, 'voice');
-    });
-  }
-
-  if (menuItemKeys) {
-    menuItemKeys.addEventListener('click', () => {
-      closeSettingsDropdown();
-      openDrawerTo(drawerSectionConfig, 'config');
-    });
-  }
-
-  if (menuItemSignOut) {
-    menuItemSignOut.addEventListener('click', () => {
-      closeSettingsDropdown();
-      if (confirm('Are you sure you want to sign out and clear your session?')) {
-        try {
-          localStorage.removeItem('aurora-session-id');
-        } catch (_) {}
-        currentSessionId = null;
-        transcript = [];
-        if (chatArea) chatArea.innerHTML = '';
-        if (chatAreaConv) chatAreaConv.innerHTML = '';
-        updateWorkspaceState();
-        captionAi.textContent = '“Signed out. Started a fresh session.”';
-        log('User signed out.');
-      }
-    });
-  }
-
-  // Close dropdown on outside click
-  document.addEventListener('click', (e) => {
-    if (settingsDropdown && settingsDropdown.style.display !== 'none') {
-      if (settingsMenuWrap && !settingsMenuWrap.contains(e.target)) {
-        closeSettingsDropdown();
-      }
-    }
-  });
-
-  const btnPlusTools = $('btnPlusTools');
-  if (btnPlusTools) {
-    btnPlusTools.addEventListener('click', () => {
-      if (typeInput) {
-        typeInput.placeholder = 'Try: "Scaffold an Express API" or "Compare Python vs C++"';
-        typeInput.focus();
-      }
-    });
-  }
-
-  if (drawerNavTabs) {
-    drawerNavTabs.querySelectorAll('.drawer-tab').forEach((tab) => {
-      tab.addEventListener('click', () => {
-        const target = tab.dataset.target;
-        if (target === 'voice') {
-          if (!speakersGrid || speakersGrid.children.length === 0) {
-            renderVoiceStudio(DEFAULT_SPEAKERS, DEFAULT_MODELS);
-          }
-          loadVoiceStudio();
-          openDrawerTo(drawerSectionVoice, 'voice');
-        } else if (target === 'transcripts') {
-          openDrawerTo(drawerSectionTranscripts, 'transcripts');
-          fetchAndRenderSessions();
-        } else if (target === 'telemetry') {
-          openDrawerTo(drawerSectionTelemetry, 'telemetry');
-          fetchTelemetryData();
-        } else if (target === 'config') {
-          openDrawerTo(drawerSectionConfig, 'config');
-        }
-      });
-    });
-  }
-
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
-      if (settingsDropdown && settingsDropdown.style.display !== 'none') {
-        closeSettingsDropdown();
-        return;
-      }
       if (settingsDrawer && settingsDrawer.classList.contains('open')) {
         closeDrawer();
         return;
@@ -403,123 +219,24 @@
     }
   });
 
-  // ---------- Navigation & Experience Switching ----------
-  let _activeMainView = 'companion';
-
-  function setMainExperience(view, focusInput = false) {
-    _activeMainView = view;
-    if (navCompanion) navCompanion.classList.toggle('active', view === 'companion');
-    if (navConversation) navConversation.classList.toggle('active', view === 'conversation');
-
-    if (appRoot) {
-      appRoot.classList.toggle('in-conversation', view === 'conversation');
-    }
-
-    if (view === 'conversation' && chatArea) {
-      requestAnimationFrame(() => {
-        chatArea.scrollTop = chatArea.scrollHeight;
-      });
-    }
-
-    if (focusInput && typeInput) {
-      typeInput.focus();
-    }
-
-    if (orb && typeof orb.resize === 'function') {
-      setTimeout(() => orb.resize(), 100);
-    }
-
-    // Auto-close sidebar on mobile after navigating
-    if (window.innerWidth <= 900 && appRoot) {
-      appRoot.classList.remove('sidebar-open');
-      if (btnToggleSidebar) btnToggleSidebar.classList.remove('active');
-    }
-  }
-
+  // ---------- View Switching ----------
   function switchView(target) {
-    navItems.forEach((b) => b.classList.toggle('active', b.dataset.view === target || b.dataset.target === target));
-    if (target === 'companion' || target === 'home') {
-      closeDrawer();
-      setMainExperience('companion');
-    } else if (target === 'conversation') {
-      closeDrawer();
-      setMainExperience('conversation');
-    } else if (target === 'voice') {
+    navItems.forEach((b) => b.classList.toggle('active', b.dataset.view === target));
+    Object.entries(views).forEach(([name, el]) => {
+      if (el) el.classList.toggle('hidden', name !== target);
+    });
+    if (target === 'voice' || target === 'settings') {
+      openDrawer();
       if (!speakersGrid || speakersGrid.children.length === 0) {
         renderVoiceStudio(DEFAULT_SPEAKERS, DEFAULT_MODELS);
       }
       loadVoiceStudio();
-      openDrawerTo(drawerSectionVoice, 'voice');
-    } else if (target === 'transcripts' || target === 'history') {
-      openDrawerTo(drawerSectionTranscripts, 'transcripts');
-      fetchAndRenderSessions();
-    } else if (target === 'settings' || target === 'telemetry') {
-      openDrawerTo(drawerSectionTelemetry, 'telemetry');
-      fetchTelemetryData();
-    } else if (target === 'config') {
-      openDrawerTo(drawerSectionConfig, 'config');
     }
   }
 
-  if (navCompanion) {
-    navCompanion.addEventListener('click', () => {
-      closeDrawer();
-      setMainExperience('companion', true);
-    });
-  }
-
-  if (navConversation) {
-    navConversation.addEventListener('click', () => {
-      closeDrawer();
-      setMainExperience('conversation', true);
-    });
-  }
-
-  if (navVoiceStudio) {
-    navVoiceStudio.addEventListener('click', () => {
-      if (settingsDrawer && settingsDrawer.classList.contains('open') && _activeSettingsSection === 'voice') {
-        closeDrawer();
-        return;
-      }
-      if (!speakersGrid || speakersGrid.children.length === 0) {
-        renderVoiceStudio(DEFAULT_SPEAKERS, DEFAULT_MODELS);
-      }
-      loadVoiceStudio();
-      openDrawerTo(drawerSectionVoice, 'voice');
-    });
-  }
-
-  if (navTranscripts) {
-    navTranscripts.addEventListener('click', () => {
-      if (settingsDrawer && settingsDrawer.classList.contains('open') && _activeSettingsSection === 'transcripts') {
-        closeDrawer();
-        return;
-      }
-      openDrawerTo(drawerSectionTranscripts, 'transcripts');
-      fetchAndRenderSessions();
-    });
-  }
-
-  if (navTelemetry) {
-    navTelemetry.addEventListener('click', () => {
-      if (settingsDrawer && settingsDrawer.classList.contains('open') && _activeSettingsSection === 'telemetry') {
-        closeDrawer();
-        return;
-      }
-      openDrawerTo(drawerSectionTelemetry, 'telemetry');
-      fetchTelemetryData();
-    });
-  }
-
-  if (navConfig) {
-    navConfig.addEventListener('click', () => {
-      if (settingsDrawer && settingsDrawer.classList.contains('open') && _activeSettingsSection === 'config') {
-        closeDrawer();
-        return;
-      }
-      openDrawerTo(drawerSectionConfig, 'config');
-    });
-  }
+  navItems.forEach((btn) => {
+    btn.addEventListener('click', () => switchView(btn.dataset.view));
+  });
 
   if (qaTest) qaTest.addEventListener('click', () => runInteractiveBargeInTest());
   if (qaVoice) qaVoice.addEventListener('click', () => switchView('voice'));
@@ -527,7 +244,7 @@
   if (qaConv) qaConv.addEventListener('click', () => switchView('conversation'));
   if (qaHelp) {
     qaHelp.addEventListener('click', () => {
-      setMainExperience('companion');
+      switchView('home');
       captionAi.textContent =
         "“I'm Aurora. Tap the mic or orb to speak. If I'm mid-sentence and you interrupt me, I silence my speech instantly (< 2ms) and answer your new thought!”";
     });
@@ -536,67 +253,73 @@
   // ---------- Center Workspace Dynamic Transition ----------
   function updateWorkspaceState() {
     const hasMessages = transcript.length > 0;
-    if (navConvBadge) {
-      navConvBadge.textContent = String(transcript.length);
-      navConvBadge.style.display = hasMessages ? 'inline-flex' : 'none';
+    if (appRoot) {
+      appRoot.classList.toggle('in-conversation', hasMessages);
     }
-
-    if (hasMessages) {
-      setMainExperience('conversation');
-    } else {
-      setMainExperience('companion');
-    }
-
     if (chatArea) {
       chatArea.style.display = hasMessages ? 'flex' : 'none';
     }
-
+    if (views.home) {
+      views.home.classList.toggle('is-empty', !hasMessages);
+      views.home.classList.toggle('has-conversation', hasMessages);
+    }
+    if (chatHeader) {
+      chatHeader.style.display = hasMessages ? 'flex' : 'none';
+    }
+    if (suggestionChips) {
+      suggestionChips.style.display = hasMessages ? 'none' : 'flex';
+    }
+    if (centerConversationWrapper) {
+      centerConversationWrapper.style.display = hasMessages ? 'flex' : 'none';
+    }
     if (orb && typeof orb.resize === 'function') {
       setTimeout(() => orb.resize(), 60);
     }
   }
 
-  // ---------- Left Sidebar Toggle (Desktop & Mobile) ----------
-  function toggleSidebar(forceState) {
-    if (!appSidebar || !appRoot) return;
-    const isMobile = window.innerWidth <= 900;
-    if (isMobile) {
-      const shouldOpen =
-        typeof forceState === 'boolean' ? forceState : !appRoot.classList.contains('sidebar-open');
-      appRoot.classList.toggle('sidebar-open', shouldOpen);
-      if (btnToggleSidebar) btnToggleSidebar.classList.toggle('active', shouldOpen);
-    } else {
-      const shouldCollapse =
-        typeof forceState === 'boolean'
-          ? !forceState
-          : !appRoot.classList.contains('sidebar-collapsed');
-      appRoot.classList.toggle('sidebar-collapsed', shouldCollapse);
-      if (btnToggleSidebar) btnToggleSidebar.classList.toggle('active', !shouldCollapse);
-      if (orb && typeof orb.resize === 'function') {
-        setTimeout(() => orb.resize(), 200);
-      }
-    }
+  // ---------- Sliding Sidebars (Left & Right) ----------
+  function toggleSidebar(open) {
+    if (!sidebar) return;
+    const isClosed = typeof open === 'boolean' ? !open : !sidebar.classList.contains('closed');
+    sidebar.classList.toggle('closed', isClosed);
+    if (btnToggleSidebar) btnToggleSidebar.classList.toggle('active', !isClosed);
+    updateBackdrop();
+  }
+
+  function toggleInspector(open) {
+    if (!inspectorPanel) return;
+    const isClosed =
+      typeof open === 'boolean' ? !open : !inspectorPanel.classList.contains('closed');
+    inspectorPanel.classList.toggle('closed', isClosed);
+    if (btnToggleInspector) btnToggleInspector.classList.toggle('active', !isClosed);
+    updateBackdrop();
+  }
+
+  function updateBackdrop() {
+    if (!sidebarBackdrop) return;
+    const anyOpen =
+      (sidebar && !sidebar.classList.contains('closed')) ||
+      (inspectorPanel && !inspectorPanel.classList.contains('closed'));
+    sidebarBackdrop.classList.toggle('active', anyOpen && window.innerWidth <= 1080);
   }
 
   if (btnToggleSidebar) btnToggleSidebar.addEventListener('click', () => toggleSidebar());
-  const btnMobileToggle = $('btnMobileToggle');
-  if (btnMobileToggle) {
-    btnMobileToggle.addEventListener('click', (e) => {
-      e.stopPropagation();
-      toggleSidebar(true);
-    });
-  }
+  if (btnCloseSidebar) btnCloseSidebar.addEventListener('click', () => toggleSidebar(false));
+  if (btnToggleInspector) btnToggleInspector.addEventListener('click', () => toggleInspector());
+  if (btnCloseInspector) btnCloseInspector.addEventListener('click', () => toggleInspector(false));
   if (sidebarBackdrop) {
     sidebarBackdrop.addEventListener('click', () => {
-      if (appRoot) appRoot.classList.remove('sidebar-open');
-      if (btnToggleSidebar) btnToggleSidebar.classList.remove('active');
+      toggleSidebar(false);
+      toggleInspector(false);
     });
   }
 
   // Auto-adapt on resize
   window.addEventListener('resize', () => {
-    if (window.innerWidth > 900 && appRoot) {
-      appRoot.classList.remove('sidebar-open');
+    if (window.innerWidth <= 1080) {
+      if (sidebar && !sidebar.classList.contains('closed')) updateBackdrop();
+    } else {
+      if (sidebarBackdrop) sidebarBackdrop.classList.remove('active');
     }
   });
 
@@ -695,7 +418,6 @@
 
   function getBackendWsUrl() {
     const httpUrl = getBackendHttpUrl();
-    let wsBase = '';
     try {
       const parsed = new URL(httpUrl, window.location.href);
       // Mixed content prevention: if page is HTTPS, ALWAYS use WSS
@@ -704,17 +426,12 @@
         parsed.protocol === 'https:' ||
         parsed.protocol === 'wss:';
       const wsProto = isHttps ? 'wss:' : 'ws:';
-      wsBase = `${wsProto}//${parsed.host}`;
+      return `${wsProto}//${parsed.host}`;
     } catch (_) {
       const clean = httpUrl.replace(/^https?:\/\//i, '').replace(/^wss?:\/\//i, '');
       const isHttps = window.location.protocol === 'https:' || httpUrl.startsWith('https:');
-      wsBase = `${isHttps ? 'wss' : 'ws'}://${clean}`;
+      return `${isHttps ? 'wss' : 'ws'}://${clean}`;
     }
-    if (currentSessionId) {
-      const sep = wsBase.includes('?') ? '&' : '?';
-      return `${wsBase}${sep}sessionId=${encodeURIComponent(currentSessionId)}`;
-    }
-    return wsBase;
   }
 
   function apiUrl(endpoint) {
@@ -834,33 +551,8 @@
       currentGen = msg.generation;
       dbgGen.textContent = `#${currentGen}`;
     }
-    if (msg.sessionId) {
-      currentSessionId = msg.sessionId;
-      try {
-        localStorage.setItem('aurora-session-id', currentSessionId);
-      } catch (_) {}
-      if (dbgSession) dbgSession.textContent = currentSessionId;
-    }
-
-    // Retain user's chosen speaker & model from localStorage if already selected
-    let savedSpeaker = null;
-    let savedModel = null;
-    try {
-      savedSpeaker = localStorage.getItem('aurora-speaker');
-      savedModel = localStorage.getItem('aurora-model');
-    } catch (_) {}
-
-    if (savedSpeaker) {
-      currentActiveSpeaker = savedSpeaker;
-    } else if (msg.speaker) {
-      currentActiveSpeaker = msg.speaker;
-    }
-
-    if (savedModel) {
-      currentActiveModel = savedModel;
-    } else if (msg.modelId) {
-      currentActiveModel = msg.modelId;
-    }
+    if (msg.speaker) currentActiveSpeaker = msg.speaker;
+    if (msg.modelId) currentActiveModel = msg.modelId;
 
     const hasClientKey = Boolean(localStorage.getItem('aurora-rime-api-key'));
     const isRimeActive = msg.rimeConfigured || hasClientKey;
@@ -872,7 +564,7 @@
     dbgLlm.textContent = msg.llmConfigured
       ? `${msg.llmProvider} · ${msg.llmModel}`
       : 'Offline demo replies';
-    infoModel.textContent = currentActiveModel || 'mistv3';
+    infoModel.textContent = msg.modelId || 'mistv3';
     infoVoice.textContent = currentActiveSpeaker;
     infoFormat.textContent = msg.audioFormat || 'mp3';
 
@@ -880,10 +572,6 @@
     voiceBadgeState.classList.toggle('offline', !isRimeActive);
     ttsStatusTitle.textContent = isRimeActive ? 'Rime' : 'Browser';
     ttsStatusSub.textContent = isRimeActive ? 'TTS Ready' : 'Fallback voice';
-
-    if (msg.sessionMetrics) {
-      updateTelemetryDisplay(null, msg.sessionMetrics);
-    }
 
     loadVoiceStudio();
   }
@@ -1187,34 +875,13 @@
         break;
       }
 
-      case 'telemetry_update': {
-        updateTelemetryDisplay(msg.turnMetrics, msg.sessionMetrics, msg.lifetimeMetrics);
-        break;
-      }
-
-      case 'degradation_alert': {
-        showDegradationAlert(msg.reason);
-        break;
-      }
-
-      case 'budget_warning': {
-        showBudgetWarning(msg.message);
-        break;
-      }
-
       case 'done': {
         setUiState('complete');
         break;
       }
 
       case 'error': {
-        const errorText = msg.message || 'Something went wrong on my end.';
-        captionAi.textContent = `“${errorText}”`;
-        addMessageCard('assistant', `⚠️ ${errorText}`, msg.generation || currentGen, {
-          visualType: 'text',
-          responseMode: 'VOICE',
-        });
-        setUiState('idle');
+        captionAi.textContent = `“${msg.message || 'Something went wrong.'}”`;
         afterSpeaking();
         break;
       }
@@ -1244,11 +911,8 @@
       if (!listeningMode && state === 'listening') setUiState('idle');
     },
     onError: (err) => {
-      if (err === 'not-allowed' || err === 'permission-denied') {
+      if (err === 'not-allowed') {
         micStatusTitle.textContent = 'Mic blocked';
-        micStatusSub.textContent = 'Type below instead';
-      } else if (err === 'audio-capture') {
-        micStatusTitle.textContent = 'No mic found';
         micStatusSub.textContent = 'Type below instead';
       }
       log(`Mic error: ${err}`);
@@ -1278,7 +942,7 @@
     }
 
     if (wsReady) {
-      ws.send(JSON.stringify({ type: 'interrupt', timestamp: Date.now(), bargeInMs: player.lastMuteLatencyMs }));
+      ws.send(JSON.stringify({ type: 'interrupt', timestamp: Date.now() }));
     } else {
       interruptCount += 1;
       dbgInterrupts.textContent = interruptCount;
@@ -1309,23 +973,8 @@
     if (!text || !text.trim()) return;
     const cleanText = text.trim();
     if (wsReady) {
-      captionUser.style.display = 'block';
-      captionUser.textContent = cleanText;
-      captionAi.textContent = '“Thinking…”';
+      ws.send(JSON.stringify({ type: 'query', text: cleanText, mode, timestamp: Date.now() }));
       setUiState('thinking');
-      ws.send(
-        JSON.stringify({
-          type: 'query',
-          text: cleanText,
-          mode,
-          sessionId: currentSessionId,
-          speaker: currentActiveSpeaker,
-          modelId: currentActiveModel,
-          sttMs: 0,
-          bargeInMs: 0,
-          timestamp: Date.now(),
-        })
-      );
     } else {
       sendHttpQuery(cleanText, mode);
     }
@@ -1362,7 +1011,6 @@
     let res;
 
     const reqHeaders = { 'Content-Type': 'application/json' };
-    if (currentSessionId) reqHeaders['x-session-id'] = currentSessionId;
     try {
       const userRimeKey = localStorage.getItem('aurora-rime-api-key');
       if (userRimeKey) reqHeaders['x-rime-api-key'] = userRimeKey;
@@ -1374,13 +1022,11 @@
           method: 'POST',
           headers: reqHeaders,
           body: JSON.stringify({
-            sessionId: currentSessionId,
             text: cleanText,
             mode,
             history,
             speaker: currentActiveSpeaker,
             modelId: currentActiveModel,
-            bargeInMs: player.lastMuteLatencyMs || 0,
           }),
           signal: abortCtrl.signal,
         });
@@ -1394,13 +1040,11 @@
             method: 'POST',
             headers: reqHeaders,
             body: JSON.stringify({
-              sessionId: currentSessionId,
               text: cleanText,
               mode,
               history,
               speaker: currentActiveSpeaker,
               modelId: currentActiveModel,
-              bargeInMs: player.lastMuteLatencyMs || 0,
             }),
             signal: abortCtrl.signal,
           });
@@ -1422,13 +1066,11 @@
           method: 'POST',
           headers: reqHeaders,
           body: JSON.stringify({
-            sessionId: currentSessionId,
             text: cleanText,
             mode,
             history,
             speaker: currentActiveSpeaker,
             modelId: currentActiveModel,
-            bargeInMs: player.lastMuteLatencyMs || 0,
           }),
           signal: abortCtrl.signal,
         });
@@ -1465,34 +1107,9 @@
         return;
       }
 
-      if (data.sessionId) {
-        currentSessionId = data.sessionId;
-        try {
-          localStorage.setItem('aurora-session-id', currentSessionId);
-        } catch (_) {}
-        if (dbgSession) dbgSession.textContent = currentSessionId;
-      }
-
       const totalMs = data.totalMs || Date.now() - turnStartTime;
       dbgLatency.textContent = `${totalMs}ms (HTTP)`;
       hudTtfa.textContent = `${totalMs} ms`;
-
-      updateTelemetryDisplay(
-        {
-          llmMs: data.llmMs,
-          ttsMs: data.ttsMs,
-          totalMs,
-          sttMs: 0,
-          bargeInMs: player.lastMuteLatencyMs || 0,
-          costUsd: data.cost?.totalCostUsd || 0,
-          totalTokens: data.cost?.totalTokens || 0,
-          provider: data.cost?.provider,
-          modelId: data.modelId || currentActiveModel,
-          speaker: data.speaker || currentActiveSpeaker,
-          degraded: data.degraded,
-        },
-        data.sessionMetrics
-      );
 
       const visualPayload = data.visualResponse || {
         type: 'text',
@@ -1552,10 +1169,6 @@
         ? 'Unable to reach backend service. Verify backend URL in Settings.'
         : err.message || 'please try again';
       captionAi.textContent = `“Sorry, an error occurred: ${displayMsg}”`;
-      addMessageCard('assistant', `⚠️ ${displayMsg}`, myGen, {
-        visualType: 'text',
-        responseMode: 'VOICE',
-      });
       setUiState('idle');
     } finally {
       if (activeHttpAbortController === abortCtrl) {
@@ -1950,344 +1563,13 @@
   if (btnClearChat) btnClearChat.addEventListener('click', clearAllChat);
   if (btnClearChatConv) btnClearChatConv.addEventListener('click', clearAllChat);
 
-  // ---------- Telemetry & Latency HUD Logic ----------
-  function updateTelemetryDisplay(turnMetrics, sessionMetrics, lifetimeMetrics) {
-    if (turnMetrics) {
-      if (hudLlm) hudLlm.textContent = turnMetrics.llmMs != null ? `${turnMetrics.llmMs} ms` : '—';
-      if (hudLlmModel) hudLlmModel.textContent = turnMetrics.modelId || currentActiveModel;
-      if (hudTts) hudTts.textContent = turnMetrics.ttsMs != null ? `${turnMetrics.ttsMs} ms` : '—';
-      if (hudTtsVoice) hudTtsVoice.textContent = turnMetrics.speaker || currentActiveSpeaker;
-      if (hudTtfa) hudTtfa.textContent = turnMetrics.totalMs != null ? `${turnMetrics.totalMs} ms` : '—';
-      if (hudStt) hudStt.textContent = `STT: ${turnMetrics.sttMs || 0} ms`;
-      if (hudMute && turnMetrics.bargeInMs != null) hudMute.textContent = `${turnMetrics.bargeInMs} ms`;
-      if (hudAck && turnMetrics.bargeInMs != null) hudAck.textContent = `ACK: ${turnMetrics.bargeInMs} ms`;
-
-      if (hudTurnCost) hudTurnCost.textContent = `$${(turnMetrics.costUsd || 0).toFixed(4)}`;
-      if (hudTurnTokens) hudTurnTokens.textContent = `${turnMetrics.totalTokens || 0} tokens`;
-
-      if (hudDegradationBadge) {
-        if (turnMetrics.degraded) {
-          hudDegradationBadge.style.display = 'inline-flex';
-          hudDegradationBadge.className = 'badge warn degraded';
-          hudDegradationBadge.textContent = 'Degraded (Local)';
-        } else {
-          hudDegradationBadge.style.display = 'inline-flex';
-          hudDegradationBadge.className = 'badge';
-          hudDegradationBadge.textContent = 'Standard (Online)';
-        }
-      }
-    }
-
-    if (sessionMetrics) {
-      if (sessionMetrics.sessionId) {
-        currentSessionId = sessionMetrics.sessionId;
-        try { localStorage.setItem('aurora-session-id', currentSessionId); } catch (_) {}
-        if (dbgSession) dbgSession.textContent = currentSessionId;
-      }
-      const spent = sessionMetrics.totalCostUsd || 0;
-      const tokens = sessionMetrics.totalTokens || 0;
-      const cap = sessionMetrics.budgetCapUsd || 0.25;
-      const pct = Math.min(100, Math.round((spent / cap) * 100));
-
-      if (hudSessionCost) hudSessionCost.textContent = `$${spent.toFixed(4)}`;
-      if (hudSessionTokens) hudSessionTokens.textContent = `${tokens} tokens`;
-      if (budgetUsageLabel) budgetUsageLabel.textContent = `Session Budget: $${spent.toFixed(2)} / $${cap.toFixed(2)}`;
-      if (budgetPctLabel) budgetPctLabel.textContent = `${pct}%`;
-      if (budgetFill) {
-        budgetFill.style.width = `${pct}%`;
-        budgetFill.classList.toggle('warning', pct >= 80);
-      }
-    }
-
-    if (lifetimeMetrics) {
-      if (hudLifetimeCost) hudLifetimeCost.textContent = `$${(lifetimeMetrics.totalCostUsd || 0).toFixed(4)}`;
-      if (hudLifetimeTurns) hudLifetimeTurns.textContent = `${lifetimeMetrics.totalTurns || 0} turns`;
-    }
-  }
-
-  async function fetchTelemetryData() {
-    try {
-      const res = await fetchWithTimeout(apiUrl('/api/telemetry'), {}, 3000);
-      if (res && res.ok) {
-        const data = await res.json();
-        if (data.lifetime) {
-          updateTelemetryDisplay(null, null, data.lifetime);
-        }
-      }
-    } catch (_) {}
-  }
-
-  function showDegradationAlert(reason) {
-    if (hudDegradationBadge) {
-      hudDegradationBadge.style.display = 'inline-flex';
-      hudDegradationBadge.className = 'badge warn degraded';
-      hudDegradationBadge.textContent = 'Degraded (Local)';
-    }
-    log(`⚠️ DEGRADATION: ${reason || 'Latency threshold exceeded'}`);
-  }
-
-  function showBudgetWarning(message) {
-    if (budgetFill) {
-      budgetFill.classList.add('warning');
-    }
-    log(`💰 BUDGET: ${message || 'Session budget limit reached'}`);
-  }
-
-  // ---------- Sessions & Persistent SQLite Transcripts ----------
-  async function fetchAndRenderSessions() {
-    if (!sessionList) return;
-    if (sessionListLoading) sessionListLoading.style.display = 'block';
-    try {
-      const res = await fetchWithTimeout(apiUrl('/api/transcripts/sessions?limit=25'), {}, 4000);
-      if (res && res.ok) {
-        const data = await res.json();
-        renderSessionList(data.sessions || []);
-      } else {
-        sessionList.innerHTML = '<p class="empty-hint" style="padding:10px 0;">Could not load sessions.</p>';
-      }
-    } catch (err) {
-      console.warn('Failed to load sessions', err);
-      sessionList.innerHTML = '<p class="empty-hint" style="padding:10px 0;">Failed to load sessions.</p>';
-    } finally {
-      if (sessionListLoading) sessionListLoading.style.display = 'none';
-    }
-  }
-
-  function renderSessionList(sessions) {
-    if (!sessionList) return;
-    sessionList.innerHTML = '';
-    if (!sessions || sessions.length === 0) {
-      sessionList.innerHTML = '<p class="empty-hint" style="padding: 10px 0;">No saved sessions yet. Turns will be recorded in SQLite automatically.</p>';
-      return;
-    }
-
-    sessions.forEach((s) => {
-      const card = document.createElement('div');
-      const isActive = s.id === currentSessionId;
-      card.className = `session-card ${isActive ? 'active' : ''}`;
-      card.dataset.sessionId = s.id;
-
-      const dateStr = s.created_at ? new Date(s.created_at).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Recent';
-      const title = s.title || `Session ${s.id.slice(0, 8)}`;
-      const costStr = `$${(s.total_cost_usd || 0).toFixed(4)}`;
-      const turns = s.turn_count || 0;
-
-      card.innerHTML = `
-        <div class="session-card-header">
-          <span class="session-card-title">${escapeHtml(title)}</span>
-          <button class="btn-delete-session" title="Delete Session" data-id="${s.id}">✕</button>
-        </div>
-        <div class="session-card-meta">
-          <span>${dateStr} · ${escapeHtml(s.speaker || 'astra')}</span>
-          <div class="session-card-stats">
-            <span class="session-stat-pill">${turns} turns</span>
-            <span class="session-stat-pill">${costStr}</span>
-          </div>
-        </div>
-      `;
-
-      card.addEventListener('click', (e) => {
-        if (e.target.closest('.btn-delete-session')) return;
-        loadSession(s.id);
-      });
-
-      const delBtn = card.querySelector('.btn-delete-session');
-      if (delBtn) {
-        delBtn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          deleteSession(s.id);
-        });
-      }
-
-      sessionList.appendChild(card);
-    });
-  }
-
-  async function loadSession(sessionId) {
-    try {
-      const res = await fetchWithTimeout(apiUrl(`/api/transcripts/sessions/${sessionId}`), {}, 4000);
-      if (!res || !res.ok) throw new Error('Failed to fetch session');
-      const data = await res.json();
-      const session = data.session;
-      const turns = data.turns || [];
-
-      currentSessionId = session.id;
-      try { localStorage.setItem('aurora-session-id', currentSessionId); } catch (_) {}
-      if (dbgSession) dbgSession.textContent = currentSessionId;
-
-      if (session.speaker) {
-        currentActiveSpeaker = session.speaker;
-        infoVoice.textContent = currentActiveSpeaker;
-      }
-      if (session.model_id) {
-        currentActiveModel = session.model_id;
-        infoModel.textContent = currentActiveModel;
-      }
-      updateVoiceStudioSelection();
-
-      // Clear current chat UI
-      transcript = [];
-      if (chatArea) chatArea.innerHTML = '';
-      if (chatAreaConv) chatAreaConv.innerHTML = '';
-
-      // Rehydrate messages
-      turns.forEach((t) => {
-        const gen = t.turn_index || 1;
-        if (t.user_text) {
-          addMessageCard('user', t.user_text, gen);
-        }
-        if (t.spoken_text || t.visual_payload) {
-          const content = t.visual_payload?.content || t.spoken_text;
-          const meta = {
-            speaker: t.speaker || currentActiveSpeaker,
-            model: t.model_id || currentActiveModel,
-            llmMs: t.llm_ms,
-            spoken: t.spoken_text,
-            visualType: t.visual_payload?.type,
-            language: t.visual_payload?.language,
-            title: t.visual_payload?.title,
-          };
-          addMessageCard('assistant', content, gen, meta);
-        }
-      });
-
-      updateTelemetryDisplay(null, {
-        sessionId: session.id,
-        turnCount: session.turn_count,
-        totalTokens: session.total_tokens,
-        totalCostUsd: session.total_cost_usd,
-        budgetCapUsd: 0.25,
-      });
-
-      fetchAndRenderSessions();
-      updateWorkspaceState();
-      switchView('conversation');
-      closeDrawer();
-      log(`Loaded session ${session.id.slice(0, 8)} (${turns.length} turns)`);
-    } catch (err) {
-      console.error('Failed to load session:', err);
-      log(`Error loading session ${sessionId}`);
-    }
-  }
-
-  async function createNewSession() {
-    try {
-      const res = await fetch(apiUrl('/api/sessions/new'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          speaker: currentActiveSpeaker,
-          modelId: currentActiveModel,
-        }),
-      });
-      if (res && res.ok) {
-        const data = await res.json();
-        const session = data.session;
-        currentSessionId = session.id;
-        try { localStorage.setItem('aurora-session-id', currentSessionId); } catch (_) {}
-        if (dbgSession) dbgSession.textContent = currentSessionId;
-        clearAllChat();
-        updateTelemetryDisplay(
-          {
-            llmMs: null,
-            ttsMs: null,
-            totalMs: null,
-            sttMs: 0,
-            bargeInMs: 0,
-            costUsd: 0,
-            totalTokens: 0,
-            degraded: false,
-          },
-          {
-            sessionId: session.id,
-            turnCount: 0,
-            totalTokens: 0,
-            totalCostUsd: 0,
-            budgetCapUsd: 0.25,
-          }
-        );
-        fetchAndRenderSessions();
-        log(`Created new session #${currentSessionId.slice(0, 8)}`);
-      }
-    } catch (err) {
-      console.error('Failed to create new session:', err);
-    }
-  }
-
-  async function deleteSession(sessionId) {
-    if (!confirm('Are you sure you want to delete this session transcript?')) return;
-    try {
-      const res = await fetch(apiUrl(`/api/transcripts/sessions/${sessionId}`), { method: 'DELETE' });
-      if (res && res.ok) {
-        if (currentSessionId === sessionId) {
-          createNewSession();
-        } else {
-          fetchAndRenderSessions();
-        }
-        log(`Deleted session ${sessionId.slice(0, 8)}`);
-      }
-    } catch (err) {
-      console.error('Failed to delete session:', err);
-    }
-  }
-
-  function exportTranscriptAsMarkdown() {
-    if (!transcript || transcript.length === 0) {
-      alert('No turns in current conversation to export.');
-      return;
-    }
-    let md = `# Aurora Conversation Transcript\n`;
-    md += `- **Session ID**: \`${currentSessionId || 'unknown'}\`\n`;
-    md += `- **Export Date**: ${new Date().toISOString()}\n`;
-    md += `- **Speaker**: ${currentActiveSpeaker}\n`;
-    md += `- **Model**: ${currentActiveModel}\n\n`;
-    md += `---\n\n`;
-
-    transcript.forEach((t) => {
-      const role = t.role === 'user' ? '### User' : '### Aurora';
-      const time = t.time ? (t.time instanceof Date ? t.time.toLocaleTimeString() : String(t.time)) : '';
-      md += `${role} (${time})\n\n${t.text}\n\n`;
-    });
-
-    const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `aurora-session-${currentSessionId ? currentSessionId.slice(0, 8) : Date.now()}.md`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  if (btnNewSession) btnNewSession.addEventListener('click', createNewSession);
-  if (btnExportMarkdown) btnExportMarkdown.addEventListener('click', exportTranscriptAsMarkdown);
-
   if (btnExportHistory) {
-    btnExportHistory.addEventListener('click', async () => {
-      let exportData = {
-        sessionId: currentSessionId,
-        exportedAt: new Date().toISOString(),
-        speaker: currentActiveSpeaker,
-        model: currentActiveModel,
-        turns: transcript,
-      };
-      if (currentSessionId) {
-        try {
-          const res = await fetchWithTimeout(apiUrl(`/api/transcripts/sessions/${currentSessionId}`), {}, 3000);
-          if (res && res.ok) {
-            const data = await res.json();
-            exportData = {
-              ...exportData,
-              session: data.session,
-              dbTurns: data.turns,
-            };
-          }
-        } catch (_) {}
-      }
+    btnExportHistory.addEventListener('click', () => {
       const dataStr =
-        'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(exportData, null, 2));
+        'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(transcript, null, 2));
       const a = document.createElement('a');
       a.href = dataStr;
-      a.download = `aurora-transcript-${currentSessionId ? currentSessionId.slice(0, 8) : Date.now()}.json`;
+      a.download = `aurora-transcript-${Date.now()}.json`;
       a.click();
     });
   }
@@ -2513,9 +1795,6 @@
 
       card.querySelector('.select-btn').addEventListener('click', () => {
         currentActiveSpeaker = spk.id;
-        try {
-          localStorage.setItem('aurora-speaker', spk.id);
-        } catch (_) {}
         infoVoice.textContent = currentActiveSpeaker;
         updateVoiceStudioSelection();
         if (wsReady) {
@@ -2543,9 +1822,6 @@
         `;
         card.addEventListener('click', () => {
           currentActiveModel = m.id;
-          try {
-            localStorage.setItem('aurora-model', m.id);
-          } catch (_) {}
           infoModel.textContent = currentActiveModel;
           updateVoiceStudioSelection();
           if (wsReady) {

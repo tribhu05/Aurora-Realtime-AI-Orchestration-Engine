@@ -19,328 +19,108 @@
     <div class="app" id="appRoot">
       <div class="noise"></div>
 
-      <!-- App Body Layout (Sidebar + Main Experience) -->
-      <div class="app-body" id="appBody">
-        <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
-
-        <!-- Left Navigation Sidebar -->
-        <aside class="app-sidebar" id="appSidebar" aria-label="Main Navigation">
-          <div class="sidebar-inner">
-            <!-- Sidebar Header: Hamburger + Gradient Logo + AURORA / AI -->
-            <div class="sidebar-header">
-              <button
-                class="btn-sidebar-toggle"
-                id="btnToggleSidebar"
-                aria-label="Toggle Sidebar Navigation"
-                title="Toggle Navigation"
-              >
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <line x1="3" y1="6" x2="21" y2="6"></line>
-                  <line x1="3" y1="12" x2="21" y2="12"></line>
-                  <line x1="3" y1="18" x2="21" y2="18"></line>
-                </svg>
-              </button>
-              <div class="brand">
-                <div class="brand-mark" aria-hidden="true"></div>
-                <div class="brand-title">AURORA <span>/ AI</span></div>
-              </div>
-            </div>
-
-            <!-- Group 1: MAIN EXPERIENCE -->
-            <div class="sidebar-group">
-              <div class="sidebar-group-title">MAIN EXPERIENCE</div>
-              <button class="nav-item active" id="navCompanion" data-view="companion">
-                <svg
-                  class="nav-icon"
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-                  <polyline points="9 22 9 12 15 12 15 22" />
-                </svg>
-                <span class="nav-text">Companion</span>
-              </button>
-              <button class="nav-item" id="navConversation" data-view="conversation">
-                <svg
-                  class="nav-icon"
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                </svg>
-                <span class="nav-text">Conversation</span>
-                <span class="nav-badge" id="navConvBadge" style="display: none">0</span>
-              </button>
-            </div>
-
-            <div class="sidebar-divider"></div>
-
-            <!-- Group 2: AUDIO & INTELLIGENCE -->
-            <div class="sidebar-group" id="sidebarGroupSettings">
-              <div class="sidebar-group-title">AUDIO &amp; INTELLIGENCE</div>
-              <button class="nav-item" id="navVoiceStudio" data-target="voice">
-                <svg
-                  class="nav-icon"
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-                  <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                  <line x1="12" y1="19" x2="12" y2="22" />
-                </svg>
-                <span class="nav-text">Voice Studio</span>
-              </button>
-              <button class="nav-item" id="navTranscripts" data-target="transcripts">
-                <svg
-                  class="nav-icon"
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                  <polyline points="14 2 14 8 20 8"></polyline>
-                  <line x1="16" y1="13" x2="8" y2="13"></line>
-                  <line x1="16" y1="17" x2="8" y2="17"></line>
-                  <polyline points="10 9 9 9 8 9"></polyline>
-                </svg>
-                <span class="nav-text">Transcripts</span>
-              </button>
-              <button class="nav-item" id="navTelemetry" data-target="telemetry">
-                <svg
-                  class="nav-icon"
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <line x1="18" y1="20" x2="18" y2="10"></line>
-                  <line x1="12" y1="20" x2="12" y2="4"></line>
-                  <line x1="6" y1="20" x2="6" y2="14"></line>
-                </svg>
-                <span class="nav-text">Telemetry &amp; HUD</span>
-              </button>
-            </div>
+      <!-- Minimal Top Navigation Header -->
+      <header>
+        <div class="brand">
+          <div class="brand-mark"></div>
+          <div class="brand-title">AURORA <span>/ AI</span></div>
+        </div>
+        <div class="header-right">
+          <div class="status" id="statusPill">
+            <i class="dot" id="connDot"></i>
+            <span id="connText">Ready to help</span>
           </div>
-
-          <!-- Sidebar Footer Branding (Pinned to bottom) -->
-          <div class="sidebar-footer">
-            <div class="sidebar-footer-divider"></div>
-            <div class="sidebar-footer-text">
-              <p>Smarter tools.</p>
-              <p>A brighter you.</p>
-            </div>
-          </div>
-        </aside>
-
-        <!-- Main Assistant View Area (Full viewport height, flex-1) -->
-        <main class="app-main" id="mainContainer">
-          <!-- Right-Aligned Top Bar -->
-          <div class="main-topbar" id="mainTopbar">
-            <button
-              class="btn-sidebar-toggle mobile-hamburger"
-              id="btnMobileToggle"
-              aria-label="Open Navigation"
-              title="Navigation"
+          <button
+            class="btn-drawer-toggle"
+            id="btnOpenSettings"
+            aria-label="Open Voice Studio & Telemetry"
+            title="Voice Studio & Settings"
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
             >
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
+              <circle cx="12" cy="12" r="3"></circle>
+              <path
+                d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"
+              ></path>
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <!-- Main Assistant View Area -->
+      <main id="mainContainer">
+        <!-- Hero Orb & Greeting (Compactable on conversation start) -->
+        <div class="hero-section" id="heroSection">
+          <div class="orb-wrap" id="orbWrap">
+            <div class="orb" id="orbElement">
+              <div class="core"></div>
+            </div>
+            <!-- Interactive Canvas for High-FPS Audio Reactive Glow -->
+            <canvas id="orbCanvas" width="220" height="220" class="orb-canvas-reactive"></canvas>
+          </div>
+
+          <div class="greeting" id="greetingText">Hello, Explorer</div>
+          <h1 id="title">How can I help<br />you today?</h1>
+          <div class="subtitle" id="subtitleText">
+            Ask naturally. Aurora can listen, reason, and help you get things done.
+          </div>
+        </div>
+
+        <!-- Scrollable Conversation Timeline (Revealed when conversation begins) -->
+        <div class="conversation-area" id="chatArea">
+          <!-- Dynamically populated user & assistant response cards -->
+        </div>
+
+        <!-- Floating Large Rounded Composer Pill -->
+        <div class="composer-container" id="composerContainer">
+          <form class="composer" id="typeForm" onsubmit="return false;">
+            <div class="input-shell" id="inputShell">
+              <input
+                id="typeInput"
+                type="text"
+                autocomplete="off"
+                placeholder="Ask anything..."
+                aria-label="Ask Aurora anything"
+              />
+              <div class="wave" id="wave" aria-hidden="true">
+                <i></i><i></i><i></i><i></i><i></i>
+              </div>
+              <button
+                type="button"
+                class="mic"
+                id="micBtn"
+                aria-label="Toggle voice listening"
+                title="Click to speak (or press Esc to stop)"
               >
-                <line x1="3" y1="6" x2="21" y2="6"></line>
-                <line x1="3" y1="12" x2="21" y2="12"></line>
-                <line x1="3" y1="18" x2="21" y2="18"></line>
-              </svg>
-            </button>
-
-            <div class="topbar-right">
-              <!-- Status Pill (Rounded-full, dark green background, pulsing dot) -->
-              <div class="status" id="statusPill">
-                <i class="dot" id="connDot"></i>
-                <span id="connText">Online (Realtime)</span>
-              </div>
-
-              <!-- Circular Settings Button with Dropdown Menu -->
-              <div class="settings-menu-wrap" id="settingsMenuWrap">
-                <button
-                  class="btn-settings-toggle"
-                  id="btnOpenSettings"
-                  aria-label="Open Settings"
-                  aria-haspopup="true"
-                  aria-expanded="false"
-                  title="Settings"
+                <svg
+                  width="22"
+                  height="22"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.9"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
                 >
-                  <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  >
-                    <circle cx="12" cy="12" r="3"></circle>
-                    <path
-                      d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"
-                    ></path>
-                  </svg>
-                </button>
-
-                <!-- Settings Dropdown Menu -->
-                <div class="settings-dropdown" id="settingsDropdown" role="menu" aria-label="Settings Menu" style="display: none;">
-                  <button class="dropdown-item" role="menuitem" id="menuItemProfile">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-                    <span>Profile</span>
-                  </button>
-                  <button class="dropdown-item" role="menuitem" id="menuItemPreferences">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-                    <span>Preferences</span>
-                  </button>
-                  <button class="dropdown-item" role="menuitem" id="menuItemKeys">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21 2-2 2m-6 6 2-2m-3 3-5.5 5.5a2.12 2.12 0 0 1-3 0 2.12 2.12 0 0 1 0-3L12 8m1 1 2 2m-2-2 2-2m-2 2L9 5a2 2 0 0 1 2.83-2.83l2.83 2.83a2 2 0 0 1 0 2.83L13 9Z"/></svg>
-                    <span>API keys</span>
-                  </button>
-                  <div class="dropdown-divider"></div>
-                  <button class="dropdown-item dropdown-item-danger" role="menuitem" id="menuItemSignOut">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-                    <span>Sign out</span>
-                  </button>
-                </div>
-              </div>
+                  <rect x="9" y="3" width="6" height="12" rx="3"></rect>
+                  <path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3M9 21h6"></path>
+                </svg>
+              </button>
             </div>
-          </div>
-
-          <!-- Hero Orb & Centerpiece Section -->
-          <div class="hero-section" id="heroSection">
-            <div class="orb-wrap" id="orbWrap">
-              <div class="orb-glow-backdrop" aria-hidden="true"></div>
-              <!-- 3D WebGL Translucent AI Sphere Canvas (~280px) -->
-              <canvas id="orbCanvas" width="360" height="360" class="orb-canvas-3d"></canvas>
+            <div class="hint" id="composerHint">
+              Press <kbd>Enter</kbd> to send · Click the mic to talk · <kbd>Esc</kbd> to interrupt
             </div>
-
-            <div class="greeting" id="greetingText">HELLO, EXPLORER</div>
-            <h1 id="title">How can I help<br /><span class="gradient-text">you today?</span></h1>
-            <div class="subtitle" id="subtitleText">
-              Ask naturally. Aurora can listen, reason, and help you get things done.
-            </div>
-          </div>
-
-          <!-- Scrollable Conversation Timeline (Revealed when conversation begins) -->
-          <div class="conversation-area" id="chatArea">
-            <!-- Dynamically populated user & assistant response cards -->
-          </div>
-
-          <!-- Floating Large Rounded Pill-Shaped Composer -->
-          <div class="composer-container" id="composerContainer">
-            <form class="composer" id="typeForm" onsubmit="return false;">
-              <div class="input-shell" id="inputShell">
-                <button
-                  type="button"
-                  class="btn-attach"
-                  id="btnPlusTools"
-                  aria-label="Add tools or attachments"
-                  title="Tools & capabilities"
-                >
-                  <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  >
-                    <line x1="12" y1="5" x2="12" y2="19"></line>
-                    <line x1="5" y1="12" x2="19" y2="12"></line>
-                  </svg>
-                </button>
-                <input
-                  id="typeInput"
-                  type="text"
-                  autocomplete="off"
-                  placeholder="Ask anything…"
-                  aria-label="Ask Aurora anything"
-                />
-                <div class="wave" id="wave" aria-hidden="true">
-                  <i></i><i></i><i></i><i></i><i></i>
-                </div>
-                <button
-                  type="button"
-                  class="mic"
-                  id="micBtn"
-                  aria-label="Toggle voice listening"
-                  title="Click to speak (or press Esc to stop)"
-                >
-                  <div class="mic-pulse-ring" aria-hidden="true"></div>
-                  <svg
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  >
-                    <rect x="9" y="3" width="6" height="12" rx="3"></rect>
-                    <path d="M5 10a7 7 0 0 0 14 0M12 19v3M9 22h6"></path>
-                  </svg>
-                </button>
-              </div>
-              <div class="composer-shortcuts" id="composerHint">
-                <span class="kbd-badge">Enter</span>
-                <span class="hint-label">to send</span>
-                <span class="hint-divider">|</span>
-                <span class="kbd-badge">Esc</span>
-                <span class="hint-label">to interrupt</span>
-              </div>
-            </form>
-          </div>
-        </main>
-      </div>
+          </form>
+        </div>
+      </main>
 
       <!-- Slide-Over Drawer for Voice Studio, Telemetry & Settings -->
       <div class="drawer-backdrop" id="drawerBackdrop"></div>
@@ -349,8 +129,8 @@
           <div class="drawer-title">
             <span class="drawer-icon">
               <svg
-                width="17"
-                height="17"
+                width="16"
+                height="16"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="#58bfff"
@@ -358,13 +138,12 @@
                 stroke-linecap="round"
                 stroke-linejoin="round"
               >
-                <circle cx="12" cy="12" r="3"></circle>
-                <path
-                  d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"
-                ></path>
+                <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                <line x1="12" y1="19" x2="12" y2="22"></line>
               </svg>
             </span>
-            <span>Settings</span>
+            <span>Voice Studio & Settings</span>
           </div>
           <button class="btn-drawer-close" id="btnCloseSettings" aria-label="Close settings drawer">
             <svg
@@ -383,17 +162,9 @@
           </button>
         </div>
 
-        <!-- Quick Jump Navigation Tabs in Drawer -->
-        <div class="drawer-nav-tabs" id="drawerNavTabs">
-          <button class="drawer-tab active" data-target="voice">Voice Studio</button>
-          <button class="drawer-tab" data-target="transcripts">Transcripts</button>
-          <button class="drawer-tab" data-target="telemetry">Telemetry &amp; HUD</button>
-          <button class="drawer-tab" data-target="config">Configuration</button>
-        </div>
-
         <div class="drawer-body">
           <!-- Voice Studio Section -->
-          <section class="drawer-section" id="drawerSectionVoice">
+          <section class="drawer-section">
             <div class="section-badge-row">
               <h4 class="drawer-subtitle">Rime Production Voices</h4>
               <span class="badge" id="voiceBadgeState">Checking…</span>
@@ -501,67 +272,29 @@
             </div>
           </section>
 
-          <!-- Telemetry & Latency HUD Section -->
-          <section class="drawer-section" id="drawerSectionTelemetry">
-            <div class="section-badge-row">
-              <h4 class="drawer-subtitle">Telemetry &amp; Latency HUD</h4>
-              <span class="badge" id="hudDegradationBadge" style="display: none;">Standard</span>
-            </div>
-            <p class="drawer-desc">
-              Live server-enforced latency breakdown, streaming TTS timings, and token accounting.
-            </p>
-
+          <!-- Telemetry & Benchmarks Section -->
+          <section class="drawer-section">
+            <h4 class="drawer-subtitle">Telemetry & Benchmarks</h4>
             <div class="benchmarks-grid">
-              <div class="bench-card">
-                <div class="bench-label">LLM Latency</div>
-                <div class="bench-value" id="hudLlm">—</div>
-                <div class="bench-meta" id="hudLlmModel">Online Inference</div>
-              </div>
-              <div class="bench-card">
-                <div class="bench-label">TTS Synthesis</div>
-                <div class="bench-value" id="hudTts">—</div>
-                <div class="bench-meta" id="hudTtsVoice">Rime Voice</div>
-              </div>
-              <div class="bench-card">
-                <div class="bench-label">Turn Total (TTFA)</div>
-                <div class="bench-value" id="hudTtfa">—</div>
-                <div class="bench-meta" id="hudStt">STT: 0 ms</div>
-              </div>
               <div class="bench-card">
                 <div class="bench-label">Barge-In Hardware Mute</div>
                 <div class="bench-value" id="hudMute">&lt; 1 ms</div>
-                <div class="bench-meta" id="hudAck">ACK: —</div>
+                <div class="bench-meta">Sub-millisecond cancellation</div>
               </div>
-            </div>
-
-            <!-- Cost Governance & Session Budget Meter -->
-            <h5 class="drawer-inner-title">Cost Governance &amp; Budget</h5>
-            <div class="governance-box">
-              <div class="governance-row">
-                <div class="gov-metric">
-                  <span class="gov-label">Turn Cost</span>
-                  <span class="gov-val" id="hudTurnCost">$0.0000</span>
-                  <span class="gov-sub" id="hudTurnTokens">0 tokens</span>
-                </div>
-                <div class="gov-metric">
-                  <span class="gov-label">Session Spend</span>
-                  <span class="gov-val" id="hudSessionCost">$0.0000</span>
-                  <span class="gov-sub" id="hudSessionTokens">0 tokens</span>
-                </div>
-                <div class="gov-metric">
-                  <span class="gov-label">Lifetime Spend</span>
-                  <span class="gov-val" id="hudLifetimeCost">$0.0000</span>
-                  <span class="gov-sub" id="hudLifetimeTurns">0 turns</span>
-                </div>
+              <div class="bench-card">
+                <div class="bench-label">Server Interruption ACK</div>
+                <div class="bench-value" id="hudAck">8 ms</div>
+                <div class="bench-meta">Realtime full-duplex</div>
               </div>
-              <div class="budget-bar-wrap">
-                <div class="budget-bar-labels">
-                  <span id="budgetUsageLabel">Session Budget: $0.00 / $0.25</span>
-                  <span id="budgetPctLabel">0%</span>
-                </div>
-                <div class="budget-track">
-                  <div class="budget-fill" id="budgetFill" style="width: 0%;"></div>
-                </div>
+              <div class="bench-card">
+                <div class="bench-label">Time to First Audio (TTFA)</div>
+                <div class="bench-value" id="hudTtfa">320 ms</div>
+                <div class="bench-meta">Mist v3 synthesis</div>
+              </div>
+              <div class="bench-card">
+                <div class="bench-label">Stale Packets Discarded</div>
+                <div class="bench-value" id="hudDiscard">100%</div>
+                <div class="bench-meta">Generation fence protected</div>
               </div>
             </div>
 
@@ -569,12 +302,10 @@
             <dl class="settings-grid">
               <dt>Active Gen ID</dt>
               <dd id="dbgGen">#0</dd>
-              <dt>Session ID</dt>
-              <dd id="dbgSession" style="font-size: 10px; word-break: break-all;">—</dd>
               <dt>Interruptions Shielded</dt>
               <dd id="dbgInterrupts">0</dd>
-              <dt>Stale Packets Discarded</dt>
-              <dd id="hudDiscard">100%</dd>
+              <dt>Turn Latency</dt>
+              <dd id="dbgLatency">—</dd>
               <dt>WebSocket State</dt>
               <dd id="dbgWs">connecting…</dd>
               <dt>Voice Engine</dt>
@@ -585,8 +316,8 @@
           </section>
 
           <!-- Configuration & Credentials Section -->
-          <section class="drawer-section" id="drawerSectionConfig">
-            <h4 class="drawer-subtitle">Configuration &amp; Keys</h4>
+          <section class="drawer-section">
+            <h4 class="drawer-subtitle">Configuration & Keys</h4>
 
             <div class="config-field">
               <label for="rimeApiKeyInput">Rime TTS API Key (Optional)</label>
@@ -622,29 +353,10 @@
               </div>
               <div class="preview-status" id="backendStatusMsg"></div>
             </div>
-          </section>
 
-          <!-- Transcripts & History Section -->
-          <section class="drawer-section" id="drawerSectionTranscripts">
-            <div class="section-badge-row">
-              <h4 class="drawer-subtitle">Transcripts &amp; Sessions</h4>
-              <button class="small-action-btn" id="btnNewSession">+ New Session</button>
-            </div>
-            <p class="drawer-desc">
-              Persistent SQLite session history with turn-taking transcripts and cost accounting.
-            </p>
-
-            <div class="session-list-container" id="sessionListContainer" style="margin-top: 10px;">
-              <div class="session-list-loading" id="sessionListLoading" style="display: none; font-size: 12px; color: var(--ink-muted);">Loading sessions…</div>
-              <div class="session-list" id="sessionList">
-                <!-- Dynamically populated from /api/transcripts/sessions -->
-              </div>
-            </div>
-
-            <div class="drawer-actions-row" style="margin-top: 16px">
-              <button class="secondary-btn" id="btnExportHistory">Export JSON</button>
-              <button class="secondary-btn" id="btnExportMarkdown">Export Markdown</button>
+            <div class="drawer-actions-row">
               <button class="danger-btn" id="btnClearChat">Clear Conversation</button>
+              <button class="secondary-btn" id="btnExportHistory">Export Transcript</button>
             </div>
           </section>
         </div>
