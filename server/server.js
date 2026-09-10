@@ -23,9 +23,16 @@ import { randomUUID } from 'crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-import { getAssistantReply } from './llm.js';
+import { getAssistantReply, localFallbackReply } from './llm.js';
 import { synthesizeSpeech, RIME_SPEAKERS, RIME_MODELS } from './rime.js';
 import { isTaskRequest, executeScaffoldTask } from './tasks.js';
+import { getDb } from './db.js';
+import {
+  calculateTurnCost,
+  checkSessionBudget,
+  DEFAULT_LATENCY_THRESHOLDS,
+  DEFAULT_SESSION_BUDGET_CAP_USD,
+} from './governance.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -80,6 +87,7 @@ export function createAuroraServer(options = {}) {
   const quiet = options.quiet ?? false;
   const mock = options.mock ?? false;
   let artificialDelayMs = options.delayMs ?? Number(process.env.ARTIFICIAL_DELAY_MS || 0);
+  const db = options.db || getDb(options.dbPath || (mock ? ':memory:' : undefined));
 
   const rimeConfig = {
     apiKey: mock ? '' : (options.rimeApiKey ?? realKey(process.env.RIME_API_KEY)),
@@ -149,6 +157,8 @@ export function createAuroraServer(options = {}) {
         'x-matched-path',
         'x-forwarded-uri',
         'x-original-url',
+        'x-session-id',
+        'x-rime-api-key',
       ],
     })
   );
@@ -156,7 +166,59 @@ export function createAuroraServer(options = {}) {
   app.use(express.json());
   app.use(express.static(path.join(__dirname, '..', 'client')));
 
-  app.get(['/health', '/api/health'], (_req, res) => res.json({ ok: true }));
+  app.get(['/health', '/api/health'], (_req, res) => {
+    const dbHealth = db.healthCheck();
+    const isHealthy = dbHealth.ok;
+    res.status(isHealthy ? 200 : 503).json({
+      ok: isHealthy,
+      status: isHealthy ? 'healthy' : 'degraded',
+      database: dbHealth,
+      llm: {
+        configured: Boolean(llmConfig.apiKey),
+        provider: llmConfig.provider,
+        model: llmConfig.model,
+      },
+      tts: {
+        configured: Boolean(rimeConfig.apiKey),
+        mockMode: Boolean(rimeConfig.mockAudio),
+        defaultSpeaker: rimeConfig.speaker,
+        defaultModel: rimeConfig.modelId,
+      },
+      uptime: process.uptime(),
+      timestamp: Date.now(),
+    });
+  });
+
+  app.get(['/telemetry', '/api/telemetry'], (_req, res) => {
+    res.json({ ok: true, ...db.getAggregateTelemetry() });
+  });
+
+  app.get('/api/transcripts/sessions', (req, res) => {
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 20));
+    res.json({ ok: true, sessions: db.listSessions(limit) });
+  });
+
+  app.get('/api/transcripts/sessions/:id', (req, res) => {
+    const turns = db.getSessionTurns(req.params.id);
+    const session = db.getOrCreateSession(req.params.id);
+    res.json({ ok: true, session, turns });
+  });
+
+  app.delete('/api/transcripts/sessions/:id', (req, res) => {
+    db.deleteSession(req.params.id);
+    res.json({ ok: true });
+  });
+
+  app.post('/api/sessions/new', (req, res) => {
+    const { speaker, modelId, title } = req.body || {};
+    const session = db.getOrCreateSession(
+      null,
+      speaker || rimeConfig.speaker,
+      modelId || rimeConfig.modelId,
+      title
+    );
+    res.json({ ok: true, session });
+  });
 
   app.get(['/config', '/api/config'], (_req, res) =>
     res.json({
@@ -204,8 +266,21 @@ export function createAuroraServer(options = {}) {
           ? modelId.trim()
           : rimeConfig.modelId;
 
+      const incomingSessionId =
+        (typeof req.body?.sessionId === 'string' && req.body.sessionId.trim()) ||
+        (typeof req.headers['x-session-id'] === 'string' && req.headers['x-session-id'].trim()) ||
+        null;
+      const session = db.getOrCreateSession(incomingSessionId, activeSpeaker, activeModel);
+      const sessionId = session.id;
+
+      const budgetStatus = checkSessionBudget(
+        session.total_cost_usd || 0,
+        DEFAULT_SESSION_BUDGET_CAP_USD
+      );
+      const forceLocal = budgetStatus.exceeded;
+
       const turnStartTime = Date.now();
-      const conversationHistory = Array.isArray(history)
+      const conversationHistory = Array.isArray(history) && history.length > 0
         ? history.filter(
             (h) =>
               h &&
@@ -213,7 +288,7 @@ export function createAuroraServer(options = {}) {
               typeof h.role === 'string' &&
               typeof h.content === 'string'
           )
-        : [];
+        : db.getSessionMessagesForContext(sessionId, 20);
       conversationHistory.push({ role: 'user', content: userText });
 
       // 1. Task request check
@@ -225,7 +300,14 @@ export function createAuroraServer(options = {}) {
         const title = `Scaffold Express ${targetSubject} (${flavor})`;
         const spoken = `Scaffolded the Express ${flavor} REST API in the workspace.`;
         const visualContent = `// Express ${flavor} ${targetSubject} Scaffolding Completed\n// Project structure, routes, controllers, and environment configuration generated.`;
+        const visualResponse = {
+          type: 'code',
+          language: isTs ? 'typescript' : 'javascript',
+          title,
+          content: visualContent,
+        };
 
+        const t1 = Date.now();
         let audioBase64 = null;
         try {
           const buf = await synthesizeSpeech(spoken, {
@@ -235,34 +317,91 @@ export function createAuroraServer(options = {}) {
           });
           if (buf) audioBase64 = buf.toString('base64');
         } catch (_) {}
+        const ttsMs = Date.now() - t1;
+        const totalMs = Date.now() - turnStartTime;
+
+        db.recordTurn({
+          sessionId,
+          turnIndex: (session.turn_count || 0) + 1,
+          userText,
+          spokenText: spoken,
+          visualPayload: visualResponse,
+          audioRef: audioBase64 ? `base64:${rimeConfig.audioFormat}` : null,
+          sttMs: Number(req.body?.sttMs) || 0,
+          llmMs: 0,
+          ttsMs,
+          bargeInMs: 0,
+          totalMs,
+          promptTokens: 0,
+          completionTokens: 0,
+          totalTokens: 0,
+          costUsd: 0,
+          modelId: 'scaffold-task',
+          provider: 'local',
+          speaker: activeSpeaker,
+        });
+
+        const updatedSession = db.getOrCreateSession(sessionId);
 
         return res.json({
           ok: true,
+          sessionId,
           responseMode: 'HYBRID',
           spokenResponse: spoken,
-          visualResponse: {
-            type: 'code',
-            language: isTs ? 'typescript' : 'javascript',
-            title,
-            content: visualContent,
-          },
+          visualResponse,
           audio: audioBase64,
           format: rimeConfig.audioFormat,
           speaker: activeSpeaker,
           modelId: activeModel,
-          totalMs: Date.now() - turnStartTime,
+          llmMs: 0,
+          ttsMs,
+          totalMs,
+          cost: { totalCostUsd: 0, totalTokens: 0 },
+          sessionMetrics: {
+            turnCount: updatedSession.turn_count,
+            totalTokens: updatedSession.total_tokens,
+            totalCostUsd: updatedSession.total_cost_usd,
+          },
         });
       }
 
-      // 2. Dual-channel LLM turn
+      // 2. Dual-channel LLM turn with budget and latency guards
       const t0 = Date.now();
-      const replyObj = await getAssistantReply({
-        provider: llmConfig.provider,
-        apiKey: llmConfig.apiKey,
-        model: llmConfig.model,
-        messages: conversationHistory,
-        userOverride,
-      });
+      let replyObj;
+      let degraded = false;
+
+      if (forceLocal) {
+        db.recordTelemetryEvent(sessionId, 'budget_cap_exceeded', {
+          cost: session.total_cost_usd,
+          cap: DEFAULT_SESSION_BUDGET_CAP_USD,
+        });
+        replyObj = localFallbackReply(userText);
+        degraded = true;
+      } else {
+        try {
+          replyObj = await Promise.race([
+            getAssistantReply({
+              provider: llmConfig.provider,
+              apiKey: llmConfig.apiKey,
+              model: llmConfig.model,
+              messages: conversationHistory,
+              userOverride,
+            }),
+            new Promise((_, reject) =>
+              setTimeout(
+                () => reject(new Error('LLM_TIMEOUT')),
+                DEFAULT_LATENCY_THRESHOLDS.llmTimeoutMs || 8000
+              )
+            ),
+          ]);
+        } catch (llmErr) {
+          db.recordTelemetryEvent(sessionId, 'latency_fallback', {
+            reason: llmErr.message || 'timeout',
+          });
+          replyObj = localFallbackReply(userText);
+          degraded = true;
+        }
+      }
       const llmMs = Date.now() - t0;
 
       const visualPayload = replyObj.visualResponse || {
@@ -299,9 +438,43 @@ export function createAuroraServer(options = {}) {
         }
       } catch (_) {}
       const ttsMs = Date.now() - t1;
+      const totalMs = Date.now() - turnStartTime;
+
+      const costBreakdown = calculateTurnCost({
+        promptTokens: replyObj.promptTokens,
+        completionTokens: replyObj.completionTokens,
+        modelId: replyObj.llmModel || llmConfig.model,
+        provider: replyObj.provider || llmConfig.provider,
+        spokenChars: spokenText.length,
+        ttsModelId: activeModel,
+      });
+
+      db.recordTurn({
+        sessionId,
+        turnIndex: (session.turn_count || 0) + 1,
+        userText,
+        spokenText,
+        visualPayload,
+        audioRef: audioBase64 ? `base64:${rimeConfig.audioFormat}` : null,
+        sttMs: Number(req.body?.sttMs) || 0,
+        llmMs,
+        ttsMs,
+        bargeInMs: Number(req.body?.bargeInMs) || 0,
+        totalMs,
+        promptTokens: costBreakdown.promptTokens,
+        completionTokens: costBreakdown.completionTokens,
+        totalTokens: costBreakdown.totalTokens,
+        costUsd: costBreakdown.totalCostUsd,
+        modelId: costBreakdown.modelId,
+        provider: costBreakdown.provider,
+        speaker: activeSpeaker,
+      });
+
+      const updatedSession = db.getOrCreateSession(sessionId);
 
       return res.json({
         ok: true,
+        sessionId,
         responseMode: replyObj.responseMode || 'VOICE',
         spokenResponse: spokenText,
         visualResponse: visualPayload,
@@ -311,7 +484,19 @@ export function createAuroraServer(options = {}) {
         modelId: activeModel,
         llmMs,
         ttsMs,
-        totalMs: Date.now() - turnStartTime,
+        totalMs,
+        cost: costBreakdown,
+        degraded,
+        sessionMetrics: {
+          turnCount: updatedSession.turn_count,
+          totalTokens: updatedSession.total_tokens,
+          totalCostUsd: updatedSession.total_cost_usd,
+          budgetCapUsd: DEFAULT_SESSION_BUDGET_CAP_USD,
+          budgetRemainingUsd: Math.max(
+            0,
+            DEFAULT_SESSION_BUDGET_CAP_USD - updatedSession.total_cost_usd
+          ),
+        },
       });
     } catch (err) {
       console.error('[turn error]', sanitizeError(err));
@@ -405,15 +590,32 @@ export function createAuroraServer(options = {}) {
   const httpServer = createServer(app);
   const wss = new WebSocketServer({ server: httpServer });
 
-  wss.on('connection', (ws) => {
+  wss.on('connection', (ws, req) => {
     if (ws._socket) {
       ws._socket.setNoDelay(true);
     }
-    const sessionId = randomUUID();
+    let querySessionId = null;
+    try {
+      if (req && req.url) {
+        const parsed = new URL(req.url, 'http://localhost');
+        querySessionId = parsed.searchParams.get('sessionId');
+      }
+    } catch (_) {}
+
+    const session = db.getOrCreateSession(
+      querySessionId,
+      rimeConfig.speaker,
+      rimeConfig.modelId
+    );
+    const sessionId = session.id;
+
     const state = {
       generation: 0,
       activeController: null,
-      history: [], // only what the user actually heard / said
+      sessionId,
+      speaker: session.speaker || rimeConfig.speaker,
+      modelId: session.model_id || rimeConfig.modelId,
+      history: db.getSessionMessagesForContext(sessionId, 20),
     };
 
     send(ws, {
@@ -422,11 +624,17 @@ export function createAuroraServer(options = {}) {
       generation: state.generation,
       rimeConfigured: Boolean(rimeConfig.apiKey),
       llmConfigured: Boolean(llmConfig.apiKey),
-      speaker: rimeConfig.speaker,
-      modelId: rimeConfig.modelId,
+      speaker: state.speaker,
+      modelId: state.modelId,
       audioFormat: rimeConfig.audioFormat,
       llmProvider: llmConfig.provider,
       llmModel: llmConfig.model,
+      sessionMetrics: {
+        turnCount: session.turn_count,
+        totalTokens: session.total_tokens,
+        totalCostUsd: session.total_cost_usd,
+        budgetCapUsd: DEFAULT_SESSION_BUDGET_CAP_USD,
+      },
     });
 
     ws.on('message', (raw) => {
@@ -454,19 +662,25 @@ export function createAuroraServer(options = {}) {
         if (typeof msg.speaker === 'string' && msg.speaker.trim()) {
           const sanitizedSpeaker = msg.speaker.trim().slice(0, 32);
           if (/^[a-zA-Z0-9_-]+$/.test(sanitizedSpeaker)) {
+            state.speaker = sanitizedSpeaker;
             rimeConfig.speaker = sanitizedSpeaker;
           }
         }
         if (typeof msg.modelId === 'string' && msg.modelId.trim()) {
           const sanitizedModel = msg.modelId.trim().slice(0, 32);
           if (/^[a-zA-Z0-9_-]+$/.test(sanitizedModel)) {
+            state.modelId = sanitizedModel;
             rimeConfig.modelId = sanitizedModel;
           }
         }
+        db.updateSession(state.sessionId, {
+          speaker: state.speaker,
+          modelId: state.modelId,
+        });
         send(ws, {
           type: 'config_updated',
-          speaker: rimeConfig.speaker,
-          modelId: rimeConfig.modelId,
+          speaker: state.speaker,
+          modelId: state.modelId,
         });
         return;
       }
@@ -490,6 +704,15 @@ export function createAuroraServer(options = {}) {
         state.generation += 1;
         const serverProcessingNs = Number(process.hrtime.bigint() - t0);
         const serverProcessingMs = Number((serverProcessingNs / 1e6).toFixed(3));
+        const bargeInMs =
+          typeof msg.bargeInMs === 'number' ? msg.bargeInMs : serverProcessingMs;
+
+        db.markInterrupted(state.sessionId, bargeInMs);
+        db.recordTelemetryEvent(state.sessionId, 'barge_in', {
+          bargeInMs,
+          oldGeneration: ackedGen,
+        });
+
         send(ws, {
           type: 'interrupted',
           oldGeneration: ackedGen,
@@ -497,6 +720,28 @@ export function createAuroraServer(options = {}) {
           serverProcessingMs,
           serverTimestamp: Date.now(),
           clientTimestamp: typeof msg.timestamp === 'number' ? msg.timestamp : null,
+        });
+
+        const updatedSession = db.getOrCreateSession(state.sessionId);
+        const aggregate = db.getAggregateTelemetry();
+        send(ws, {
+          type: 'telemetry_update',
+          turnMetrics: {
+            bargeInMs,
+            interrupted: true,
+          },
+          sessionMetrics: {
+            sessionId: updatedSession.id,
+            turnCount: updatedSession.turn_count,
+            totalTokens: updatedSession.total_tokens,
+            totalCostUsd: updatedSession.total_cost_usd,
+            budgetCapUsd: DEFAULT_SESSION_BUDGET_CAP_USD,
+            budgetRemainingUsd: Math.max(
+              0,
+              DEFAULT_SESSION_BUDGET_CAP_USD - updatedSession.total_cost_usd
+            ),
+          },
+          lifetimeMetrics: aggregate.lifetime,
         });
         return;
       }
@@ -522,6 +767,15 @@ export function createAuroraServer(options = {}) {
         const controller = new AbortController();
         state.activeController = controller;
 
+        const turnSpeaker =
+          typeof msg.speaker === 'string' && /^[a-zA-Z0-9_-]{1,32}$/.test(msg.speaker.trim())
+            ? msg.speaker.trim()
+            : state.speaker;
+        const turnModel =
+          typeof msg.modelId === 'string' && /^[a-zA-Z0-9_-]{1,32}$/.test(msg.modelId.trim())
+            ? msg.modelId.trim()
+            : state.modelId;
+
         handleTurn({
           ws,
           state,
@@ -529,8 +783,13 @@ export function createAuroraServer(options = {}) {
           controller,
           userText,
           userOverride: mode,
+          speaker: turnSpeaker,
+          modelId: turnModel,
+          sttMs: typeof msg.sttMs === 'number' ? msg.sttMs : 0,
+          bargeInMs: typeof msg.bargeInMs === 'number' ? msg.bargeInMs : 0,
           rimeConfig,
           llmConfig,
+          db,
           getDelayMs: () => artificialDelayMs,
         }).catch((err) => {
           if (
@@ -563,6 +822,7 @@ export function createAuroraServer(options = {}) {
     wss,
     rimeConfig,
     llmConfig,
+    db,
     listen(port = 0) {
       return new Promise((resolve) => {
         const server = httpServer.listen(port, () => {
@@ -618,8 +878,13 @@ export function createAuroraServer(options = {}) {
  * @param {AbortController} params.controller - Cancellation controller for this turn.
  * @param {string} params.userText - Cleaned user prompt.
  * @param {'VOICE'|'TEXT'|'HYBRID'|null} [params.userOverride=null] - Optional manual modality override.
+ * @param {string} [params.speaker] - Active Rime speaker for this turn.
+ * @param {string} [params.modelId] - Active Rime model for this turn.
+ * @param {number} [params.sttMs=0] - Speech-to-text latency in milliseconds.
+ * @param {number} [params.bargeInMs=0] - Interruption latency in milliseconds.
  * @param {object} params.rimeConfig - Rime TTS credentials, speaker voice, and model settings.
  * @param {object} params.llmConfig - LLM provider credentials and model selection.
+ * @param {object} params.db - SQLite database instance.
  * @param {() => number} [params.getDelayMs] - Accessor for artificial test latency.
  * @returns {Promise<void>} Resolves when turn finishes or is cleanly fenced.
  */
@@ -630,13 +895,41 @@ async function handleTurn({
   controller,
   userText,
   userOverride = null,
+  speaker,
+  modelId,
+  sttMs = 0,
+  bargeInMs = 0,
   rimeConfig,
   llmConfig,
+  db,
   getDelayMs,
 }) {
   const turnStartTime = Date.now();
+  const activeSpeaker = speaker || state.speaker || rimeConfig.speaker;
+  const activeModel = modelId || state.modelId || rimeConfig.modelId;
+
   send(ws, { type: 'user_text', text: userText, generation: myGen, timestamp: turnStartTime });
   state.history.push({ role: 'user', content: userText });
+
+  const session = db.getOrCreateSession(state.sessionId, activeSpeaker, activeModel);
+  const budgetStatus = checkSessionBudget(
+    session.total_cost_usd || 0,
+    DEFAULT_SESSION_BUDGET_CAP_USD
+  );
+  let forceLocal = budgetStatus.exceeded;
+  if (forceLocal) {
+    db.recordTelemetryEvent(state.sessionId, 'budget_cap_exceeded', {
+      cost: session.total_cost_usd,
+      cap: DEFAULT_SESSION_BUDGET_CAP_USD,
+    });
+    send(ws, {
+      type: 'budget_warning',
+      exceeded: true,
+      cost: session.total_cost_usd,
+      cap: DEFAULT_SESSION_BUDGET_CAP_USD,
+      message: 'Session budget cap reached ($0.05). Switching to offline local engine.',
+    });
+  }
 
   // 1. Task execution routing
   if (isTaskRequest(userText)) {
@@ -648,8 +941,68 @@ async function handleTurn({
         userText,
         signal: controller.signal,
         send,
-        rimeConfig,
+        rimeConfig: {
+          ...rimeConfig,
+          speaker: activeSpeaker,
+          modelId: activeModel,
+        },
       });
+
+      if (!isStale(state, myGen)) {
+        const totalMs = Date.now() - turnStartTime;
+        db.recordTurn({
+          sessionId: state.sessionId,
+          turnIndex: (session.turn_count || 0) + 1,
+          userText,
+          spokenText: 'Scaffolded project in the workspace.',
+          visualPayload: { type: 'code', title: 'Task Scaffolded' },
+          audioRef: null,
+          sttMs,
+          llmMs: 0,
+          ttsMs: 0,
+          bargeInMs,
+          totalMs,
+          promptTokens: 0,
+          completionTokens: 0,
+          totalTokens: 0,
+          costUsd: 0,
+          modelId: 'scaffold-task',
+          provider: 'local',
+          speaker: activeSpeaker,
+        });
+
+        const updatedSession = db.getOrCreateSession(state.sessionId);
+        const aggregate = db.getAggregateTelemetry();
+        send(ws, {
+          type: 'telemetry_update',
+          turnMetrics: {
+            sttMs,
+            llmMs: 0,
+            ttsMs: 0,
+            bargeInMs,
+            totalMs,
+            promptTokens: 0,
+            completionTokens: 0,
+            totalTokens: 0,
+            costUsd: 0,
+            provider: 'local',
+            modelId: 'scaffold-task',
+            degraded: false,
+          },
+          sessionMetrics: {
+            sessionId: updatedSession.id,
+            turnCount: updatedSession.turn_count,
+            totalTokens: updatedSession.total_tokens,
+            totalCostUsd: updatedSession.total_cost_usd,
+            budgetCapUsd: DEFAULT_SESSION_BUDGET_CAP_USD,
+            budgetRemainingUsd: Math.max(
+              0,
+              DEFAULT_SESSION_BUDGET_CAP_USD - updatedSession.total_cost_usd
+            ),
+          },
+          lifetimeMetrics: aggregate.lifetime,
+        });
+      }
     } catch (err) {
       if (err?.name === 'AbortError') return;
       console.error('[task error]', err);
@@ -664,19 +1017,45 @@ async function handleTurn({
 
   const t0 = Date.now();
   let replyObj;
-  try {
-    replyObj = await getAssistantReply({
-      provider: llmConfig.provider,
-      apiKey: llmConfig.apiKey,
-      model: llmConfig.model,
-      messages: state.history,
-      signal: controller.signal,
-      userOverride,
-    });
-  } catch (err) {
-    if (err?.name === 'AbortError') return;
-    throw err;
+  let degraded = false;
+
+  if (forceLocal) {
+    replyObj = localFallbackReply(userText);
+    degraded = true;
+  } else {
+    try {
+      const llmPromise = getAssistantReply({
+        provider: llmConfig.provider,
+        apiKey: llmConfig.apiKey,
+        model: llmConfig.model,
+        messages: state.history,
+        signal: controller.signal,
+        userOverride,
+      });
+
+      const timeoutPromise = new Promise((_, reject) => {
+        const timer = setTimeout(() => {
+          reject(new Error('LATENCY_TIMEOUT'));
+        }, DEFAULT_LATENCY_THRESHOLDS.llmTimeoutMs || 8000);
+        controller.signal.addEventListener('abort', () => clearTimeout(timer));
+      });
+
+      replyObj = await Promise.race([llmPromise, timeoutPromise]);
+    } catch (err) {
+      if (err?.name === 'AbortError' || controller.signal.aborted) return;
+      db.recordTelemetryEvent(state.sessionId, 'latency_fallback', {
+        reason: err.message || 'timeout',
+      });
+      send(ws, {
+        type: 'degradation_alert',
+        generation: myGen,
+        reason: 'LLM latency threshold exceeded. Gracefully degraded to local inference.',
+      });
+      replyObj = localFallbackReply(userText);
+      degraded = true;
+    }
   }
+
   if (isStale(state, myGen)) return; // Generation fencing: interrupted while thinking
 
   const llmMs = Date.now() - t0;
@@ -722,7 +1101,15 @@ async function handleTurn({
   const t1 = Date.now();
   let audioBuffer;
   try {
-    audioBuffer = await synthesizeSpeech(spokenText, rimeConfig, controller.signal);
+    audioBuffer = await synthesizeSpeech(
+      spokenText,
+      {
+        ...rimeConfig,
+        speaker: activeSpeaker,
+        modelId: activeModel,
+      },
+      controller.signal
+    );
   } catch (err) {
     if (err?.name === 'AbortError') return;
     console.error('[rime error]', err.message);
@@ -733,12 +1120,44 @@ async function handleTurn({
   const ttsMs = Date.now() - t1;
   const totalMs = Date.now() - turnStartTime;
 
+  // Cost calculation
+  const costBreakdown = calculateTurnCost({
+    promptTokens: replyObj.promptTokens,
+    completionTokens: replyObj.completionTokens,
+    modelId: replyObj.llmModel || llmConfig.model,
+    provider: replyObj.provider || llmConfig.provider,
+    spokenChars: spokenText.length,
+    ttsModelId: activeModel,
+  });
+
+  // Persist turn in SQLite database
+  const turnRecord = db.recordTurn({
+    sessionId: state.sessionId,
+    turnIndex: (session.turn_count || 0) + 1,
+    userText,
+    spokenText,
+    visualPayload,
+    audioRef: audioBuffer ? `rime:${activeSpeaker}` : null,
+    sttMs,
+    llmMs,
+    ttsMs,
+    bargeInMs,
+    totalMs,
+    promptTokens: costBreakdown.promptTokens,
+    completionTokens: costBreakdown.completionTokens,
+    totalTokens: costBreakdown.totalTokens,
+    costUsd: costBreakdown.totalCostUsd,
+    modelId: costBreakdown.modelId,
+    provider: costBreakdown.provider,
+    speaker: activeSpeaker,
+  });
+
   if (audioBuffer) {
     send(ws, {
       type: 'audio',
       generation: myGen,
-      speaker: rimeConfig.speaker,
-      modelId: rimeConfig.modelId,
+      speaker: activeSpeaker,
+      modelId: activeModel,
       format: rimeConfig.audioFormat,
       data: audioBuffer.toString('base64'),
       ttsMs,
@@ -759,6 +1178,41 @@ async function handleTurn({
   }
 
   send(ws, { type: 'done', generation: myGen, totalMs, timestamp: Date.now() });
+
+  // Broadcast real telemetry update
+  const updatedSession = db.getOrCreateSession(state.sessionId);
+  const aggregate = db.getAggregateTelemetry();
+  send(ws, {
+    type: 'telemetry_update',
+    turnMetrics: {
+      turnId: turnRecord?.id,
+      sttMs,
+      llmMs,
+      ttsMs,
+      bargeInMs,
+      totalMs,
+      promptTokens: costBreakdown.promptTokens,
+      completionTokens: costBreakdown.completionTokens,
+      totalTokens: costBreakdown.totalTokens,
+      costUsd: costBreakdown.totalCostUsd,
+      provider: costBreakdown.provider,
+      modelId: costBreakdown.modelId,
+      degraded,
+    },
+    sessionMetrics: {
+      sessionId: updatedSession.id,
+      turnCount: updatedSession.turn_count,
+      totalTokens: updatedSession.total_tokens,
+      totalCostUsd: updatedSession.total_cost_usd,
+      budgetCapUsd: DEFAULT_SESSION_BUDGET_CAP_USD,
+      budgetRemainingUsd: Math.max(
+        0,
+        DEFAULT_SESSION_BUDGET_CAP_USD - updatedSession.total_cost_usd
+      ),
+    },
+    lifetimeMetrics: aggregate.lifetime,
+  });
+
   state.activeController = null;
 }
 

@@ -399,29 +399,67 @@
             </div>
           </section>
 
-          <!-- Telemetry & Benchmarks Section -->
+          <!-- Telemetry & Latency HUD Section -->
           <section class="drawer-section" id="drawerSectionTelemetry">
-            <h4 class="drawer-subtitle">Telemetry & Benchmarks</h4>
+            <div class="section-badge-row">
+              <h4 class="drawer-subtitle">Telemetry &amp; Latency HUD</h4>
+              <span class="badge" id="hudDegradationBadge" style="display: none;">Standard</span>
+            </div>
+            <p class="drawer-desc">
+              Live server-enforced latency breakdown, streaming TTS timings, and token accounting.
+            </p>
+
             <div class="benchmarks-grid">
+              <div class="bench-card">
+                <div class="bench-label">LLM Latency</div>
+                <div class="bench-value" id="hudLlm">—</div>
+                <div class="bench-meta" id="hudLlmModel">Online Inference</div>
+              </div>
+              <div class="bench-card">
+                <div class="bench-label">TTS Synthesis</div>
+                <div class="bench-value" id="hudTts">—</div>
+                <div class="bench-meta" id="hudTtsVoice">Rime Voice</div>
+              </div>
+              <div class="bench-card">
+                <div class="bench-label">Turn Total (TTFA)</div>
+                <div class="bench-value" id="hudTtfa">—</div>
+                <div class="bench-meta" id="hudStt">STT: 0 ms</div>
+              </div>
               <div class="bench-card">
                 <div class="bench-label">Barge-In Hardware Mute</div>
                 <div class="bench-value" id="hudMute">&lt; 1 ms</div>
-                <div class="bench-meta">Sub-millisecond cancellation</div>
+                <div class="bench-meta" id="hudAck">ACK: —</div>
               </div>
-              <div class="bench-card">
-                <div class="bench-label">Server Interruption ACK</div>
-                <div class="bench-value" id="hudAck">8 ms</div>
-                <div class="bench-meta">Realtime full-duplex</div>
+            </div>
+
+            <!-- Cost Governance & Session Budget Meter -->
+            <h5 class="drawer-inner-title">Cost Governance &amp; Budget</h5>
+            <div class="governance-box">
+              <div class="governance-row">
+                <div class="gov-metric">
+                  <span class="gov-label">Turn Cost</span>
+                  <span class="gov-val" id="hudTurnCost">$0.0000</span>
+                  <span class="gov-sub" id="hudTurnTokens">0 tokens</span>
+                </div>
+                <div class="gov-metric">
+                  <span class="gov-label">Session Spend</span>
+                  <span class="gov-val" id="hudSessionCost">$0.0000</span>
+                  <span class="gov-sub" id="hudSessionTokens">0 tokens</span>
+                </div>
+                <div class="gov-metric">
+                  <span class="gov-label">Lifetime Spend</span>
+                  <span class="gov-val" id="hudLifetimeCost">$0.0000</span>
+                  <span class="gov-sub" id="hudLifetimeTurns">0 turns</span>
+                </div>
               </div>
-              <div class="bench-card">
-                <div class="bench-label">Time to First Audio (TTFA)</div>
-                <div class="bench-value" id="hudTtfa">320 ms</div>
-                <div class="bench-meta">Mist v3 synthesis</div>
-              </div>
-              <div class="bench-card">
-                <div class="bench-label">Stale Packets Discarded</div>
-                <div class="bench-value" id="hudDiscard">100%</div>
-                <div class="bench-meta">Generation fence protected</div>
+              <div class="budget-bar-wrap">
+                <div class="budget-bar-labels">
+                  <span id="budgetUsageLabel">Session Budget: $0.00 / $0.25</span>
+                  <span id="budgetPctLabel">0%</span>
+                </div>
+                <div class="budget-track">
+                  <div class="budget-fill" id="budgetFill" style="width: 0%;"></div>
+                </div>
               </div>
             </div>
 
@@ -429,10 +467,12 @@
             <dl class="settings-grid">
               <dt>Active Gen ID</dt>
               <dd id="dbgGen">#0</dd>
+              <dt>Session ID</dt>
+              <dd id="dbgSession" style="font-size: 10px; word-break: break-all;">—</dd>
               <dt>Interruptions Shielded</dt>
               <dd id="dbgInterrupts">0</dd>
-              <dt>Turn Latency</dt>
-              <dd id="dbgLatency">—</dd>
+              <dt>Stale Packets Discarded</dt>
+              <dd id="hudDiscard">100%</dd>
               <dt>WebSocket State</dt>
               <dd id="dbgWs">connecting…</dd>
               <dt>Voice Engine</dt>
@@ -484,12 +524,24 @@
 
           <!-- Transcripts & History Section -->
           <section class="drawer-section" id="drawerSectionTranscripts">
-            <h4 class="drawer-subtitle">Transcripts &amp; History</h4>
+            <div class="section-badge-row">
+              <h4 class="drawer-subtitle">Transcripts &amp; Sessions</h4>
+              <button class="small-action-btn" id="btnNewSession">+ New Session</button>
+            </div>
             <p class="drawer-desc">
-              Complete conversation session logs and structured turn-taking transcript.
+              Persistent SQLite session history with turn-taking transcripts and cost accounting.
             </p>
-            <div class="drawer-actions-row" style="margin-top: 12px">
-              <button class="secondary-btn" id="btnExportHistory">Export Transcript</button>
+
+            <div class="session-list-container" id="sessionListContainer" style="margin-top: 10px;">
+              <div class="session-list-loading" id="sessionListLoading" style="display: none; font-size: 12px; color: var(--ink-muted);">Loading sessions…</div>
+              <div class="session-list" id="sessionList">
+                <!-- Dynamically populated from /api/transcripts/sessions -->
+              </div>
+            </div>
+
+            <div class="drawer-actions-row" style="margin-top: 16px">
+              <button class="secondary-btn" id="btnExportHistory">Export JSON</button>
+              <button class="secondary-btn" id="btnExportMarkdown">Export Markdown</button>
               <button class="danger-btn" id="btnClearChat">Clear Conversation</button>
             </div>
           </section>

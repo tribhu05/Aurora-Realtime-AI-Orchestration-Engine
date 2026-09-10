@@ -5,6 +5,7 @@
 // 2. Visual Channel: Rich formatted output (code blocks, tables, markdown) for the workspace.
 
 import { validateAndEnforceContract, safeParseOrExtract } from './response-router.js';
+import { estimateTokens } from './governance.js';
 
 const ENDPOINTS = {
   groq: 'https://api.groq.com/openai/v1/chat/completions',
@@ -120,7 +121,22 @@ export async function getAssistantReply({
   const data = await res.json();
   const rawText = data?.choices?.[0]?.message?.content?.trim() || '';
 
-  return parseStructuredResponse(rawText, userQuery, messages, userOverride);
+  const parsed = parseStructuredResponse(rawText, userQuery, messages, userOverride);
+  const promptTokens = Number(data?.usage?.prompt_tokens) || estimateTokens(userQuery);
+  const completionTokens =
+    Number(data?.usage?.completion_tokens) ||
+    estimateTokens(parsed.visualResponse?.content || parsed.content || rawText);
+
+  return {
+    ...parsed,
+    llmModel: effectiveModel,
+    provider,
+    usage: {
+      promptTokens,
+      completionTokens,
+      totalTokens: promptTokens + completionTokens,
+    },
+  };
 }
 
 /**
@@ -232,7 +248,23 @@ export function localFallbackReply(messages, userOverride = null) {
     messages && messages.length > 0 ? messages[messages.length - 1]?.content || '' : '';
   const last = userQuery.toLowerCase().trim();
 
-  const finalize = (obj) => validateAndEnforceContract(obj, userQuery, messages, userOverride);
+  const finalize = (obj) => {
+    const validated = validateAndEnforceContract(obj, userQuery, messages, userOverride);
+    const promptTokens = estimateTokens(userQuery);
+    const completionTokens = estimateTokens(
+      validated.visualResponse?.content || validated.content || ''
+    );
+    return {
+      ...validated,
+      llmModel: 'offline-local',
+      provider: 'local',
+      usage: {
+        promptTokens,
+        completionTokens,
+        totalTokens: promptTokens + completionTokens,
+      },
+    };
+  };
 
   const has = (...phrases) => phrases.some((p) => last.includes(p));
   const hasWord = (...words) => words.some((w) => new RegExp(`\\b${w}\\b`, 'i').test(last));
