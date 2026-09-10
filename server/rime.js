@@ -108,31 +108,44 @@ export async function synthesizeSpeech(text, config, signal) {
     effectiveModel = 'mistv3';
   }
 
-  const res = await fetch(RIME_ENDPOINT, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-      Accept: audioFormat === 'wav' ? 'audio/wav' : 'audio/mpeg',
-    },
-    body: JSON.stringify({
-      text,
-      speaker,
-      modelId: effectiveModel,
-      lang,
-      audioFormat,
-    }),
-    signal,
-  });
+  const timeoutMs = 3500;
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  const combinedSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
 
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    const safeBody = body
-      .replace(/(Bearer\s+)[a-zA-Z0-9_.-]+([a-zA-Z0-9]{4})/gi, '$1***REDACTED***$2')
-      .replace(/(key=)[a-zA-Z0-9_.-]+([a-zA-Z0-9]{4})/gi, '$1***REDACTED***$2');
-    throw new Error(`Rime TTS error ${res.status}: ${safeBody.slice(0, 200)}`);
+  try {
+    const res = await fetch(RIME_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        Accept: audioFormat === 'wav' ? 'audio/wav' : 'audio/mpeg',
+      },
+      body: JSON.stringify({
+        text,
+        speaker,
+        modelId: effectiveModel,
+        lang,
+        audioFormat,
+      }),
+      signal: combinedSignal,
+    });
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      const safeBody = body
+        .replace(/(Bearer\s+)[a-zA-Z0-9_.-]+([a-zA-Z0-9]{4})/gi, '$1***REDACTED***$2')
+        .replace(/(key=)[a-zA-Z0-9_.-]+([a-zA-Z0-9]{4})/gi, '$1***REDACTED***$2');
+      console.warn(`[Rime TTS warning] HTTP ${res.status}: ${safeBody.slice(0, 100)}`);
+      return null;
+    }
+
+    const arrayBuffer = await res.arrayBuffer();
+    return Buffer.from(arrayBuffer);
+  } catch (err) {
+    if (signal?.aborted) {
+      throw Object.assign(new Error('aborted'), { name: 'AbortError' });
+    }
+    console.warn(`[Rime TTS warning] Synthesis timed out or failed (${err.message}). Falling back to browser speech.`);
+    return null;
   }
-
-  const arrayBuffer = await res.arrayBuffer();
-  return Buffer.from(arrayBuffer);
 }

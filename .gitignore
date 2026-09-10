@@ -31,3 +31,11 @@ data/
 *.db-journal
 *.db-wal
 *.db-shm
+
+# Local tool and plugin directories
+.github/skills/
+.github/agents/
+.github/hooks/
+*.exe
+
+

@@ -1,126 +1,536 @@
 // client/orb.js
-// Bespoke 3D Holographic AI Sphere for Aurora.
-// Embodying the Robin design aesthetic: obsidian glass core, true 3D gyroscopic
-// orbital rings with depth occlusion, audio-reactive plasma turbulence, and
-// silky-smooth interactive 3D pointer parallax.
+// Production 10/10 WebGL Shader Aurora Orb Visualizer
+// Real-time GPU Volumetric Fluid Plasma Ribbon & Celestial Dotted Orbits
+// Crafted to match the reference Robin UI design:
+// - Deep midnight obsidian glass sphere with 3D ray-sphere geometry
+// - Volumetric fluid aurora plasma ribbon with smooth S-curve flow (electric blue, cyan, vibrant purple/violet)
+// - ACES filmic tonemapping for rich, cinematic light blending without clipping
+// - Razor-sharp 3D Fresnel refraction & cursor-driven specular highlight
+// - Dual inclined 3D celestial dotted orbital rings with smooth depth occlusion
+// - Inertia-damped 3D pointer parallax (pitch & yaw)
+// - State-driven reactivity (Idle, Listening, Thinking, Speaking, Error, Offline)
+// - Smooth Canvas2D fallback if WebGL is unavailable
 
 const THEME_PALETTES = {
   aurora: {
-    idle: { core: [140, 150, 255], outer: [99, 102, 241], aura: [192, 132, 252] },
-    listening: { core: [0, 229, 255], outer: [14, 165, 233], aura: [56, 189, 248] },
-    thinking: { core: [255, 183, 3], outer: [245, 158, 11], aura: [251, 191, 36] },
-    speaking: { core: [0, 245, 155], outer: [16, 185, 129], aura: [52, 211, 153] },
-  },
-  titanium: {
-    idle: { core: [245, 158, 11], outer: [217, 119, 6], aura: [251, 191, 36] },
-    listening: { core: [254, 240, 138], outer: [250, 204, 21], aura: [253, 224, 71] },
-    thinking: { core: [251, 191, 36], outer: [217, 119, 6], aura: [254, 240, 138] },
-    speaking: { core: [253, 230, 138], outer: [245, 158, 11], aura: [251, 191, 36] },
-  },
-  cyber: {
-    idle: { core: [96, 165, 250], outer: [37, 99, 235], aura: [147, 197, 253] },
-    listening: { core: [0, 240, 255], outer: [6, 182, 212], aura: [103, 232, 249] },
-    thinking: { core: [216, 180, 254], outer: [168, 85, 247], aura: [233, 213, 255] },
-    speaking: { core: [52, 211, 153], outer: [16, 185, 129], aura: [110, 231, 183] },
-  },
-  emerald: {
-    idle: { core: [16, 185, 129], outer: [5, 150, 105], aura: [52, 211, 153] },
-    listening: { core: [45, 212, 191], outer: [20, 184, 166], aura: [94, 234, 212] },
-    thinking: { core: [251, 191, 36], outer: [245, 158, 11], aura: [252, 211, 77] },
-    speaking: { core: [74, 222, 128], outer: [34, 197, 94], aura: [134, 239, 172] },
+    idle: {
+      core: [0.005, 0.012, 0.03],     // Deep Midnight Obsidian Base
+      ribbonA: [0.50, 0.72, 1.0],      // Light variant #7fb8ff
+      ribbonB: [0.31, 0.55, 1.0],      // Accent Blue #4f8bff
+      ribbonC: [0.655, 0.545, 0.98],   // Accent Violet #a78bfa
+      rim: [0.50, 0.72, 1.0],          // Crisp Glint #7fb8ff
+      aura: [0.31, 0.55, 1.0],         // Ambient Aura #4f8bff
+    },
+    listening: {
+      core: [0.004, 0.018, 0.04],
+      ribbonA: [0.29, 0.87, 0.50],     // Success Green #4ade80
+      ribbonB: [0.31, 0.55, 1.0],      // Accent Blue #4f8bff
+      ribbonC: [0.655, 0.545, 0.98],   // Accent Violet #a78bfa
+      rim: [0.29, 0.87, 0.50],
+      aura: [0.20, 0.75, 0.60],
+    },
+    thinking: {
+      core: [0.02, 0.01, 0.04],
+      ribbonA: [0.85, 0.45, 0.98],     // Shimmer Violet
+      ribbonB: [0.655, 0.545, 0.98],   // Accent Violet #a78bfa
+      ribbonC: [0.45, 0.65, 1.0],      // Soft Electric Blue
+      rim: [0.85, 0.60, 1.0],
+      aura: [0.55, 0.35, 0.90],
+    },
+    speaking: {
+      core: [0.005, 0.015, 0.04],
+      ribbonA: [0.31, 0.55, 1.0],      // Accent Blue #4f8bff
+      ribbonB: [0.50, 0.72, 1.0],      // Light variant #7fb8ff
+      ribbonC: [0.655, 0.545, 0.98],   // Accent Violet #a78bfa
+      rim: [0.50, 0.72, 1.0],
+      aura: [0.31, 0.55, 1.0],
+    },
+    error: {
+      core: [0.08, 0.02, 0.03],
+      ribbonA: [1.0, 0.35, 0.35],
+      ribbonB: [0.95, 0.18, 0.22],
+      ribbonC: [1.0, 0.55, 0.25],
+      rim: [1.0, 0.65, 0.65],
+      aura: [0.75, 0.12, 0.12],
+    },
+    offline: {
+      core: [0.02, 0.03, 0.05],
+      ribbonA: [0.35, 0.42, 0.52],
+      ribbonB: [0.22, 0.3, 0.38],
+      ribbonC: [0.48, 0.55, 0.65],
+      rim: [0.45, 0.52, 0.62],
+      aura: [0.14, 0.18, 0.25],
+    },
   },
 };
 
-// 3D Spatial Vector & Matrix Utilities
-function vecRotateX(x, y, z, angle) {
-  const c = Math.cos(angle);
-  const s = Math.sin(angle);
-  return [x, y * c - z * s, y * s + z * c];
+// WebGL Vertex Shader (Full-screen render quad)
+const VS_SOURCE = `
+attribute vec2 a_position;
+varying vec2 v_uv;
+void main() {
+  v_uv = a_position * 0.5 + 0.5;
+  gl_Position = vec4(a_position, 0.0, 1.0);
+}
+`;
+
+// WebGL Fragment Shader (Raymarched Volumetric Fluid Ribbon + Dual Celestial Dotted Orbits + ACES Tonemapping)
+const FS_SOURCE = `
+precision highp float;
+varying vec2 v_uv;
+
+uniform vec2 u_resolution;
+uniform float u_time;
+uniform vec2 u_mouse;
+uniform float u_audioAmp;
+uniform float u_stateSpeed;
+uniform vec3 u_core;
+uniform vec3 u_ribbonA;
+uniform vec3 u_ribbonB;
+uniform vec3 u_ribbonC;
+uniform vec3 u_rim;
+uniform vec3 u_aura;
+
+// ACES Filmic Tonemapping for smooth color gradients without blown-out clipping
+vec3 aces(vec3 x) {
+  const float a = 2.51;
+  const float b = 0.03;
+  const float c = 2.43;
+  const float d = 0.59;
+  const float e = 0.14;
+  return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
 }
 
-function vecRotateY(x, y, z, angle) {
-  const c = Math.cos(angle);
-  const s = Math.sin(angle);
-  return [x * c + z * s, y, -x * s + z * c];
+// 2D Rotation Matrix
+mat2 rot2D(float a) {
+  float c = cos(a);
+  float s = sin(a);
+  return mat2(c, -s, s, c);
 }
 
-function vecRotateZ(x, y, z, angle) {
-  const c = Math.cos(angle);
-  const s = Math.sin(angle);
-  return [x * c - y * s, x * s + y * c, z];
+// 3D Simplex Gradient Noise for subtle organic fluid micro-undulations
+vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+vec4 mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+vec4 permute(vec4 x) { return mod289(((x*34.0)+1.0)*x); }
+vec4 taylorInvSqrt(vec4 r) { return 1.79284291400159 - 0.85373472095314 * r; }
+
+float snoise(vec3 v) {
+  const vec2 C = vec2(1.0/6.0, 1.0/3.0);
+  const vec4 D = vec4(0.0, 0.5, 1.0, 2.0);
+
+  vec3 i  = floor(v + dot(v, C.yyy));
+  vec3 x0 = v - i + dot(i, C.xxx);
+
+  vec3 g = step(x0.yzx, x0.xyz);
+  vec3 l = 1.0 - g;
+  vec3 i1 = min(g.xyz, l.zxy);
+  vec3 i2 = max(g.xyz, l.zxy);
+
+  vec3 x1 = x0 - i1 + C.xxx;
+  vec3 x2 = x0 - i2 + C.yyy;
+  vec3 x3 = x0 - D.yyy;
+
+  i = mod289(i);
+  vec4 p = permute(permute(permute(
+             i.z + vec4(0.0, i1.z, i2.z, 1.0))
+           + i.y + vec4(0.0, i1.y, i2.y, 1.0))
+           + i.x + vec4(0.0, i1.x, i2.x, 1.0));
+
+  vec3 ns = 0.142857142857 * D.wyz - D.xzx;
+  vec4 j = p - 49.0 * floor(p * ns.z * ns.z);
+
+  vec4 x_ = floor(j * ns.z);
+  vec4 y_ = floor(j - 7.0 * x_);
+
+  vec4 x = x_ *ns.x + ns.yyyy;
+  vec4 y = y_ *ns.x + ns.yyyy;
+  vec4 h = 1.0 - abs(x) - abs(y);
+
+  vec4 b0 = vec4(x.xy, y.xy);
+  vec4 b1 = vec4(x.zw, y.zw);
+
+  vec4 s0 = floor(b0)*2.0 + 1.0;
+  vec4 s1 = floor(b1)*2.0 + 1.0;
+  vec4 sh = -step(h, vec4(0.0));
+
+  vec4 a0 = b0.xzyw + s0.xzyw*sh.xxyy;
+  vec4 a1 = b1.xzyw + s1.xzyw*sh.zzww;
+
+  vec3 p0 = vec3(a0.xy, h.x);
+  vec3 p1 = vec3(a0.zw, h.y);
+  vec3 p2 = vec3(a1.xy, h.z);
+  vec3 p3 = vec3(a1.zw, h.w);
+
+  vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2, p2), dot(p3,p3)));
+  p0 *= norm.x;
+  p1 *= norm.y;
+  p2 *= norm.z;
+  p3 *= norm.w;
+
+  vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
+  m = m * m;
+  return 42.0 * dot(m*m, vec4(dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3)));
 }
+
+// Ray-Sphere intersection
+bool intersectSphere(vec3 ro, vec3 rd, float r, out float t0, out float t1) {
+  float b = dot(ro, rd);
+  float c = dot(ro, ro) - r * r;
+  float h = b * b - c;
+  if (h < 0.0) return false;
+  h = sqrt(h);
+  t0 = -b - h;
+  t1 = -b + h;
+  return true;
+}
+
+void main() {
+  vec2 p = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / min(u_resolution.x, u_resolution.y);
+
+  // Camera Setup & Inertia-damped Pointer Parallax
+  vec3 ro = vec3(0.0, 0.0, 3.2);
+  vec3 rd = normalize(vec3(p, -2.0));
+
+  ro.yz = rot2D(-u_mouse.y * 0.35) * ro.yz;
+  rd.yz = rot2D(-u_mouse.y * 0.35) * rd.yz;
+  ro.xz = rot2D(u_mouse.x * 0.35) * ro.xz;
+  rd.xz = rot2D(u_mouse.x * 0.35) * rd.xz;
+
+  // Sphere Geometry & Living Pulse
+  float breath = sin(u_time * 1.5) * 0.012;
+  float sphereR = 0.58 + breath + u_audioAmp * 0.05;
+
+  float t0 = 0.0, t1 = 0.0;
+  bool hitSphere = intersectSphere(ro, rd, sphereR, t0, t1);
+
+  // 1. Atmospheric Diffuse Nebula Glow (seamlessly disperses into the midnight dark canvas)
+  float dScreen = length(p);
+  float bgGlow = 0.034 / (dScreen * dScreen * 4.6 + 0.11);
+  vec3 finalColor = u_aura * bgGlow * (0.85 + u_audioAmp * 0.4);
+
+  // 2. CELESTIAL DOTTED ORBITAL RINGS (Evaluated in 3D Space)
+  // Orbit 1: Tilted downward from upper-left to bottom-right (Cyan Stardust)
+  vec3 ringFront1 = vec3(0.0);
+  vec3 ringBehind1 = vec3(0.0);
+  vec3 n1 = normalize(vec3(0.55, 0.78, 0.30));
+  float denom1 = dot(rd, n1);
+  if (abs(denom1) > 0.0001) {
+    float tP1 = -dot(ro, n1) / denom1;
+    if (tP1 > 0.0) {
+      vec3 hit1 = ro + tP1 * rd;
+      vec3 uAxis1 = normalize(cross(n1, vec3(0.0, 1.0, 0.0)));
+      vec3 vAxis1 = cross(n1, uAxis1);
+      vec2 planeP1 = vec2(dot(hit1, uAxis1), dot(hit1, vAxis1));
+      float ringR1 = sphereR * 1.56;
+      float dRing1 = abs(length(planeP1) - ringR1);
+
+      if (dRing1 < 0.065) {
+        float angle1 = atan(planeP1.y, planeP1.x) + u_time * 0.22 * u_stateSpeed;
+        float numDots1 = 46.0;
+        float sector1 = 6.2831853 / numDots1;
+        float nearest1 = floor(angle1 / sector1 + 0.5) * sector1;
+        vec2 dotCenter1 = ringR1 * vec2(cos(nearest1), sin(nearest1));
+        float distDot1 = length(planeP1 - dotCenter1);
+
+        // Stardust bead size & intensity
+        float dotSz1 = 0.0075 + 0.003 * sin(nearest1 * 4.0 + u_time * 2.0);
+        float dotCore1 = smoothstep(dotSz1, dotSz1 * 0.15, distDot1);
+        float dotHalo1 = 0.00012 / (distDot1 * distDot1 + 0.00006);
+        float dotLum1 = dotCore1 * 1.4 + dotHalo1 * 0.4;
+
+        // Traveling starlight pulse node
+        float beaconAng1 = u_time * 0.65 * u_stateSpeed;
+        vec2 beaconP1 = ringR1 * vec2(cos(beaconAng1), sin(beaconAng1));
+        float distBeacon1 = length(planeP1 - beaconP1);
+        float beaconHalo1 = 0.0008 / (distBeacon1 * distBeacon1 + 0.00025);
+
+        vec3 dotCol1 = mix(u_ribbonA, vec3(1.0), 0.65);
+        vec3 light1 = dotCol1 * dotLum1 + vec3(0.85, 0.95, 1.0) * beaconHalo1 * 1.2;
+
+        if (hitSphere && tP1 > t0) {
+          ringBehind1 = light1 * 0.14; // Dimmed behind obsidian glass
+        } else {
+          ringFront1 = light1;
+        }
+      }
+    }
+  }
+
+  // Orbit 2: Opposing Inclination (Violet Stardust)
+  vec3 ringFront2 = vec3(0.0);
+  vec3 ringBehind2 = vec3(0.0);
+  vec3 n2 = normalize(vec3(-0.62, 0.74, -0.32));
+  float denom2 = dot(rd, n2);
+  if (abs(denom2) > 0.0001) {
+    float tP2 = -dot(ro, n2) / denom2;
+    if (tP2 > 0.0) {
+      vec3 hit2 = ro + tP2 * rd;
+      vec3 uAxis2 = normalize(cross(n2, vec3(0.0, 1.0, 0.0)));
+      vec3 vAxis2 = cross(n2, uAxis2);
+      vec2 planeP2 = vec2(dot(hit2, uAxis2), dot(hit2, vAxis2));
+      float ringR2 = sphereR * 1.68;
+      float dRing2 = abs(length(planeP2) - ringR2);
+
+      if (dRing2 < 0.065) {
+        float angle2 = atan(planeP2.y, planeP2.x) - u_time * 0.25 * u_stateSpeed;
+        float numDots2 = 50.0;
+        float sector2 = 6.2831853 / numDots2;
+        float nearest2 = floor(angle2 / sector2 + 0.5) * sector2;
+        vec2 dotCenter2 = ringR2 * vec2(cos(nearest2), sin(nearest2));
+        float distDot2 = length(planeP2 - dotCenter2);
+
+        float dotSz2 = 0.007 + 0.003 * cos(nearest2 * 3.0 - u_time * 1.8);
+        float dotCore2 = smoothstep(dotSz2, dotSz2 * 0.15, distDot2);
+        float dotHalo2 = 0.0001 / (distDot2 * distDot2 + 0.00006);
+        float dotLum2 = dotCore2 * 1.3 + dotHalo2 * 0.35;
+
+        float beaconAng2 = -u_time * 0.72 * u_stateSpeed;
+        vec2 beaconP2 = ringR2 * vec2(cos(beaconAng2), sin(beaconAng2));
+        float distBeacon2 = length(planeP2 - beaconP2);
+        float beaconHalo2 = 0.0007 / (distBeacon2 * distBeacon2 + 0.00025);
+
+        vec3 dotCol2 = mix(u_ribbonC, vec3(1.0), 0.65);
+        vec3 light2 = dotCol2 * dotLum2 + vec3(0.95, 0.85, 1.0) * beaconHalo2 * 1.1;
+
+        if (hitSphere && tP2 > t0) {
+          ringBehind2 = light2 * 0.14; // Dimmed behind obsidian glass
+        } else {
+          ringFront2 = light2;
+        }
+      }
+    }
+  }
+
+  // Add behind-sphere starlight into background accumulation
+  finalColor += ringBehind1 + ringBehind2;
+
+  // 3. 3D VOLUMETRIC SPHERE & SILKY FLUID AURORA PLASMA RIBBON
+  if (hitSphere) {
+    vec3 pEntry = ro + t0 * rd;
+    vec3 norm = normalize(pEntry);
+
+    // Glass Fresnel Rim Reflection (Cyan on bottom-left, Violet on top-right)
+    float rimAngle = dot(norm.xy, normalize(vec2(1.0, 0.9)));
+    vec3 rimTone = mix(u_ribbonA, u_ribbonC, rimAngle * 0.5 + 0.5);
+    float fresnel = pow(1.0 - max(0.0, dot(norm, -rd)), 3.5);
+    vec3 rimGlow = rimTone * fresnel * 2.2;
+
+    // Glass Specular Sheen (Curved highlight along upper glass curvature)
+    vec3 lightDir = normalize(vec3(-0.35 + u_mouse.x * 0.25, 0.65 - u_mouse.y * 0.25, 0.85));
+    vec3 halfVec = normalize(lightDir - rd);
+    float specCurved = pow(max(0.0, dot(norm, halfVec)), 32.0) * 0.45;
+    float specGlint = pow(max(0.0, dot(norm, halfVec)), 110.0) * 0.85;
+    vec3 specularGlint = vec3(1.0) * (specCurved + specGlint);
+
+    // Volumetric Raymarching of the Silk Plasma Ribbon (34 steps)
+    const int STEPS = 34;
+    float stepSize = (t1 - t0) / float(STEPS);
+    vec3 accumColor = vec3(0.0);
+    float accumAlpha = 0.0;
+
+    float fluidTime = u_time * 0.45 * u_stateSpeed;
+
+    for (int i = 0; i < STEPS; i++) {
+      float tCurrent = t0 + (float(i) + 0.5) * stepSize;
+      vec3 pos = ro + tCurrent * rd;
+
+      // Cosmic rotation of the fluid ribbon
+      vec3 pRot = pos;
+      pRot.xz = rot2D(fluidTime * 0.8) * pRot.xz;
+      pRot.yz = rot2D(fluidTime * 0.3) * pRot.yz;
+
+      // Smooth Elegant S-Curve Fluid Ribbon Equation
+      float wave = sin(pRot.x * 2.2 + pRot.z * 1.5 + fluidTime) * 0.26 +
+                   cos(pRot.x * 1.3 - pRot.z * 1.9 - fluidTime * 0.7) * 0.14;
+      float noiseWave = snoise(pRot * 2.0 + vec3(0.0, fluidTime * 0.35, 0.0)) * 0.07;
+      float dRibbon = abs(pRot.y - wave - noiseWave);
+
+      // Soft silk volume density
+      float density = exp(-dRibbon * dRibbon * 55.0);
+
+      // Hot luminous central filament/spine
+      float spine = exp(-dRibbon * dRibbon * 320.0);
+
+      // Radial confinement within sphere
+      float rPos = length(pos);
+      float radialFade = smoothstep(sphereR * 0.96, sphereR * 0.65, rPos);
+
+      // Color Gradient along the ribbon:
+      // Electric Blue & Cyan (bottom-left) -> Royal Indigo -> Amethyst & Lavender (top-right)
+      float colorPos = clamp((pRot.x + pRot.y * 0.7) * 1.1 + 0.5, 0.0, 1.0);
+      vec3 colCyanBlue = mix(u_ribbonB, u_ribbonA, smoothstep(0.0, 0.5, colorPos));
+      vec3 colViolet = mix(u_ribbonA, u_ribbonC, smoothstep(0.4, 1.0, colorPos));
+      vec3 ribbonCol = mix(colCyanBlue, colViolet, colorPos);
+
+      // Add hot celestial white core to filament
+      vec3 spineColor = mix(vec3(0.85, 0.96, 1.0), vec3(1.0, 0.92, 1.0), colorPos);
+      ribbonCol += spineColor * spine * 0.95;
+
+      float stepDensity = (density * 0.6 + spine * 0.4) * radialFade * (0.95 + u_audioAmp * 0.55);
+      float stepAlpha = clamp(stepDensity * stepSize * 7.2, 0.0, 1.0);
+
+      accumColor += (1.0 - accumAlpha) * ribbonCol * stepAlpha;
+      accumAlpha += (1.0 - accumAlpha) * stepAlpha;
+      if (accumAlpha >= 0.95) break;
+    }
+
+    // Deep Obsidian Core Base: translucent, dark cavernous interior
+    vec3 obsidianBase = u_core * 0.4;
+    vec3 sphereColor = obsidianBase + accumColor + rimGlow + specularGlint;
+
+    // Subpixel Anti-Aliased Edge Blending
+    float dRay = length(cross(ro, rd));
+    float edgeAA = smoothstep(sphereR + 0.003, sphereR - 0.003, dRay);
+
+    finalColor = mix(finalColor, sphereColor, edgeAA);
+  }
+
+  // 4. Composite In-Front Celestial Orbital Rings
+  finalColor += ringFront1 + ringFront2;
+
+  // 5. ACES Filmic Tonemapping for smooth cinematic gradients
+  finalColor = aces(finalColor);
+
+  gl_FragColor = vec4(finalColor, 1.0);
+}
+`;
 
 class AuroraOrb {
   constructor(canvas, player) {
     this.canvas = canvas;
     this.player = player;
-    this.ctx = canvas ? canvas.getContext('2d') : null;
-    this.state = 'idle'; // idle | listening | thinking | speaking
+    this.state = 'idle'; // idle | listening | thinking | speaking | error | offline
     this.micLevel = 0;
-    this.currentTheme = 'aurora';
     this.palette = THEME_PALETTES.aurora;
 
-    // Smooth color vector interpolation (RGB 0..255)
-    this.curCore = [...this.palette.idle.core];
-    this.curOuter = [...this.palette.idle.outer];
-    this.curAura = [...this.palette.idle.aura];
+    // Smooth Color Interpolation State
+    const initColors = this.palette.idle;
+    this.colors = {
+      core: [...initColors.core],
+      ribbonA: [...initColors.ribbonA],
+      ribbonB: [...initColors.ribbonB],
+      ribbonC: [...initColors.ribbonC],
+      rim: [...initColors.rim],
+      aura: [...initColors.aura],
+    };
 
-    // Interactive 3D Cursor Parallax
+    // Inertia Dynamics
     this.targetPitch = 0;
     this.targetYaw = 0;
     this.pitch = 0;
     this.yaw = 0;
 
-    // Gyroscopic Ring Orbit Angles
-    this.ringRot1 = 0;
-    this.ringRot2 = 0;
-    this.ringRot3 = 0;
-
-    // Internal Simulation Time & Loop
+    // Simulation Timing
     this.t = 0;
     this.animId = null;
     this.dpr = 1;
-    this.width = 260;
-    this.height = 260;
-    this.cx = 130;
-    this.cy = 130;
-    this.baseRadius = 50;
 
-    // Sonic shockwave particles for speech
-    this.shockwaves = [];
+    // Try WebGL Initialization
+    this.isWebGL = this._initWebGL();
+    if (!this.isWebGL) {
+      console.warn('AuroraOrb: WebGL unavailable, falling back to 2D canvas.');
+      this.ctx = canvas ? canvas.getContext('2d') : null;
+    }
 
     this._resize();
     this._bindEvents();
     this.start();
   }
 
-  _bindEvents() {
-    window.addEventListener('resize', () => this._resize());
+  _initWebGL() {
+    if (!this.canvas) return false;
+    const gl =
+      this.canvas.getContext('webgl2', { alpha: true, antialias: true, premultipliedAlpha: false }) ||
+      this.canvas.getContext('webgl', { alpha: true, antialias: true, premultipliedAlpha: false });
 
-    // Interactive 3D Pointer Parallax
+    if (!gl) return false;
+    this.gl = gl;
+
+    // Compile Shaders
+    const vs = this._compileShader(gl.VERTEX_SHADER, VS_SOURCE);
+    const fs = this._compileShader(gl.FRAGMENT_SHADER, FS_SOURCE);
+    if (!vs || !fs) return false;
+
+    const prog = gl.createProgram();
+    gl.attachShader(prog, vs);
+    gl.attachShader(prog, fs);
+    gl.linkProgram(prog);
+
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+      console.error('Shader link error:', gl.getProgramInfoLog(prog));
+      return false;
+    }
+
+    this.program = prog;
+    gl.useProgram(prog);
+
+    // Full-screen Quad Geometry
+    const quadVertices = new Float32Array([
+      -1, -1,
+       1, -1,
+      -1,  1,
+      -1,  1,
+       1, -1,
+       1,  1,
+    ]);
+
+    const vbo = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+    gl.bufferData(gl.ARRAY_BUFFER, quadVertices, gl.STATIC_DRAW);
+
+    const aPos = gl.getAttribLocation(prog, 'a_position');
+    gl.enableVertexAttribArray(aPos);
+    gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+    // Cache Uniform Locations
+    this.uRes = gl.getUniformLocation(prog, 'u_resolution');
+    this.uTime = gl.getUniformLocation(prog, 'u_time');
+    this.uMouse = gl.getUniformLocation(prog, 'u_mouse');
+    this.uAudioAmp = gl.getUniformLocation(prog, 'u_audioAmp');
+    this.uStateSpeed = gl.getUniformLocation(prog, 'u_stateSpeed');
+    this.uCore = gl.getUniformLocation(prog, 'u_core');
+    this.uRibbonA = gl.getUniformLocation(prog, 'u_ribbonA');
+    this.uRibbonB = gl.getUniformLocation(prog, 'u_ribbonB');
+    this.uRibbonC = gl.getUniformLocation(prog, 'u_ribbonC');
+    this.uRim = gl.getUniformLocation(prog, 'u_rim');
+    this.uAura = gl.getUniformLocation(prog, 'u_aura');
+
+    return true;
+  }
+
+  _compileShader(type, src) {
+    const gl = this.gl;
+    const s = gl.createShader(type);
+    gl.shaderSource(s, src);
+    gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+      console.error('GLSL compile error:', gl.getShaderInfoLog(s));
+      gl.deleteShader(s);
+      return null;
+    }
+    return s;
+  }
+
+  _bindEvents() {
+    window.addEventListener('resize', () => this._resize(), { passive: true });
+
     window.addEventListener(
       'mousemove',
       (e) => {
         const cx = window.innerWidth / 2;
         const cy = window.innerHeight / 2;
-        // Natural tilt bounds (radians)
-        this.targetYaw = Math.max(-0.45, Math.min(0.45, (e.clientX - cx) * 0.0006));
-        this.targetPitch = Math.max(-0.35, Math.min(0.35, -(e.clientY - cy) * 0.0006));
+        this.targetYaw = Math.max(-0.6, Math.min(0.6, (e.clientX - cx) * 0.0007));
+        this.targetPitch = Math.max(-0.45, Math.min(0.45, -(e.clientY - cy) * 0.0007));
       },
       { passive: true }
     );
   }
 
-  setTheme(themeName) {
-    if (THEME_PALETTES[themeName]) {
-      this.currentTheme = themeName;
-      this.palette = THEME_PALETTES[themeName];
-    }
-  }
-
   setState(nextState) {
     if (this.palette[nextState]) {
       this.state = nextState;
+    } else {
+      this.state = 'idle';
     }
   }
 
@@ -128,25 +538,28 @@ class AuroraOrb {
     this.micLevel = Math.max(0, Math.min(1, val));
   }
 
+  setTheme() {
+    // Retain API compatibility
+  }
+
   _resize() {
     if (!this.canvas) return;
     const rect = this.canvas.getBoundingClientRect();
     this.dpr = Math.min(window.devicePixelRatio || 1, 2);
 
-    const w = rect.width || 260;
-    const h = rect.height || 260;
+    const w = rect.width || 380;
+    const h = rect.height || 380;
     this.width = w;
     this.height = h;
 
     this.canvas.width = Math.round(w * this.dpr);
     this.canvas.height = Math.round(h * this.dpr);
 
-    if (this.ctx) {
+    if (this.isWebGL && this.gl) {
+      this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+    } else if (this.ctx) {
       this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     }
-    this.cx = w / 2;
-    this.cy = h / 2;
-    this.baseRadius = Math.min(w, h) * 0.22;
   }
 
   resize() {
@@ -169,412 +582,171 @@ class AuroraOrb {
     }
   }
 
-  // Perspective 3D Point Projection onto 2D Canvas Plane
-  _project(x, y, z, f = 360, zCam = 420) {
-    const scale = f / (z + zCam);
-    return {
-      x: x * scale + this.cx,
-      y: y * scale + this.cy,
-      z: z,
-      scale: scale,
-    };
-  }
-
-  // Transform raw ring coordinates by gyroscope spin, tilt, and pointer parallax
-  _transformPoint(x, y, z, tiltX, tiltZ, spinAngle) {
-    // 1. Gyroscopic spin around ring's own polar axis
-    let [rx, ry, rz] = vecRotateZ(x, y, z, spinAngle);
-    // 2. Ring inclination angles in 3D space
-    [rx, ry, rz] = vecRotateX(rx, ry, rz, tiltX);
-    [rx, ry, rz] = vecRotateZ(rx, ry, rz, tiltZ);
-    // 3. User pointer parallax tilt
-    [rx, ry, rz] = vecRotateY(rx, ry, rz, this.yaw);
-    [rx, ry, rz] = vecRotateX(rx, ry, rz, this.pitch);
-    return [rx, ry, rz];
-  }
-
   draw() {
-    if (!this.ctx) return;
-    const ctx = this.ctx;
-    this.t += 0.025;
+    const isReduced = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    this.t += isReduced ? 0.002 : 0.022;
 
-    // Clear canvas frame
-    ctx.clearRect(0, 0, this.width, this.height);
-
-    // Smooth color interpolation
-    const target = this.palette[this.state] || this.palette.idle;
-    const lerpSpeed = 0.07;
-    for (let i = 0; i < 3; i++) {
-      this.curCore[i] += (target.core[i] - this.curCore[i]) * lerpSpeed;
-      this.curOuter[i] += (target.outer[i] - this.curOuter[i]) * lerpSpeed;
-      this.curAura[i] += (target.aura[i] - this.curAura[i]) * lerpSpeed;
+    // Smooth Color Transition
+    const targetTheme = this.palette[this.state] || this.palette.idle;
+    const lerpSpeed = 0.065;
+    for (const key of ['core', 'ribbonA', 'ribbonB', 'ribbonC', 'rim', 'aura']) {
+      const cur = this.colors[key];
+      const tgt = targetTheme[key];
+      if (cur && tgt) {
+        for (let i = 0; i < 3; i++) {
+          cur[i] += (tgt[i] - cur[i]) * lerpSpeed;
+        }
+      }
     }
 
-    // Smooth inertia spring for 3D cursor parallax
+    // Inertia spring damping on parallax
     this.pitch += (this.targetPitch - this.pitch) * 0.06;
     this.yaw += (this.targetYaw - this.yaw) * 0.06;
 
-    // Audio reactivity amplitude (0..1)
+    // Audio Reactivity
     let audioAmp = 0;
     if (this.state === 'speaking' && this.player) {
-      audioAmp = Math.max(0, Math.min(1, this.player.getLevel()));
+      audioAmp = Math.max(0, Math.min(1, this.player.getLevel() * 1.4));
     } else if (this.state === 'listening') {
-      audioAmp = Math.max(
-        0,
-        Math.min(1, this.micLevel * 0.75 + Math.sin(this.t * 3.5) * 0.04 + 0.05)
-      );
+      audioAmp = Math.max(0, Math.min(1, this.micLevel * 0.85 + Math.sin(this.t * 3.5) * 0.05 + 0.04));
     } else if (this.state === 'thinking') {
-      audioAmp = 0.18 + Math.sin(this.t * 5.0) * 0.08;
+      audioAmp = 0.25 + Math.sin(this.t * 5.2) * 0.14;
     }
 
-    // Dynamic rotation speeds by state
+    // State Speed Multiplier
     const speedMult =
       this.state === 'thinking'
         ? 2.6
         : this.state === 'listening'
-          ? 1.35
+          ? 1.4
           : this.state === 'speaking'
-            ? 1.5 + audioAmp * 1.2
+            ? 1.6 + audioAmp * 1.2
             : 1.0;
 
-    this.ringRot1 += 0.012 * speedMult;
-    this.ringRot2 -= 0.016 * speedMult;
-    this.ringRot3 += 0.009 * speedMult;
-
-    // Base Sphere Radius with dynamic breathing and sound wave expansion
-    const breath = Math.sin(this.t * 1.6) * 2.2;
-    const sphereRadius = this.baseRadius + breath + audioAmp * 14;
-
-    // Build Gyroscopic Orbital Rings (3 distinct 3D planes)
-    // Ring 1: Inner Gyroscope (Fast, inclined)
-    // Ring 2: Equatorial / Tilted (Opposite direction, wide)
-    // Ring 3: Outer Halo (High inclination, delicate)
-    const ringSpecs = [
-      {
-        radius: sphereRadius * 1.42,
-        tiltX: 0.62,
-        tiltZ: 0.32,
-        spin: this.ringRot1,
-        width: 2.2,
-        alpha: 0.85,
-        nodePhase: this.t * 1.4,
-      },
-      {
-        radius: sphereRadius * 1.68,
-        tiltX: -0.74,
-        tiltZ: -0.48,
-        spin: this.ringRot2,
-        width: 1.8,
-        alpha: 0.75,
-        nodePhase: -this.t * 1.8,
-      },
-      {
-        radius: sphereRadius * 1.95,
-        tiltX: 1.12,
-        tiltZ: 0.82,
-        spin: this.ringRot3,
-        width: 1.3,
-        alpha: 0.65,
-        nodePhase: this.t * 0.9,
-      },
-    ];
-
-    // Compute sampled 3D points for each ring
-    const segments = 64;
-    const computedRings = ringSpecs.map((spec) => {
-      const pts = [];
-      for (let i = 0; i <= segments; i++) {
-        const theta = (i / segments) * Math.PI * 2;
-        const x = Math.cos(theta) * spec.radius;
-        const y = Math.sin(theta) * spec.radius;
-        const z = 0;
-
-        const [tx, ty, tz] = this._transformPoint(x, y, z, spec.tiltX, spec.tiltZ, spec.spin);
-        const proj = this._project(tx, ty, tz);
-        pts.push({
-          rawX: tx,
-          rawY: ty,
-          rawZ: tz,
-          projX: proj.x,
-          projY: proj.y,
-          scale: proj.scale,
-          theta: theta,
-        });
-      }
-
-      // Compute Traveling Photon Node position along ring
-      const nodeX = Math.cos(spec.nodePhase) * spec.radius;
-      const nodeY = Math.sin(spec.nodePhase) * spec.radius;
-      const [nx, ny, nz] = this._transformPoint(nodeX, nodeY, 0, spec.tiltX, spec.tiltZ, spec.spin);
-      const nodeProj = this._project(nx, ny, nz);
-
-      return {
-        spec,
-        pts,
-        node: {
-          x: nodeProj.x,
-          y: nodeProj.y,
-          z: nz,
-          scale: nodeProj.scale,
-        },
-      };
-    });
-
-    // =========================================================================
-    // LAYER 1: BACK HALF OF RINGS (Z < 0) - Passing behind the sphere
-    // =========================================================================
-    this._drawRingsHalf(ctx, computedRings, true, sphereRadius);
-
-    // =========================================================================
-    // LAYER 2: 3D VOLUMETRIC OBSIDIAN GLASS SPHERE & AUDIO-REACTIVE PLASMA CORE
-    // =========================================================================
-    this._drawSphere(ctx, sphereRadius, audioAmp);
-
-    // =========================================================================
-    // LAYER 3: FRONT HALF OF RINGS (Z >= 0) - Passing in front of the sphere
-    // =========================================================================
-    this._drawRingsHalf(ctx, computedRings, false, sphereRadius);
-
-    // =========================================================================
-    // LAYER 4: SPEECH SOUND WAVE RIPPLES (When speaking)
-    // =========================================================================
-    if (this.state === 'speaking' && audioAmp > 0.08) {
-      if (Math.random() < 0.35) {
-        this.shockwaves.push({
-          r: sphereRadius * 0.9,
-          maxR: sphereRadius * 2.3,
-          alpha: 0.65 + audioAmp * 0.35,
-          speed: 2.2 + audioAmp * 3.0,
-        });
-      }
+    if (this.isWebGL && this.gl && this.program) {
+      this._drawWebGL(audioAmp, speedMult);
+    } else if (this.ctx) {
+      this._draw2DFallback(audioAmp, speedMult);
     }
-    this._drawShockwaves(ctx);
   }
 
-  // Draw either the back half (isBack=true) or front half (isBack=false) of the rings
-  _drawRingsHalf(ctx, computedRings, isBack, sphereRadius) {
-    const coreRgb = this.curCore.map((v) => Math.round(v)).join(', ');
-    const auraRgb = this.curAura.map((v) => Math.round(v)).join(', ');
+  _drawWebGL(audioAmp, speedMult) {
+    const gl = this.gl;
+    gl.useProgram(this.program);
 
-    computedRings.forEach(({ spec, pts, node }) => {
-      ctx.save();
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
+    gl.uniform2f(this.uRes, this.canvas.width, this.canvas.height);
+    gl.uniform1f(this.uTime, this.t);
+    gl.uniform2f(this.uMouse, this.yaw, this.pitch);
+    gl.uniform1f(this.uAudioAmp, audioAmp);
+    gl.uniform1f(this.uStateSpeed, speedMult);
 
-      // Draw segments that belong to this depth half
-      for (let i = 0; i < pts.length - 1; i++) {
-        const p1 = pts[i];
-        const p2 = pts[i + 1];
-        const avgZ = (p1.rawZ + p2.rawZ) * 0.5;
+    gl.uniform3fv(this.uCore, this.colors.core);
+    gl.uniform3fv(this.uRibbonA, this.colors.ribbonA);
+    gl.uniform3fv(this.uRibbonB, this.colors.ribbonB);
+    gl.uniform3fv(this.uRibbonC, this.colors.ribbonC);
+    gl.uniform3fv(this.uRim, this.colors.rim);
+    gl.uniform3fv(this.uAura, this.colors.aura);
 
-        // Check if segment is in back half (avgZ < 0) or front half (avgZ >= 0)
-        if (isBack ? avgZ < 0 : avgZ >= 0) {
-          // Calculate distance from sphere center to handle glass occlusion
-          const distToCenter = Math.hypot(
-            (p1.projX + p2.projX) * 0.5 - this.cx,
-            (p1.projY + p2.projY) * 0.5 - this.cy
-          );
-
-          ctx.beginPath();
-          ctx.moveTo(p1.projX, p1.projY);
-          ctx.lineTo(p2.projX, p2.projY);
-
-          if (isBack) {
-            // If behind the sphere and within the sphere radius, simulate glass refraction/darkening
-            if (distToCenter < sphereRadius * 0.95) {
-              ctx.strokeStyle = `rgba(${auraRgb}, ${spec.alpha * 0.2})`;
-              ctx.lineWidth = spec.width * p1.scale * 0.8;
-            } else {
-              ctx.strokeStyle = `rgba(${auraRgb}, ${spec.alpha * 0.55})`;
-              ctx.lineWidth = spec.width * p1.scale;
-            }
-          } else {
-            // Front segments: luminous, crisp, with full opacity and subtle bloom
-            ctx.strokeStyle = `rgba(${auraRgb}, ${spec.alpha * 0.95})`;
-            ctx.lineWidth = spec.width * p1.scale * 1.15;
-            ctx.shadowColor = `rgba(${coreRgb}, 0.75)`;
-            ctx.shadowBlur = 6 * p1.scale;
-          }
-          ctx.stroke();
-        }
-      }
-
-      // Draw Traveling Photon Node if on the current depth layer
-      if (isBack ? node.z < 0 : node.z >= 0) {
-        const nodeDist = Math.hypot(node.x - this.cx, node.y - this.cy);
-        const nodeAlpha = isBack && nodeDist < sphereRadius ? 0.3 : 0.95;
-        const nodeRadius = (isBack ? 2.5 : 3.8) * node.scale;
-
-        // Luminous outer flare
-        const flareGrad = ctx.createRadialGradient(
-          node.x,
-          node.y,
-          0,
-          node.x,
-          node.y,
-          nodeRadius * 3.5
-        );
-        flareGrad.addColorStop(0, `rgba(255, 255, 255, ${nodeAlpha})`);
-        flareGrad.addColorStop(0.35, `rgba(${auraRgb}, ${nodeAlpha * 0.85})`);
-        flareGrad.addColorStop(1, `rgba(${coreRgb}, 0)`);
-
-        ctx.fillStyle = flareGrad;
-        ctx.beginPath();
-        ctx.arc(node.x, node.y, nodeRadius * 3.5, 0, Math.PI * 2);
-        ctx.fill();
-
-        // High-energy white pinpoint center
-        ctx.fillStyle = `rgba(255, 255, 255, ${nodeAlpha})`;
-        ctx.beginPath();
-        ctx.arc(node.x, node.y, nodeRadius * 0.7, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      ctx.restore();
-    });
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
   }
 
-  // Draw the central 3D Holographic Sphere with glass body, Fresnel rim, and plasma core
-  _drawSphere(ctx, r, audioAmp) {
-    const cx = this.cx;
-    const cy = this.cy;
-    const coreRgb = this.curCore.map((v) => Math.round(v)).join(', ');
-    const outerRgb = this.curOuter.map((v) => Math.round(v)).join(', ');
-    const auraRgb = this.curAura.map((v) => Math.round(v)).join(', ');
+  // Graceful 2D Canvas Fallback
+  _draw2DFallback(audioAmp, speedMult) {
+    const ctx = this.ctx;
+    const w = this.width;
+    const h = this.height;
+    const cx = w / 2;
+    const cy = h / 2;
+    const r = Math.min(w, h) * 0.28 + audioAmp * 10;
 
-    ctx.save();
+    ctx.clearRect(0, 0, w, h);
 
-    // 1. Ambient Volumetric Atmospheric Glow (behind sphere)
-    const auraGrad = ctx.createRadialGradient(cx, cy, r * 0.5, cx, cy, r * 2.1);
-    const auraIntensity = 0.28 + audioAmp * 0.45;
-    auraGrad.addColorStop(0, `rgba(${coreRgb}, ${auraIntensity})`);
-    auraGrad.addColorStop(0.45, `rgba(${outerRgb}, ${auraIntensity * 0.45})`);
-    auraGrad.addColorStop(1, 'rgba(2, 5, 11, 0)');
-
+    // Deep Atmospheric Nebula Glow
+    const auraGrad = ctx.createRadialGradient(cx, cy, r * 0.3, cx, cy, r * 2.3);
+    auraGrad.addColorStop(0, 'rgba(18, 70, 180, 0.28)');
+    auraGrad.addColorStop(0.6, 'rgba(7, 24, 72, 0.12)');
+    auraGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
     ctx.fillStyle = auraGrad;
     ctx.beginPath();
-    ctx.arc(cx, cy, r * 2.1, 0, Math.PI * 2);
+    ctx.arc(cx, cy, r * 2.3, 0, Math.PI * 2);
     ctx.fill();
 
-    // 2. Deep Obsidian Glass Body (Base 3D sphere with light source)
-    // Key light offset shifted dynamically by pointer parallax
-    const lightOffsetX = -r * 0.28 + this.yaw * r * 0.45;
-    const lightOffsetY = -r * 0.28 - this.pitch * r * 0.45;
+    // Dotted Ring 1 (2D)
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(0.38 + this.yaw * 0.2);
+    ctx.scale(1, 0.42);
+    ctx.strokeStyle = 'rgba(0, 217, 255, 0.45)';
+    ctx.setLineDash([3, 7]);
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.arc(0, 0, r * 1.55, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
 
-    const glassGrad = ctx.createRadialGradient(
-      cx + lightOffsetX,
-      cy + lightOffsetY,
-      r * 0.08,
-      cx,
-      cy,
-      r
-    );
-    glassGrad.addColorStop(0, 'rgba(12, 28, 62, 0.94)');
-    glassGrad.addColorStop(0.35, 'rgba(6, 16, 38, 0.96)');
-    glassGrad.addColorStop(0.75, 'rgba(3, 8, 20, 0.98)');
-    glassGrad.addColorStop(1, 'rgba(1, 3, 8, 1)');
+    // Dotted Ring 2 (2D)
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(-0.45 - this.pitch * 0.2);
+    ctx.scale(1, 0.38);
+    ctx.strokeStyle = 'rgba(199, 89, 255, 0.45)';
+    ctx.setLineDash([3, 8]);
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.arc(0, 0, r * 1.68, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
 
-    ctx.fillStyle = glassGrad;
+    // Dark Obsidian Sphere Body
+    const bodyGrad = ctx.createRadialGradient(cx - r * 0.3, cy - r * 0.3, r * 0.1, cx, cy, r);
+    bodyGrad.addColorStop(0, 'rgba(12, 28, 64, 0.95)');
+    bodyGrad.addColorStop(0.7, 'rgba(4, 9, 22, 0.98)');
+    bodyGrad.addColorStop(1, 'rgba(2, 5, 14, 1.0)');
+    ctx.fillStyle = bodyGrad;
     ctx.beginPath();
     ctx.arc(cx, cy, r, 0, Math.PI * 2);
     ctx.fill();
 
-    // 3. Audio-Reactive Internal Plasma Core (Suspended inside the glass)
-    const plasmaRadius = r * 0.52 + audioAmp * r * 0.32;
-    const plasmaPulse = Math.sin(this.t * 3.2) * (r * 0.04);
-    const effectivePlasmaR = Math.max(10, plasmaRadius + plasmaPulse);
-
-    const plasmaGrad = ctx.createRadialGradient(
-      cx + lightOffsetX * 0.5,
-      cy + lightOffsetY * 0.5,
-      effectivePlasmaR * 0.1,
-      cx,
-      cy,
-      effectivePlasmaR
-    );
-    plasmaGrad.addColorStop(0, '#ffffff');
-    plasmaGrad.addColorStop(0.22, `rgba(${coreRgb}, 0.95)`);
-    plasmaGrad.addColorStop(0.65, `rgba(${outerRgb}, 0.55)`);
-    plasmaGrad.addColorStop(1, `rgba(${auraRgb}, 0)`);
-
-    ctx.fillStyle = plasmaGrad;
-    ctx.beginPath();
-    ctx.arc(cx, cy, effectivePlasmaR, 0, Math.PI * 2);
-    ctx.fill();
-
-    // 4. Harmonic Turbulence Swirl (Subtle internal energy ripples)
+    // Fluid S-Curve Ribbon (2D approximation)
     ctx.save();
-    ctx.globalCompositeOperation = 'screen';
-    for (let k = 0; k < 3; k++) {
-      const rippleAngle = this.t * (1.2 + k * 0.5) * (this.state === 'thinking' ? 2.5 : 1.0);
-      const rx = cx + Math.cos(rippleAngle) * (r * 0.22);
-      const ry = cy + Math.sin(rippleAngle) * (r * 0.18);
-      const rr = r * 0.28 + Math.sin(this.t * 2.0 + k) * (r * 0.08);
-
-      const ripGrad = ctx.createRadialGradient(rx, ry, 0, rx, ry, rr);
-      ripGrad.addColorStop(0, `rgba(${coreRgb}, 0.45)`);
-      ripGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
-
-      ctx.fillStyle = ripGrad;
-      ctx.beginPath();
-      ctx.arc(rx, ry, rr, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.restore();
-
-    // 5. Dynamic 3D Fresnel Rim Glow (Edge lighting on glass boundary)
-    ctx.save();
-    ctx.strokeStyle = `rgba(${auraRgb}, ${0.85 + audioAmp * 0.15})`;
-    ctx.lineWidth = 1.8;
-    ctx.shadowColor = `rgba(${coreRgb}, 0.9)`;
-    ctx.shadowBlur = 12 + audioAmp * 14;
     ctx.beginPath();
-    ctx.arc(cx, cy, r - 0.9, 0, Math.PI * 2);
+    ctx.arc(cx, cy, r * 0.95, 0, Math.PI * 2);
+    ctx.clip();
+
+    ctx.lineWidth = 16 + audioAmp * 8;
+    const ribbonGrad = ctx.createLinearGradient(cx - r * 0.7, cy + r * 0.5, cx + r * 0.7, cy - r * 0.5);
+    ribbonGrad.addColorStop(0, '#00d9ff');
+    ribbonGrad.addColorStop(0.45, '#1461fa');
+    ribbonGrad.addColorStop(1, '#c759ff');
+    ctx.strokeStyle = ribbonGrad;
+    ctx.lineCap = 'round';
+
+    ctx.beginPath();
+    const t = this.t * speedMult;
+    const x0 = cx - r * 0.75, y0 = cy + r * 0.35 + Math.sin(t) * 8;
+    const cp1x = cx - r * 0.2, cp1y = cy - r * 0.55 + Math.cos(t * 1.2) * 12;
+    const cp2x = cx + r * 0.2, cp2y = cy + r * 0.45 + Math.sin(t * 1.1) * 12;
+    const x1 = cx + r * 0.75, y1 = cy - r * 0.35 + Math.cos(t) * 8;
+    ctx.moveTo(x0, y0);
+    ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, x1, y1);
+    ctx.stroke();
+
+    // Luminous White Core Spine
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
     ctx.stroke();
     ctx.restore();
 
-    // 6. Tactile Specular Glass Glint (High-fidelity light reflection)
-    const specX = cx + lightOffsetX * 0.95;
-    const specY = cy + lightOffsetY * 0.95;
-    const specGrad = ctx.createRadialGradient(specX, specY, 0, specX, specY, r * 0.38);
-    specGrad.addColorStop(0, 'rgba(255, 255, 255, 0.85)');
-    specGrad.addColorStop(0.25, `rgba(${auraRgb}, 0.45)`);
-    specGrad.addColorStop(0.7, 'rgba(255, 255, 255, 0)');
-
-    ctx.fillStyle = specGrad;
+    // Glass Rim Fresnel Glint
+    ctx.strokeStyle = 'rgba(0, 217, 255, 0.85)';
+    ctx.lineWidth = 1.6;
     ctx.beginPath();
-    ctx.ellipse(specX, specY, r * 0.35, r * 0.22, -Math.PI / 4 + this.yaw * 0.3, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.restore();
-  }
-
-  // Draw expanding acoustic ripples during speech
-  _drawShockwaves(ctx) {
-    if (this.shockwaves.length === 0) return;
-    const auraRgb = this.curAura.map((v) => Math.round(v)).join(', ');
-
-    ctx.save();
-    for (let i = this.shockwaves.length - 1; i >= 0; i--) {
-      const sw = this.shockwaves[i];
-      sw.r += sw.speed;
-      const progress = sw.r / sw.maxR;
-      const alpha = sw.alpha * (1 - progress);
-
-      if (progress >= 1 || alpha <= 0.01) {
-        this.shockwaves.splice(i, 1);
-        continue;
-      }
-
-      ctx.strokeStyle = `rgba(${auraRgb}, ${alpha})`;
-      ctx.lineWidth = Math.max(0.8, (1 - progress) * 2.2);
-      ctx.beginPath();
-      // Elliptical shockwave oriented in 3D perspective
-      ctx.ellipse(this.cx, this.cy, sw.r, sw.r * 0.42, this.yaw * 0.4, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-    ctx.restore();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.stroke();
   }
 }
 
 window.AuroraOrb = AuroraOrb;
+
+
+

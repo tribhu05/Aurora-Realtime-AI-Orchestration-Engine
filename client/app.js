@@ -130,9 +130,12 @@
   const navVoiceStudio = $('navVoiceStudio');
   const navTranscripts = $('navTranscripts');
   const navTelemetry = $('navTelemetry');
+  const navConfig = $('navConfig');
   const drawerSectionVoice = $('drawerSectionVoice');
   const drawerSectionTranscripts = $('drawerSectionTranscripts');
   const drawerSectionTelemetry = $('drawerSectionTelemetry');
+  const drawerSectionConfig = $('drawerSectionConfig');
+  const drawerNavTabs = $('drawerNavTabs');
 
   // Core Audio & State
   const player = new window.AuroraAudioPlayer();
@@ -222,7 +225,22 @@
     },
   ];
 
-  // ---------- Slide-Over Drawer for Voice Studio & Settings ----------
+  // ---------- Slidebar Integrated Settings Panel ----------
+  let _activeSettingsSection = null;
+
+  function setActiveSettingsNav(target) {
+    _activeSettingsSection = target;
+    const settingsButtons = [navVoiceStudio, navTranscripts, navTelemetry, navConfig];
+    settingsButtons.forEach((btn) => {
+      if (btn) btn.classList.toggle('active', Boolean(target) && btn.dataset.target === target);
+    });
+    if (drawerNavTabs) {
+      drawerNavTabs.querySelectorAll('.drawer-tab').forEach((tab) => {
+        tab.classList.toggle('active', Boolean(target) && tab.dataset.target === target);
+      });
+    }
+  }
+
   function openDrawer() {
     if (settingsDrawer) settingsDrawer.classList.add('open');
     if (drawerBackdrop) drawerBackdrop.classList.add('open');
@@ -231,14 +249,149 @@
   function closeDrawer() {
     if (settingsDrawer) settingsDrawer.classList.remove('open');
     if (drawerBackdrop) drawerBackdrop.classList.remove('open');
+    setActiveSettingsNav(null);
   }
 
-  if (btnOpenSettings) btnOpenSettings.addEventListener('click', openDrawer);
+  function openDrawerTo(sectionEl, targetName = null) {
+    openDrawer();
+    if (targetName) {
+      setActiveSettingsNav(targetName);
+    }
+    if (sectionEl) {
+      setTimeout(() => {
+        sectionEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 80);
+    }
+    if (window.innerWidth <= 900 && appRoot) {
+      appRoot.classList.remove('sidebar-open');
+      if (btnToggleSidebar) btnToggleSidebar.classList.remove('active');
+    }
+  }
+
   if (btnCloseSettings) btnCloseSettings.addEventListener('click', closeDrawer);
   if (drawerBackdrop) drawerBackdrop.addEventListener('click', closeDrawer);
 
+  // ---------- Settings Dropdown & Slide-Over Drawer ----------
+  const settingsDropdown = $('settingsDropdown');
+  const settingsMenuWrap = $('settingsMenuWrap');
+  const menuItemProfile = $('menuItemProfile');
+  const menuItemPreferences = $('menuItemPreferences');
+  const menuItemKeys = $('menuItemKeys');
+  const menuItemSignOut = $('menuItemSignOut');
+
+  function toggleSettingsDropdown(force) {
+    if (!settingsDropdown) return;
+    const isVisible = settingsDropdown.style.display !== 'none';
+    const next = typeof force === 'boolean' ? force : !isVisible;
+    settingsDropdown.style.display = next ? 'block' : 'none';
+    if (btnOpenSettings) {
+      btnOpenSettings.setAttribute('aria-expanded', String(next));
+    }
+  }
+
+  function closeSettingsDropdown() {
+    toggleSettingsDropdown(false);
+  }
+
+  if (btnOpenSettings) {
+    btnOpenSettings.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleSettingsDropdown();
+    });
+  }
+
+  if (menuItemProfile) {
+    menuItemProfile.addEventListener('click', () => {
+      closeSettingsDropdown();
+      openDrawerTo(drawerSectionTelemetry, 'telemetry');
+      fetchTelemetryData();
+    });
+  }
+
+  if (menuItemPreferences) {
+    menuItemPreferences.addEventListener('click', () => {
+      closeSettingsDropdown();
+      if (!speakersGrid || speakersGrid.children.length === 0) {
+        renderVoiceStudio(DEFAULT_SPEAKERS, DEFAULT_MODELS);
+      }
+      loadVoiceStudio();
+      openDrawerTo(drawerSectionVoice, 'voice');
+    });
+  }
+
+  if (menuItemKeys) {
+    menuItemKeys.addEventListener('click', () => {
+      closeSettingsDropdown();
+      openDrawerTo(drawerSectionConfig, 'config');
+    });
+  }
+
+  if (menuItemSignOut) {
+    menuItemSignOut.addEventListener('click', () => {
+      closeSettingsDropdown();
+      if (confirm('Are you sure you want to sign out and clear your session?')) {
+        try {
+          localStorage.removeItem('aurora-session-id');
+        } catch (_) {}
+        currentSessionId = null;
+        transcript = [];
+        if (chatArea) chatArea.innerHTML = '';
+        if (chatAreaConv) chatAreaConv.innerHTML = '';
+        updateWorkspaceState();
+        captionAi.textContent = '“Signed out. Started a fresh session.”';
+        log('User signed out.');
+      }
+    });
+  }
+
+  // Close dropdown on outside click
+  document.addEventListener('click', (e) => {
+    if (settingsDropdown && settingsDropdown.style.display !== 'none') {
+      if (settingsMenuWrap && !settingsMenuWrap.contains(e.target)) {
+        closeSettingsDropdown();
+      }
+    }
+  });
+
+  const btnPlusTools = $('btnPlusTools');
+  if (btnPlusTools) {
+    btnPlusTools.addEventListener('click', () => {
+      if (typeInput) {
+        typeInput.placeholder = 'Try: "Scaffold an Express API" or "Compare Python vs C++"';
+        typeInput.focus();
+      }
+    });
+  }
+
+  if (drawerNavTabs) {
+    drawerNavTabs.querySelectorAll('.drawer-tab').forEach((tab) => {
+      tab.addEventListener('click', () => {
+        const target = tab.dataset.target;
+        if (target === 'voice') {
+          if (!speakersGrid || speakersGrid.children.length === 0) {
+            renderVoiceStudio(DEFAULT_SPEAKERS, DEFAULT_MODELS);
+          }
+          loadVoiceStudio();
+          openDrawerTo(drawerSectionVoice, 'voice');
+        } else if (target === 'transcripts') {
+          openDrawerTo(drawerSectionTranscripts, 'transcripts');
+          fetchAndRenderSessions();
+        } else if (target === 'telemetry') {
+          openDrawerTo(drawerSectionTelemetry, 'telemetry');
+          fetchTelemetryData();
+        } else if (target === 'config') {
+          openDrawerTo(drawerSectionConfig, 'config');
+        }
+      });
+    });
+  }
+
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
+      if (settingsDropdown && settingsDropdown.style.display !== 'none') {
+        closeSettingsDropdown();
+        return;
+      }
       if (settingsDrawer && settingsDrawer.classList.contains('open')) {
         closeDrawer();
         return;
@@ -283,67 +436,88 @@
     }
   }
 
-  function openDrawerTo(sectionEl) {
-    openDrawer();
-    if (sectionEl) {
-      setTimeout(() => {
-        sectionEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }, 80);
-    }
-    if (window.innerWidth <= 900 && appRoot) {
-      appRoot.classList.remove('sidebar-open');
-      if (btnToggleSidebar) btnToggleSidebar.classList.remove('active');
-    }
-  }
-
   function switchView(target) {
-    navItems.forEach((b) => b.classList.toggle('active', b.dataset.view === target));
+    navItems.forEach((b) => b.classList.toggle('active', b.dataset.view === target || b.dataset.target === target));
     if (target === 'companion' || target === 'home') {
+      closeDrawer();
       setMainExperience('companion');
     } else if (target === 'conversation') {
+      closeDrawer();
       setMainExperience('conversation');
     } else if (target === 'voice') {
       if (!speakersGrid || speakersGrid.children.length === 0) {
         renderVoiceStudio(DEFAULT_SPEAKERS, DEFAULT_MODELS);
       }
       loadVoiceStudio();
-      openDrawerTo(drawerSectionVoice);
+      openDrawerTo(drawerSectionVoice, 'voice');
     } else if (target === 'transcripts' || target === 'history') {
-      openDrawerTo(drawerSectionTranscripts);
+      openDrawerTo(drawerSectionTranscripts, 'transcripts');
+      fetchAndRenderSessions();
     } else if (target === 'settings' || target === 'telemetry') {
-      openDrawerTo(drawerSectionTelemetry);
+      openDrawerTo(drawerSectionTelemetry, 'telemetry');
+      fetchTelemetryData();
+    } else if (target === 'config') {
+      openDrawerTo(drawerSectionConfig, 'config');
     }
   }
 
   if (navCompanion) {
-    navCompanion.addEventListener('click', () => setMainExperience('companion', true));
+    navCompanion.addEventListener('click', () => {
+      closeDrawer();
+      setMainExperience('companion', true);
+    });
   }
 
   if (navConversation) {
-    navConversation.addEventListener('click', () => setMainExperience('conversation', true));
+    navConversation.addEventListener('click', () => {
+      closeDrawer();
+      setMainExperience('conversation', true);
+    });
   }
 
   if (navVoiceStudio) {
     navVoiceStudio.addEventListener('click', () => {
+      if (settingsDrawer && settingsDrawer.classList.contains('open') && _activeSettingsSection === 'voice') {
+        closeDrawer();
+        return;
+      }
       if (!speakersGrid || speakersGrid.children.length === 0) {
         renderVoiceStudio(DEFAULT_SPEAKERS, DEFAULT_MODELS);
       }
       loadVoiceStudio();
-      openDrawerTo(drawerSectionVoice);
+      openDrawerTo(drawerSectionVoice, 'voice');
     });
   }
 
   if (navTranscripts) {
     navTranscripts.addEventListener('click', () => {
-      openDrawerTo(drawerSectionTranscripts);
+      if (settingsDrawer && settingsDrawer.classList.contains('open') && _activeSettingsSection === 'transcripts') {
+        closeDrawer();
+        return;
+      }
+      openDrawerTo(drawerSectionTranscripts, 'transcripts');
       fetchAndRenderSessions();
     });
   }
 
   if (navTelemetry) {
     navTelemetry.addEventListener('click', () => {
-      openDrawerTo(drawerSectionTelemetry);
+      if (settingsDrawer && settingsDrawer.classList.contains('open') && _activeSettingsSection === 'telemetry') {
+        closeDrawer();
+        return;
+      }
+      openDrawerTo(drawerSectionTelemetry, 'telemetry');
       fetchTelemetryData();
+    });
+  }
+
+  if (navConfig) {
+    navConfig.addEventListener('click', () => {
+      if (settingsDrawer && settingsDrawer.classList.contains('open') && _activeSettingsSection === 'config') {
+        closeDrawer();
+        return;
+      }
+      openDrawerTo(drawerSectionConfig, 'config');
     });
   }
 
@@ -405,6 +579,13 @@
   }
 
   if (btnToggleSidebar) btnToggleSidebar.addEventListener('click', () => toggleSidebar());
+  const btnMobileToggle = $('btnMobileToggle');
+  if (btnMobileToggle) {
+    btnMobileToggle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleSidebar(true);
+    });
+  }
   if (sidebarBackdrop) {
     sidebarBackdrop.addEventListener('click', () => {
       if (appRoot) appRoot.classList.remove('sidebar-open');
@@ -1027,7 +1208,13 @@
       }
 
       case 'error': {
-        captionAi.textContent = `“${msg.message || 'Something went wrong.'}”`;
+        const errorText = msg.message || 'Something went wrong on my end.';
+        captionAi.textContent = `“${errorText}”`;
+        addMessageCard('assistant', `⚠️ ${errorText}`, msg.generation || currentGen, {
+          visualType: 'text',
+          responseMode: 'VOICE',
+        });
+        setUiState('idle');
         afterSpeaking();
         break;
       }
@@ -1057,8 +1244,11 @@
       if (!listeningMode && state === 'listening') setUiState('idle');
     },
     onError: (err) => {
-      if (err === 'not-allowed') {
+      if (err === 'not-allowed' || err === 'permission-denied') {
         micStatusTitle.textContent = 'Mic blocked';
+        micStatusSub.textContent = 'Type below instead';
+      } else if (err === 'audio-capture') {
+        micStatusTitle.textContent = 'No mic found';
         micStatusSub.textContent = 'Type below instead';
       }
       log(`Mic error: ${err}`);
@@ -1119,6 +1309,10 @@
     if (!text || !text.trim()) return;
     const cleanText = text.trim();
     if (wsReady) {
+      captionUser.style.display = 'block';
+      captionUser.textContent = cleanText;
+      captionAi.textContent = '“Thinking…”';
+      setUiState('thinking');
       ws.send(
         JSON.stringify({
           type: 'query',
@@ -1132,7 +1326,6 @@
           timestamp: Date.now(),
         })
       );
-      setUiState('thinking');
     } else {
       sendHttpQuery(cleanText, mode);
     }
@@ -1359,6 +1552,10 @@
         ? 'Unable to reach backend service. Verify backend URL in Settings.'
         : err.message || 'please try again';
       captionAi.textContent = `“Sorry, an error occurred: ${displayMsg}”`;
+      addMessageCard('assistant', `⚠️ ${displayMsg}`, myGen, {
+        visualType: 'text',
+        responseMode: 'VOICE',
+      });
       setUiState('idle');
     } finally {
       if (activeHttpAbortController === abortCtrl) {

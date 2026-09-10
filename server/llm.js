@@ -83,13 +83,7 @@ export async function getAssistantReply({
 
   const url = ENDPOINTS[provider] || ENDPOINTS.gemini;
   const defaultModel = provider === 'gemini' ? 'gemini-3.5-flash-lite' : 'llama-3.1-8b-instant';
-  const effectiveModel =
-    model &&
-    model !== 'gemini-2.0-flash' &&
-    model !== 'gemini-3.6-flash' &&
-    model !== 'llama-3.1-8b-instant'
-      ? model
-      : defaultModel;
+  const effectiveModel = model && model.trim() ? model.trim() : defaultModel;
 
   const res = await fetch(url, {
     method: 'POST',
@@ -109,13 +103,25 @@ export async function getAssistantReply({
 
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    const safeBody = body
+    let parsedMessage = '';
+    try {
+      const parsedJson = JSON.parse(body);
+      parsedMessage = parsedJson.error?.message || parsedJson.message || '';
+    } catch (_) {}
+    const safeBody = (parsedMessage || body)
       .replace(/(Bearer\s+)[a-zA-Z0-9_.-]+([a-zA-Z0-9]{4})/gi, '$1***REDACTED***$2')
       .replace(/(key=)[a-zA-Z0-9_.-]+([a-zA-Z0-9]{4})/gi, '$1***REDACTED***$2');
-    console.warn(
-      `[LLM warning] Provider returned HTTP ${res.status}. Falling back to local offline reply. (${safeBody.slice(0, 80)})`
+    console.error(
+      `[Gemini Error] HTTP ${res.status}: ${safeBody.slice(0, 150)}`
     );
-    return localFallbackReply(messages, userOverride);
+    const err = new Error(
+      safeBody
+        ? `Gemini request failed: ${safeBody.slice(0, 120)}`
+        : `Gemini request failed (HTTP ${res.status})`
+    );
+    err.code = 'LLM_REQUEST_FAILED';
+    err.status = res.status;
+    throw err;
   }
 
   const data = await res.json();

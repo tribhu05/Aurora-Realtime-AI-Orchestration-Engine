@@ -99,7 +99,8 @@ export function createAuroraServer(options = {}) {
 
   const llmConfig = {
     provider: options.llmProvider || process.env.LLM_PROVIDER || 'gemini',
-    apiKey: mock ? '' : (options.llmApiKey ?? realKey(process.env.LLM_API_KEY)),
+    apiKey:
+      mock ? '' : (options.llmApiKey ?? realKey(process.env.LLM_API_KEY || process.env.GEMINI_API_KEY)),
     model: options.llmModel || process.env.LLM_MODEL || 'gemini-3.5-flash-lite',
   };
 
@@ -172,6 +173,9 @@ export function createAuroraServer(options = {}) {
     res.status(isHealthy ? 200 : 503).json({
       ok: isHealthy,
       status: isHealthy ? 'healthy' : 'degraded',
+      llmConfigured: Boolean(llmConfig.apiKey),
+      llmProvider: llmConfig.provider,
+      rimeConfigured: Boolean(rimeConfig.apiKey),
       database: dbHealth,
       llm: {
         configured: Boolean(llmConfig.apiKey),
@@ -251,6 +255,7 @@ export function createAuroraServer(options = {}) {
       }
 
       const userText = text.trim().slice(0, 4096);
+      console.log(`[TURN] received: "${userText.slice(0, 60)}"`);
       const userOverride =
         typeof mode === 'string' && ['VOICE', 'TEXT', 'HYBRID'].includes(mode.toUpperCase())
           ? mode.toUpperCase()
@@ -379,6 +384,7 @@ export function createAuroraServer(options = {}) {
         degraded = true;
       } else {
         try {
+          console.log(`[TURN] LLM request started: ${llmConfig.provider} (${llmConfig.model})`);
           replyObj = await Promise.race([
             getAssistantReply({
               provider: llmConfig.provider,
@@ -395,6 +401,9 @@ export function createAuroraServer(options = {}) {
             ),
           ]);
         } catch (llmErr) {
+          if (llmErr?.code === 'LLM_REQUEST_FAILED') {
+            throw llmErr;
+          }
           db.recordTelemetryEvent(sessionId, 'latency_fallback', {
             reason: llmErr.message || 'timeout',
           });
@@ -403,6 +412,8 @@ export function createAuroraServer(options = {}) {
         }
       }
       const llmMs = Date.now() - t0;
+      console.log(`[TURN] LLM response received in ${llmMs}ms`);
+      console.log(`[TURN] response normalized: mode=${replyObj.responseMode || 'VOICE'}`);
 
       const visualPayload = replyObj.visualResponse || {
         type: replyObj.type || 'text',
@@ -472,6 +483,7 @@ export function createAuroraServer(options = {}) {
 
       const updatedSession = db.getOrCreateSession(sessionId);
 
+      console.log(`[TURN] response sent in ${totalMs}ms`);
       return res.json({
         ok: true,
         sessionId,
@@ -499,6 +511,15 @@ export function createAuroraServer(options = {}) {
         },
       });
     } catch (err) {
+      if (err?.code === 'LLM_REQUEST_FAILED') {
+        return res.status(err.status && err.status >= 400 && err.status < 500 ? err.status : 502).json({
+          ok: false,
+          error: {
+            code: 'LLM_REQUEST_FAILED',
+            message: err.message || 'Gemini request failed',
+          },
+        });
+      }
       console.error('[turn error]', sanitizeError(err));
       res.status(500).json({ ok: false, error: 'Internal server error processing turn.' });
     }
@@ -831,11 +852,10 @@ export function createAuroraServer(options = {}) {
           if (!quiet) {
             console.log(`✨ Aurora is listening on http://localhost:${boundPort}`);
             console.log(
-              `   Rime TTS:  ${rimeConfig.apiKey ? 'configured (' + rimeConfig.speaker + ')' : rimeConfig.mockAudio ? 'mock audio mode' : 'NOT configured — using browser speech fallback'}`
+              `   LLM provider: ${llmConfig.provider.charAt(0).toUpperCase() + llmConfig.provider.slice(1)}`
             );
-            console.log(
-              `   LLM:       ${llmConfig.apiKey ? 'configured (' + llmConfig.provider + ')' : 'NOT configured — using offline demo replies'}`
-            );
+            console.log(`   LLM configured: ${llmConfig.apiKey ? 'YES' : 'NO'}`);
+            console.log(`   Rime configured: ${rimeConfig.apiKey ? 'YES' : 'NO'}`);
           }
           resolve({ port: boundPort, server, httpServer });
         });
@@ -905,6 +925,7 @@ async function handleTurn({
   getDelayMs,
 }) {
   const turnStartTime = Date.now();
+  console.log(`[TURN] received: "${userText.slice(0, 60)}"`);
   const activeSpeaker = speaker || state.speaker || rimeConfig.speaker;
   const activeModel = modelId || state.modelId || rimeConfig.modelId;
 
@@ -1024,6 +1045,7 @@ async function handleTurn({
     degraded = true;
   } else {
     try {
+      console.log(`[TURN] LLM request started: ${llmConfig.provider} (${llmConfig.model})`);
       const llmPromise = getAssistantReply({
         provider: llmConfig.provider,
         apiKey: llmConfig.apiKey,
@@ -1043,6 +1065,23 @@ async function handleTurn({
       replyObj = await Promise.race([llmPromise, timeoutPromise]);
     } catch (err) {
       if (err?.name === 'AbortError' || controller.signal.aborted) return;
+      if (err?.code === 'LLM_REQUEST_FAILED') {
+        console.error(`[TURN error] LLM request failed:`, sanitizeError(err));
+        send(ws, {
+          type: 'error',
+          generation: myGen,
+          code: 'LLM_REQUEST_FAILED',
+          message: err.message || 'Gemini request failed',
+        });
+        send(ws, {
+          type: 'done',
+          generation: myGen,
+          totalMs: Date.now() - turnStartTime,
+          timestamp: Date.now(),
+        });
+        state.activeController = null;
+        return;
+      }
       db.recordTelemetryEvent(state.sessionId, 'latency_fallback', {
         reason: err.message || 'timeout',
       });
@@ -1059,6 +1098,8 @@ async function handleTurn({
   if (isStale(state, myGen)) return; // Generation fencing: interrupted while thinking
 
   const llmMs = Date.now() - t0;
+  console.log(`[TURN] LLM response received in ${llmMs}ms`);
+  console.log(`[TURN] response normalized: mode=${replyObj.responseMode || 'VOICE'}`);
   state.history.push({ role: 'assistant', content: replyObj.content });
 
   // Send visual chat payload to client with modality routing metadata
@@ -1178,6 +1219,7 @@ async function handleTurn({
   }
 
   send(ws, { type: 'done', generation: myGen, totalMs, timestamp: Date.now() });
+  console.log(`[TURN] response sent in ${totalMs}ms`);
 
   // Broadcast real telemetry update
   const updatedSession = db.getOrCreateSession(state.sessionId);
