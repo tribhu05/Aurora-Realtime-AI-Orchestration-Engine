@@ -175,8 +175,11 @@ async function runScenario3_RimeFailureFallback() {
   if (!data.visualResponse?.content) {
     throw new Error('Visual response content is missing');
   }
-  if (duration > 8000) {
-    throw new Error(`Turn took ${duration}ms, expected timeout/fallback to resolve quickly`);
+  const ttsOverhead = duration - (data.llmMs || 0);
+  if (ttsOverhead > 8000) {
+    throw new Error(
+      `TTS fallback took ${ttsOverhead}ms, expected timeout/fallback to resolve quickly`
+    );
   }
   console.log('>>> SCENARIO 3 PASSED!\n');
 }

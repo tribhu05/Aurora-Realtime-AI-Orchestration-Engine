@@ -145,7 +145,6 @@
   let wsReady = false;
   let currentGen = 0;
   let state = 'idle'; // idle | listening | thinking | speaking
-  let lastSpeakingStartedAt = 0;
   let listeningMode = false;
   let interruptCount = 0;
   let stalePacketsDiscarded = 0;
@@ -920,11 +919,15 @@
       }
 
       case 'user_text': {
+        const oldGen = currentGen;
         currentGen = msg.generation;
         dbgGen.textContent = `#${currentGen}`;
         captionUser.style.display = 'block';
         captionUser.textContent = msg.text;
         captionAi.textContent = '“Thinking…”';
+        if (oldGen && oldGen < currentGen) {
+          markCardInterrupted(oldGen);
+        }
         addMessageCard('user', msg.text, msg.generation);
         break;
       }
@@ -1258,18 +1261,15 @@
   // ---------- Mic & VAD Handler ----------
   const mic = new window.AuroraMic({
     onSpeechStart: () => {
-      if (state === 'speaking' || state === 'thinking') {
-        // Prevent acoustic feedback echo loop if audio just started (< 650ms)
-        if (state === 'speaking' && Date.now() - lastSpeakingStartedAt < 650) {
-          return;
-        }
+      if (state === 'speaking' || state === 'thinking' || (player && player.sourceNode)) {
         bargeIn();
+        listeningMode = true;
+        setUiState('listening');
       } else {
         setUiState('listening');
       }
     },
     onInterim: (text) => {
-      if (state === 'speaking' && Date.now() - lastSpeakingStartedAt < 650) return;
       captionUser.style.display = 'block';
       captionUser.textContent = text + '…';
       orb.setMicLevel(0.4);
@@ -1277,7 +1277,6 @@
     onFinalResult: (text) => {
       orb.setMicLevel(0);
       if (!text || !text.trim()) return;
-      if (state === 'speaking' && Date.now() - lastSpeakingStartedAt < 650) return;
       sendQuery(text);
     },
     onEnd: () => {
@@ -1310,8 +1309,11 @@
   /** Instant barge-in: silences audio synchronously in < 1ms before network roundtrip */
   function bargeIn() {
     player.stop();
-    window.speechSynthesis.cancel();
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
     hudMute.textContent = `${player.lastMuteLatencyMs} ms`;
+
+    // Immediately mark active in-flight cards and tasks as cancelled
+    markCardInterrupted(currentGen);
 
     // Increment generation immediately so any in-flight or buffered responses are discarded
     currentGen += 1;
@@ -1338,7 +1340,7 @@
 
     hudAck.textContent = '1 ms';
     flashCancelPill();
-    captionAi.textContent = '“Interrupted”';
+    captionAi.textContent = '“Interrupted — listening to your new command…”';
     setUiState(listeningMode ? 'listening' : 'idle');
   }
 
@@ -1633,6 +1635,41 @@ executeTask();`,
   function sendQuery(text, mode = null) {
     if (!text || !text.trim()) return;
     const cleanText = text.trim();
+
+    const isRunning =
+      state === 'speaking' ||
+      state === 'thinking' ||
+      (player && player.sourceNode) ||
+      (window.speechSynthesis && window.speechSynthesis.speaking) ||
+      activeHttpAbortController;
+
+    if (isRunning) {
+      player.stop();
+      if (window.speechSynthesis) window.speechSynthesis.cancel();
+      markCardInterrupted(currentGen);
+      flashCancelPill();
+      if (activeHttpAbortController) {
+        activeHttpAbortController.abort();
+        activeHttpAbortController = null;
+      }
+      currentGen += 1;
+      dbgGen.textContent = `#${currentGen}`;
+      interruptCount += 1;
+      dbgInterrupts.textContent = interruptCount;
+
+      if (ws && wsReady && ws.readyState === WebSocket.OPEN) {
+        try {
+          ws.send(
+            JSON.stringify({
+              type: 'interrupt',
+              timestamp: Date.now(),
+              bargeInMs: player.lastMuteLatencyMs,
+            })
+          );
+        } catch (_) {}
+      }
+    }
+
     if (ws && wsReady && ws.readyState === WebSocket.OPEN) {
       try {
         captionUser.style.display = 'block';
@@ -1648,7 +1685,7 @@ executeTask();`,
             speaker: currentActiveSpeaker,
             modelId: currentActiveModel,
             sttMs: 0,
-            bargeInMs: 0,
+            bargeInMs: isRunning ? player.lastMuteLatencyMs : 0,
             timestamp: Date.now(),
           })
         );
@@ -1665,6 +1702,10 @@ executeTask();`,
       activeHttpAbortController.abort();
       activeHttpAbortController = null;
     }
+    player.stop();
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+    markCardInterrupted(currentGen);
+
     const abortCtrl = new AbortController();
     activeHttpAbortController = abortCtrl;
 
@@ -2712,9 +2753,6 @@ executeTask();`,
   // ---------- UI State Machine ----------
   function setUiState(next) {
     state = next === 'complete' ? state : next;
-    if (next === 'speaking') {
-      lastSpeakingStartedAt = Date.now();
-    }
     updateStepper(next);
     if (orb && typeof orb.setState === 'function') {
       orb.setState(next);
@@ -2860,8 +2898,11 @@ executeTask();`,
       if (typeInput) typeInput.focus();
       return;
     }
-    if (state === 'speaking' || state === 'thinking') {
+    if (state === 'speaking' || state === 'thinking' || (player && player.sourceNode)) {
       bargeIn();
+      listeningMode = true;
+      mic.start();
+      setUiState('listening');
       return;
     }
     listeningMode = !listeningMode;

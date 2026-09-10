@@ -189,8 +189,8 @@ export function deterministicClassify(userText, history = []) {
   }
 
   // 8. Follow-up intent resolution based on context
-  if (history && history.length > 0) {
-    const _recentUserTurns = history.filter((h) => h.role === 'user').slice(-2);
+  if (Array.isArray(history) && history.length > 0) {
+    const _recentUserTurns = history.filter((h) => h && h.role === 'user').slice(-2);
     if (
       /\b(now give me the code|now implement|give me the implementation|show the code)\b/i.test(t)
     ) {
