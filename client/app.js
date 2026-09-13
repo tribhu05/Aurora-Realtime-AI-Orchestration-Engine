@@ -1282,7 +1282,7 @@
       case 'interrupted': {
         interruptCount += 1;
         dbgInterrupts.textContent = interruptCount;
-        currentGen = msg.newGeneration;
+        currentGen = Math.max(currentGen, msg.newGeneration || 0);
         dbgGen.textContent = `#${currentGen}`;
 
         // Empirical client-side ACK latency calculation
@@ -1377,7 +1377,7 @@
   const mic = new window.AuroraMic({
     onSpeechStart: () => {
       if (state === 'speaking' || state === 'thinking' || (player && player.sourceNode)) {
-        bargeIn();
+        bargeIn(true);
         listeningMode = true;
         setUiState('listening');
       } else {
@@ -1422,7 +1422,7 @@
   let activeHttpAbortController = null;
 
   /** Instant barge-in: silences audio synchronously in < 1ms before network roundtrip */
-  function bargeIn() {
+  function bargeIn(fromVoiceVad = false) {
     flushChunkUpdate();
     player.stop();
     if (window.speechSynthesis) window.speechSynthesis.cancel();
@@ -1457,6 +1457,12 @@
     hudAck.textContent = '1 ms';
     flashCancelPill();
     captionAi.textContent = '“Interrupted — listening to your new command…”';
+
+    // If interrupted via UI click or shortcut, cleanly reset speech recognition for next command
+    if (!fromVoiceVad && mic && typeof mic.resetForNewCommand === 'function') {
+      mic.resetForNewCommand();
+    }
+
     setUiState(listeningMode ? 'listening' : 'idle');
   }
 
@@ -1762,6 +1768,18 @@ executeTask();`,
     const cleanText = text.trim();
     if (player && typeof player._ensureContext === 'function') {
       player._ensureContext();
+    }
+
+    // Conversational Stop/Cancel handling: if user simply commanded Aurora to stop
+    const isStopCommand = /^(stop|cancel|quiet|be quiet|shut up|pause|silence|halt|nevermind|never mind)[.!]?$/i.test(cleanText);
+    if (isStopCommand) {
+      bargeIn(false);
+      captionAi.textContent = '“Stopped — listening to your command…”';
+      setUiState('listening');
+      if (mic && typeof mic.resetForNewCommand === 'function') {
+        mic.resetForNewCommand();
+      }
+      return;
     }
 
     const isRunning =
@@ -2962,9 +2980,13 @@ executeTask();`,
       return;
     }
     if (state === 'speaking' || state === 'thinking' || (player && player.sourceNode)) {
-      bargeIn();
+      bargeIn(false);
       listeningMode = true;
-      mic.start();
+      if (typeof mic.resetForNewCommand === 'function') {
+        mic.resetForNewCommand();
+      } else {
+        mic.start();
+      }
       setUiState('listening');
       return;
     }

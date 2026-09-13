@@ -736,6 +736,9 @@ export function createAuroraServer(options = {}) {
           state.activeController = null;
         }
         state.generation += 1;
+        state.ttsChain = Promise.resolve();
+        state.ttsSentCount = 0;
+        state.ttsProcessedIndex = 0;
         const serverProcessingNs = Number(process.hrtime.bigint() - t0);
         const serverProcessingMs = Number((serverProcessingNs / 1e6).toFixed(3));
         const bargeInMs = typeof msg.bargeInMs === 'number' ? msg.bargeInMs : serverProcessingMs;
@@ -1102,7 +1105,7 @@ async function handleTurn({
               } else if (clauseMatch) {
                 const candidate = remaining.substring(0, clauseMatch.index).trim();
                 const wordCount = candidate.split(/\s+/).filter(Boolean).length;
-                if (wordCount >= 4) {
+                if (wordCount >= 3) {
                   match = clauseMatch;
                   matchLength = clauseMatch[0].length;
                 } else if (sentMatch) {
@@ -1128,13 +1131,17 @@ async function handleTurn({
             if (textToSpeak.length > 1) {
               state.ttsSentCount++;
               const audioTurnStart = turnStartTime;
-              state.ttsChain = state.ttsChain.then(() => {
+              // Launch synthesis HTTP fetch concurrently without waiting for prior chunks to finish
+              const synthPromise = synthesizeSpeech(
+                textToSpeak,
+                { ...rimeConfig, speaker: activeSpeaker, modelId: activeModel },
+                controller.signal
+              );
+              // Strictly sequence delivery over WebSocket so playback remains in natural order
+              state.ttsChain = state.ttsChain.then(async () => {
                 if (isStale(state, myGen)) return null;
-                return synthesizeSpeech(
-                  textToSpeak,
-                  { ...rimeConfig, speaker: activeSpeaker, modelId: activeModel },
-                  controller.signal
-                ).then((buffer) => {
+                try {
+                  const buffer = await synthPromise;
                   if (buffer && !isStale(state, myGen)) {
                     send(ws, {
                       type: 'audio',
@@ -1146,7 +1153,7 @@ async function handleTurn({
                       totalMs: Date.now() - audioTurnStart,
                     });
                   }
-                }).catch((e) => {
+                } catch (e) {
                   if (e?.name !== 'AbortError') {
                     console.error('[rime error]', e.message);
                     if (!isStale(state, myGen)) {
@@ -1158,7 +1165,7 @@ async function handleTurn({
                       });
                     }
                   }
-                });
+                }
               });
             }
           }
@@ -1325,14 +1332,15 @@ async function handleTurn({
     const tail = cleanFull.slice(state.ttsProcessedIndex).replace(/[*_#\[\]>]/g, '').trim();
     if (tail.length > 1) {
       const audioTurnStart = turnStartTime;
+      const tailSynthPromise = synthesizeSpeech(
+        tail,
+        { ...rimeConfig, speaker: activeSpeaker, modelId: activeModel },
+        controller.signal
+      );
       state.ttsChain = state.ttsChain.then(async () => {
         if (isStale(state, myGen)) return null;
         try {
-          const buf = await synthesizeSpeech(
-            tail,
-            { ...rimeConfig, speaker: activeSpeaker, modelId: activeModel },
-            controller.signal
-          );
+          const buf = await tailSynthPromise;
           if (buf && !isStale(state, myGen)) {
             send(ws, {
               type: 'audio',
