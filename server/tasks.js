@@ -4,6 +4,7 @@
 // and instant barge-in cancellation via AbortSignal.
 
 import { synthesizeSpeech } from './rime.js';
+import { getAssistantReply } from './llm.js';
 
 export function isTaskRequest(text) {
   if (!text || typeof text !== 'string') return false;
@@ -67,6 +68,7 @@ export async function executeScaffoldTask({
   signal,
   send,
   rimeConfig,
+  llmConfig,
 }) {
   const isTs = /\b(typescript|ts)\b/i.test(userText);
   const isTodo = /\b(todo|todos)\b/i.test(userText);
@@ -165,7 +167,48 @@ export async function executeScaffoldTask({
   }
 
   // 4. Generate primary code
-  const primaryCode = isTs ? getTsExpressCode(isTodo) : getJsExpressCode(isTodo);
+
+  // 4. Generate primary code
+  let primaryCode;
+  try {
+    const replyObj = await getAssistantReply({
+      provider: llmConfig.provider,
+      apiKey: llmConfig.apiKey,
+      model: llmConfig.model,
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You are an expert coder. Scaffold the requested code inside a markdown code block. Return ONLY the code.',
+        },
+        { role: 'user', content: userText },
+      ],
+      signal,
+    });
+
+    primaryCode =
+      replyObj.visualResponse?.content || replyObj.content || replyObj.spokenResponse || '';
+    if (primaryCode.includes('```')) {
+      const match = primaryCode.match(/```[a-zA-Z0-9_-]*\n([\s\S]*?)```/);
+      if (match) {
+        primaryCode = match[1].trim();
+      } else {
+        primaryCode = primaryCode
+          .replace(/```[a-zA-Z0-9_-]*\n/g, '')
+          .replace(/```$/g, '')
+          .trim();
+      }
+    }
+  } catch (err) {
+    if (err?.name === 'AbortError') return;
+    console.error('[Task LLM Error]', err);
+    primaryCode = isTs ? getTsExpressCode(isTodo) : getJsExpressCode(isTodo);
+  }
+
+  if (!primaryCode.trim()) {
+    primaryCode = isTs ? getTsExpressCode(isTodo) : getJsExpressCode(isTodo);
+  }
+
   const resourceName = isTodo ? 'todos' : 'items';
   const filesList = [
     { name: 'package.json', path: 'package.json', type: 'config' },

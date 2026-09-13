@@ -965,6 +965,7 @@ async function handleTurn({
           speaker: activeSpeaker,
           modelId: activeModel,
         },
+        llmConfig,
       });
 
       if (!isStale(state, myGen)) {
@@ -1032,8 +1033,10 @@ async function handleTurn({
   }
 
   // 2. Standard dual-channel LLM turn with Intelligent Response Routing
+  state.ttsSentCount = 0;
+  state.ttsChain = Promise.resolve();
+  let hasSentAiTextStart = false;
   send(ws, { type: 'thinking', generation: myGen, timestamp: Date.now() });
-
   const t0 = Date.now();
   let replyObj;
   let degraded = false;
@@ -1051,6 +1054,53 @@ async function handleTurn({
         messages: state.history,
         signal: controller.signal,
         userOverride,
+        onChunk: (fullText) => {
+          if (isStale(state, myGen)) return;
+          if (!hasSentAiTextStart) {
+            hasSentAiTextStart = true;
+            send(ws, { type: 'ai_text_start', generation: myGen, timestamp: Date.now() });
+          }
+
+          send(ws, { type: 'ai_text_chunk', text: fullText, generation: myGen, visualType: 'text' });
+
+          let clean = fullText.replace(/```[\s\S]*?(?:```|$)/g, '').replace(/`[^`]+(?:`|$)/g, '');
+          const boundaries = /[.!?\n]+(?:\s+|$)/g;
+          let match;
+          let lastIndex = 0;
+          let completeChunks = [];
+          
+          while ((match = boundaries.exec(clean)) !== null) {
+              const chunk = clean.substring(lastIndex, match.index + match[0].length).trim();
+              if (chunk.length > 0) completeChunks.push(chunk);
+              lastIndex = match.index + match[0].length;
+          }
+
+          for (let i = state.ttsSentCount; i < completeChunks.length; i++) {
+              state.ttsSentCount++;
+              let textToSpeak = completeChunks[i].replace(/[*_#]/g, '').trim();
+              if (textToSpeak.length > 1) {
+                  state.ttsChain = state.ttsChain.then(() => {
+                      if (isStale(state, myGen)) return null;
+                      return synthesizeSpeech(textToSpeak, { ...rimeConfig, speaker: activeSpeaker, modelId: activeModel }, controller.signal)
+                          .then(buffer => {
+                              if (buffer && !isStale(state, myGen)) {
+                                  send(ws, {
+                                      type: 'audio',
+                                      generation: myGen,
+                                      speaker: activeSpeaker,
+                                      modelId: activeModel,
+                                      format: rimeConfig.audioFormat,
+                                      chunk: buffer.toString('base64'),
+                                      totalMs: Date.now() - turnStartTime
+                                  });
+                              }
+                          }).catch(e => {
+                              if (e?.name !== 'AbortError') console.error('[rime error]', e.message);
+                          });
+                  });
+              }
+          }
+        }
       });
 
       const timeoutPromise = new Promise((_, reject) => {
@@ -1096,29 +1146,16 @@ async function handleTurn({
   if (isStale(state, myGen)) return; // Generation fencing: interrupted while thinking
 
   const llmMs = Date.now() - t0;
+  const ttsMs = 0;
   console.log(`[TURN] LLM response received in ${llmMs}ms`);
   console.log(`[TURN] response normalized: mode=${replyObj.responseMode || 'VOICE'}`);
   state.history.push({ role: 'assistant', content: replyObj.content });
 
-  // Send visual chat payload to client with modality routing metadata
-  const visualPayload = replyObj.visualResponse || {
-    type: replyObj.type || 'text',
-    language: replyObj.language || null,
-    title: replyObj.title || null,
-    content: replyObj.content,
-  };
-
   send(ws, {
     type: 'ai_text',
-    text: visualPayload.content || replyObj.content,
-    spoken: replyObj.spokenResponse || replyObj.spoken,
-    visual: visualPayload,
-    visualType: visualPayload.type || replyObj.visualType || replyObj.type || 'text',
-    language: visualPayload.language || replyObj.language || null,
-    title: visualPayload.title || replyObj.title || null,
-    responseMode: replyObj.responseMode || 'VOICE',
-    spokenResponse: replyObj.spokenResponse || replyObj.spoken,
-    visualResponse: visualPayload,
+    text: replyObj.content,
+    visualType: 'text',
+    responseMode: 'TEXT',
     generation: myGen,
     llmMs,
     timestamp: Date.now(),
@@ -1128,44 +1165,17 @@ async function handleTurn({
   if (delayMs > 0) {
     await sleep(delayMs, controller.signal);
   }
-  if (isStale(state, myGen)) return; // Generation fencing: interrupted during sleep
+  if (isStale(state, myGen)) return; 
 
-  // Synthesize speech ONLY from the spoken channel (NEVER raw code or JSON)
-  const spokenText =
-    replyObj.spokenResponse ||
-    replyObj.spoken ||
-    (visualPayload.type === 'code'
-      ? "I've written the code in the workspace."
-      : "I've placed the response in the workspace.");
-  const t1 = Date.now();
-  let audioBuffer;
-  try {
-    audioBuffer = await synthesizeSpeech(
-      spokenText,
-      {
-        ...rimeConfig,
-        speaker: activeSpeaker,
-        modelId: activeModel,
-      },
-      controller.signal
-    );
-  } catch (err) {
-    if (err?.name === 'AbortError') return;
-    console.error('[rime error]', err.message);
-    audioBuffer = null; // fall back to local speech synthesis on the client
-  }
-  if (isStale(state, myGen)) return; // Generation fencing: interrupted during TTS synthesis
-
-  const ttsMs = Date.now() - t1;
   const totalMs = Date.now() - turnStartTime;
-
+  
   // Cost calculation
   const costBreakdown = calculateTurnCost({
-    promptTokens: replyObj.promptTokens,
-    completionTokens: replyObj.completionTokens,
+    promptTokens: replyObj.promptTokens || 0,
+    completionTokens: replyObj.completionTokens || 0,
     modelId: replyObj.llmModel || llmConfig.model,
     provider: replyObj.provider || llmConfig.provider,
-    spokenChars: spokenText.length,
+    spokenChars: replyObj.content.length,
     ttsModelId: activeModel,
   });
 
@@ -1174,12 +1184,12 @@ async function handleTurn({
     sessionId: state.sessionId,
     turnIndex: (session.turn_count || 0) + 1,
     userText,
-    spokenText,
-    visualPayload,
-    audioRef: audioBuffer ? `rime:${activeSpeaker}` : null,
+    spokenText: replyObj.content,
+    visualPayload: { type: 'text', content: replyObj.content },
+    audioRef: `rime:${activeSpeaker}`,
     sttMs,
     llmMs,
-    ttsMs,
+    ttsMs: 0,
     bargeInMs,
     totalMs,
     promptTokens: costBreakdown.promptTokens,
@@ -1191,24 +1201,11 @@ async function handleTurn({
     speaker: activeSpeaker,
   });
 
-  if (audioBuffer) {
-    send(ws, {
-      type: 'audio',
-      generation: myGen,
-      speaker: activeSpeaker,
-      modelId: activeModel,
-      format: rimeConfig.audioFormat,
-      data: audioBuffer.toString('base64'),
-      ttsMs,
-      llmMs,
-      totalMs,
-      timestamp: Date.now(),
-    });
-  } else {
-    // Graceful fallback: no Rime key or Rime failed -> speak locally in-browser.
+  if (!rimeConfig.apiKey) {
+    // Graceful fallback: no Rime key -> speak locally in-browser.
     send(ws, {
       type: 'speak_local',
-      text: spokenText,
+      text: replyObj.content,
       generation: myGen,
       llmMs,
       totalMs,
@@ -1216,7 +1213,11 @@ async function handleTurn({
     });
   }
 
-  send(ws, { type: 'done', generation: myGen, totalMs, timestamp: Date.now() });
+  state.ttsChain.then(() => {
+    if (!isStale(state, myGen)) {
+      send(ws, { type: 'done', generation: myGen, totalMs, timestamp: Date.now() });
+    }
+  });
   console.log(`[TURN] response sent in ${totalMs}ms`);
 
   // Broadcast real telemetry update

@@ -13,6 +13,8 @@ class AuroraAudioPlayer {
     this.onEnded = null;
     this.lastMuteLatencyMs = 0.12; // Baseline hardware mute latency (<1ms)
     this.audioCache = new Map(); // generationId -> { base64, mimeType }
+    this.audioQueue = [];
+    this.isQueuePlaying = false;
   }
 
   _ensureContext() {
@@ -30,6 +32,8 @@ class AuroraAudioPlayer {
 
   /** Instantly silence any current playback. Synchronous, <1ms. */
   stop() {
+    this.audioQueue = [];
+    this.isQueuePlaying = false;
     const t0 = performance.now();
     if (!this.ctx) {
       this.lastMuteLatencyMs = 0.08;
@@ -57,6 +61,24 @@ class AuroraAudioPlayer {
     }
   }
 
+  queueBase64(base64, mimeType = 'audio/mpeg', generation = null, onComplete = null) {
+    if (!base64 || typeof base64 !== 'string') return;
+    this.audioQueue.push({ base64, mimeType, generation, onComplete });
+    this._processQueue();
+  }
+
+  async _processQueue() {
+    if (this.isQueuePlaying) return;
+    this.isQueuePlaying = true;
+    while (this.audioQueue.length > 0) {
+      const next = this.audioQueue.shift();
+      await this.playBase64(next.base64, next.mimeType, next.generation);
+      if (next.onComplete) next.onComplete();
+    }
+    this.isQueuePlaying = false;
+    if (this.onQueueEmpty) this.onQueueEmpty();
+  }
+
   /** Play base64-encoded audio (mp3/wav). Resolves when playback finishes naturally. */
   async playBase64(base64, mimeType = 'audio/mpeg', generation = null) {
     if (!base64 || typeof base64 !== 'string') {
@@ -64,7 +86,16 @@ class AuroraAudioPlayer {
     }
     this._ensureContext();
     if (this.ctx.state === 'suspended') await this.ctx.resume();
-    this.stop();
+    // Do NOT clear the queue here; just stop current playing node
+    try {
+      this.gainNode.gain.cancelScheduledValues(this.ctx.currentTime);
+      this.gainNode.gain.setValueAtTime(0, this.ctx.currentTime);
+    } catch (_) {}
+    if (this.sourceNode) {
+      try { this.sourceNode.stop(0); } catch (_) {}
+      this.sourceNode.disconnect();
+      this.sourceNode = null;
+    }
 
     if (generation != null) {
       this.cacheAudio(generation, base64, mimeType);

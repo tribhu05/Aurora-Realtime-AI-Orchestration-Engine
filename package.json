@@ -35,8 +35,9 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.125.0",
     "cors": "^2.8.5",
-    "dotenv": "^16.4.7",
+    "dotenv": "^16.6.1",
     "express": "^4.21.2",
     "ws": "^8.18.0"
   },

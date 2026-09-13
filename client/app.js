@@ -139,9 +139,33 @@
 
   // Core Audio & State
   const player = new window.AuroraAudioPlayer();
+  player.onQueueEmpty = () => { afterSpeaking(); };
   const orb = new window.AuroraOrb(orbCanvas, player);
 
   let ws = null;
+  // === INJECTED CLIENT LOGGING ===
+  window.addEventListener('error', (event) => {
+    if (ws && ws.readyState === 1) {
+      ws.send(
+        JSON.stringify({
+          type: 'client_error',
+          message: event.message,
+          filename: event.filename,
+          lineno: event.lineno,
+          colno: event.colno,
+          stack: event.error ? event.error.stack : null,
+        })
+      );
+    }
+  });
+  window.addEventListener('unhandledrejection', (event) => {
+    if (ws && ws.readyState === 1) {
+      ws.send(
+        JSON.stringify({ type: 'client_error', message: 'Unhandled Rejection: ' + event.reason })
+      );
+    }
+  });
+
   let wsReady = false;
   let currentGen = 0;
   let state = 'idle'; // idle | listening | thinking | speaking
@@ -919,44 +943,88 @@
       }
 
       case 'user_text': {
+        if (msg.generation < currentGen) return;
         const oldGen = currentGen;
         currentGen = msg.generation;
         dbgGen.textContent = `#${currentGen}`;
         captionUser.style.display = 'block';
         captionUser.textContent = msg.text;
         captionAi.textContent = '“Thinking…”';
-        if (oldGen && oldGen < currentGen) {
-          markCardInterrupted(oldGen);
-        }
         addMessageCard('user', msg.text, msg.generation);
         break;
       }
 
       case 'thinking': {
+        if (msg.generation && msg.generation < currentGen) return;
         setUiState('thinking');
         break;
       }
 
-      case 'ai_text': {
-        const normalized = normalizeAssistantPayload(msg.text, {
-          speaker: currentActiveSpeaker,
-          model: currentActiveModel,
-          llmMs: msg.llmMs,
-          spoken: msg.spoken,
-          visualType: msg.visualType || msg.type,
+      case 'ai_text_start': {
+        if (msg.generation < currentGen) return;
+        const oldGen = currentGen;
+        currentGen = msg.generation;
+        if (dbgGen) dbgGen.textContent = `#${currentGen}`;
+        if (captionAi) captionAi.textContent = '“Generating…”';
+        updateMessageCard('assistant', '', msg.generation);
+        break;
+      }
+
+      case 'ai_text_chunk': {
+        if (msg.generation < currentGen) return;
+        if (captionAi && msg.spoken) captionAi.textContent = `“${msg.spoken}”`;
+        updateMessageCard('assistant', msg.text, msg.generation, {
+          visualType: msg.visualType,
           language: msg.language,
           title: msg.title,
           responseMode: msg.responseMode,
-          spokenResponse: msg.spokenResponse,
-          visualResponse: msg.visualResponse || msg.visual,
         });
+        break;
+      }
 
-        captionAi.textContent = `“${normalized.spoken}”`;
-
-        if (msg.llmMs != null) {
-          dbgLatency.textContent = `${msg.llmMs}ms to think`;
+      case 'ai_text': {
+        console.log('[DEBUG] ai_text received:', msg);
+        console.log('[DEBUG] currentGen:', currentGen);
+        if (msg.generation < currentGen) {
+          console.log('[DEBUG] returning early because msg.generation < currentGen');
+          if (ws && ws.readyState === 1)
+            ws.send(
+              JSON.stringify({
+                type: 'client_error',
+                message:
+                  'Returned early: msg.gen ' + msg.generation + ' < currentGen ' + currentGen,
+              })
+            );
+          return;
         }
-        addMessageCard('assistant', normalized.text, msg.generation, normalized.meta);
+        try {
+          const normalized = normalizeAssistantPayload(msg.text, {
+            speaker: currentActiveSpeaker,
+            model: currentActiveModel,
+            llmMs: msg.llmMs,
+            spoken: msg.spoken,
+            visualType: msg.visualType || msg.type,
+            language: msg.language,
+            title: msg.title,
+            responseMode: msg.responseMode,
+            spokenResponse: msg.spokenResponse,
+            visualResponse: msg.visualResponse || msg.visual,
+          });
+          console.log('[DEBUG] normalized payload:', normalized);
+
+          captionAi.textContent = `“${normalized.spoken}”`;
+
+          if (msg.llmMs != null && dbgLatency) {
+            dbgLatency.textContent = `${msg.llmMs}ms to think`;
+          }
+          updateMessageCard('assistant', normalized.text, msg.generation, normalized.meta);
+        } catch (err) {
+          console.error('[DEBUG] error in ai_text:', err);
+          if (ws && ws.readyState === 1)
+            ws.send(
+              JSON.stringify({ type: 'client_error', message: err.message, stack: err.stack })
+            );
+        }
         break;
       }
 
@@ -1139,8 +1207,8 @@
         const audioData = msg.chunk || msg.data;
         const mime = msg.format === 'wav' ? 'audio/wav' : 'audio/mpeg';
         if (msg.totalMs != null) {
-          dbgLatency.textContent = `${msg.totalMs}ms TTFA`;
-          hudTtfa.textContent = `${msg.totalMs} ms`;
+          if (dbgLatency) dbgLatency.textContent = `${msg.totalMs}ms TTFA`;
+          if (hudTtfa) hudTtfa.textContent = `${msg.totalMs} ms`;
         }
 
         if (audioData) {
@@ -1148,14 +1216,13 @@
           player.cacheAudio(msg.generation, audioData, mime);
           updateCardAudioState(msg.generation, true);
 
-          player
-            .playBase64(audioData, mime, msg.generation)
-            .then(() => {
-              if (msg.generation === currentGen) afterSpeaking();
-            })
-            .catch(() => {
-              if (msg.generation === currentGen) afterSpeaking();
-            });
+          player.queueBase64(audioData, mime, msg.generation);
+          // With queueBase64, we don't immediately know when the whole generation is done,
+          // but we can just let afterSpeaking() handle state when the whole turn is done
+          // or we can just leave it since the queue handles the audio sequence.
+          // Wait, afterSpeaking() resets the UI state back to idle.
+          // If we queue chunks, we should probably set an interval to check if queue is empty,
+          // but the state machine might be handled by the server sending a 'done' message anyway.
         } else {
           // If Rime TTS returned null audio, check if browser speech should speak or complete
           afterSpeaking();
@@ -1171,7 +1238,7 @@
         }
         setUiState('speaking');
         if (msg.totalMs != null) {
-          dbgLatency.textContent = `${msg.totalMs}ms TTFA`;
+          if (dbgLatency) dbgLatency.textContent = `${msg.totalMs}ms TTFA`;
           hudTtfa.textContent = `${msg.totalMs} ms`;
         }
         let speakText = msg.text || '';
@@ -1585,7 +1652,7 @@ executeTask();`,
           userProvider === 'groq'
             ? 'https://api.groq.com/openai/v1/chat/completions'
             : 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
-        const model = userProvider === 'groq' ? 'llama-3.1-8b-instant' : 'gemini-2.5-flash';
+        const model = userProvider === 'groq' ? 'llama-3.1-8b-instant' : 'gemini-2.0-flash';
         const res = await fetch(endpoint, {
           method: 'POST',
           headers: {
@@ -1627,8 +1694,14 @@ executeTask();`,
       }
     } catch (_) {}
 
-    // 2. Built-in intelligent deterministic response
-    return generateClientFallbackReply(cleanText, history);
+    // 2. Fallback if backend is completely unavailable
+    return {
+      responseMode: 'TEXT',
+      spoken: 'I am sorry, but the backend is currently unavailable.',
+      text: '?? **Backend Unavailable**\n\nI am sorry, but the backend service is currently unavailable. Please check your connection or start the server.',
+      visualType: 'text',
+      title: 'Error'
+    };
   }
 
   // ---------- Sending Queries ----------
@@ -1698,13 +1771,22 @@ executeTask();`,
   }
 
   async function sendHttpQuery(cleanText, mode = null) {
+    const isRunning =
+      state === 'speaking' ||
+      state === 'thinking' ||
+      (player && player.sourceNode) ||
+      (window.speechSynthesis && window.speechSynthesis.speaking) ||
+      activeHttpAbortController;
+
     if (activeHttpAbortController) {
       activeHttpAbortController.abort();
       activeHttpAbortController = null;
     }
-    player.stop();
-    if (window.speechSynthesis) window.speechSynthesis.cancel();
-    markCardInterrupted(currentGen);
+    if (isRunning) {
+      player.stop();
+      if (window.speechSynthesis) window.speechSynthesis.cancel();
+      markCardInterrupted(currentGen);
+    }
 
     const abortCtrl = new AbortController();
     activeHttpAbortController = abortCtrl;
@@ -1844,7 +1926,7 @@ executeTask();`,
       }
 
       const totalMs = data.totalMs || Date.now() - turnStartTime;
-      dbgLatency.textContent = `${totalMs}ms (HTTP)`;
+      if (dbgLatency) dbgLatency.textContent = `${totalMs}ms (HTTP)`;
       hudTtfa.textContent = `${totalMs} ms`;
 
       updateTelemetryDisplay(
@@ -2005,185 +2087,86 @@ executeTask();`,
   }
 
   // ---------- Assistant Message Normalization Safeguard ----------
-  // Ensures structured responses, stringified JSON strings, or malformed payloads
-  // are never displayed raw in the UI or read aloud by voice synthesis.
+  // ---------- Assistant Message Normalization Safeguard ----------
   function normalizeAssistantPayload(rawText, rawMeta = {}) {
     let text = typeof rawText === 'string' ? rawText : '';
     let meta = { ...rawMeta };
 
-    function tryParseJson(str) {
-      if (!str || typeof str !== 'string') return null;
-      let s = str.trim();
-      if (s.startsWith('```json')) s = s.slice(7);
-      else if (s.startsWith('```')) s = s.slice(3);
-      if (s.endsWith('```')) s = s.slice(0, -3);
-      s = s.trim();
-      if (!s.startsWith('{')) return null;
+    let cleanSpoken = text.replace(/```[\s\S]*?(?:```|$)/g, '').replace(/`[^`]+(?:`|$)/g, '');
+    cleanSpoken = cleanSpoken.replace(/[*_#\[\]>]/g, '').trim();
 
-      try {
-        const obj = JSON.parse(s);
-        if (obj && typeof obj === 'object') return obj;
-      } catch (_) {}
-
-      try {
-        const repaired = s.replace(/:\s*"([\s\S]*?)"(?=\s*[,}])/g, (_match, p1) => {
-          const escaped = p1
-            .replace(/\\/g, '\\\\')
-            .replace(/"/g, '\\"')
-            .replace(/\n/g, '\\n')
-            .replace(/\r/g, '\\r')
-            .replace(/\t/g, '\\t');
-          return `: "${escaped}"`;
-        });
-        const parsed = JSON.parse(repaired);
-        if (parsed && typeof parsed === 'object') return parsed;
-      } catch (_) {}
-
-      // Regex fallback extraction
-      if (
-        s.includes('"spoken"') ||
-        s.includes('"spokenResponse"') ||
-        s.includes('"content"') ||
-        s.includes('"type"')
-      ) {
-        const extracted = {};
-        const mode = s.match(/"responseMode"\s*:\s*"([A-Za-z]+)"/i);
-        if (mode) extracted.responseMode = mode[1].toUpperCase();
-
-        const spk = s.match(/"(?:spokenResponse|spoken)"\s*:\s*"((?:[^"\\]|\\.)*)"/i);
-        if (spk) extracted.spoken = spk[1].replace(/\\"/g, '"').replace(/\\n/g, ' ');
-
-        const typ = s.match(/"type"\s*:\s*"([A-Za-z]+)"/i);
-        if (typ) extracted.type = typ[1].toLowerCase();
-
-        const lng = s.match(/"language"\s*:\s*"([A-Za-z0-9_+-]+)"/i);
-        if (lng) extracted.language = lng[1].toLowerCase();
-
-        const ttl = s.match(/"title"\s*:\s*"([^"\r\n]+)"/i);
-        if (ttl) extracted.title = ttl[1];
-
-        const contentMatch = s.match(/"content"\s*:\s*"/);
-        if (contentMatch) {
-          const startIndex = contentMatch.index + contentMatch[0].length;
-          const lastBrace = s.lastIndexOf('}');
-          const endSearch = lastBrace !== -1 ? lastBrace : s.length;
-          const lastQuote = s.lastIndexOf('"', endSearch - 1);
-          if (lastQuote > startIndex) {
-            extracted.content = s
-              .slice(startIndex, lastQuote)
-              .replace(/\\n/g, '\n')
-              .replace(/\\r/g, '\r')
-              .replace(/\\t/g, '\t')
-              .replace(/\\"/g, '"')
-              .replace(/\\\\/g, '\\');
-          }
-        }
-        if (extracted.content || extracted.spoken || extracted.type) return extracted;
+    return {
+      text: text,
+      spoken: cleanSpoken || 'Done.',
+      meta: {
+        visualType: 'text',
+        responseMode: 'TEXT',
+        ...meta
       }
-      return null;
-    }
-
-    // 1. Check if rawText itself is stringified JSON
-    const parsedText = tryParseJson(text);
-    if (parsedText) {
-      if (parsedText.spoken && !meta.spoken) meta.spoken = parsedText.spoken;
-      if (parsedText.spokenResponse && !meta.spokenResponse)
-        meta.spokenResponse = parsedText.spokenResponse;
-      if (parsedText.responseMode && !meta.responseMode)
-        meta.responseMode = parsedText.responseMode;
-      if (parsedText.type && !meta.visualType) meta.visualType = parsedText.type;
-      if (parsedText.language && !meta.language) meta.language = parsedText.language;
-      if (parsedText.title && !meta.title) meta.title = parsedText.title;
-
-      if (parsedText.visualResponse && typeof parsedText.visualResponse === 'object') {
-        const vr = parsedText.visualResponse;
-        if (vr.type) meta.visualType = vr.type;
-        if (vr.language) meta.language = vr.language;
-        if (vr.title) meta.title = vr.title;
-        text = vr.content != null ? vr.content : text;
-      } else if (parsedText.content != null) {
-        text = parsedText.content;
-      }
-    }
-
-    // 2. Check meta.visualResponse
-    if (meta.visualResponse && typeof meta.visualResponse === 'object') {
-      if (meta.visualResponse.type) meta.visualType = meta.visualResponse.type;
-      if (meta.visualResponse.language) meta.language = meta.visualResponse.language;
-      if (meta.visualResponse.title) meta.title = meta.visualResponse.title;
-      if (meta.visualResponse.content && (!text || text === rawText || text.startsWith('{'))) {
-        text = meta.visualResponse.content;
-      }
-    }
-
-    // 3. Second pass: is text still serialized JSON?
-    if (typeof text === 'string' && text.trim().startsWith('{')) {
-      const nested = tryParseJson(text);
-      if (nested) {
-        if (nested.spoken && !meta.spoken) meta.spoken = nested.spoken;
-        if (nested.type) meta.visualType = nested.type;
-        if (nested.language) meta.language = nested.language;
-        if (nested.title) meta.title = nested.title;
-        if (nested.visualResponse?.content) text = nested.visualResponse.content;
-        else if (nested.content) text = nested.content;
-      }
-    }
-
-    // 4. Format detection & normalization
-    let visualType = meta.visualType || meta.type || 'text';
-    if (visualType === 'text') {
-      if (
-        /(?:^|\b)(?:#include\s*<|def\s+\w+\s*\(|function\s+\w+\s*\(|const\s+\w+\s*=|class\s+\w+|std::|int\s+main\s*\()/m.test(
-          text
-        ) ||
-        /^```[a-zA-Z0-9_-]*\n[\s\S]*?```$/m.test(text.trim())
-      ) {
-        visualType = 'code';
-        if (!meta.language) {
-          if (text.includes('#include') || text.includes('std::') || text.includes('cout'))
-            meta.language = 'cpp';
-          else if (text.includes('def ') || text.includes('import numpy')) meta.language = 'python';
-          else if (text.includes('function ') || text.includes('console.log'))
-            meta.language = 'javascript';
-        }
-      } else if (/\|[^\n]+\|\n\|[-:\s|]+\|/m.test(text)) {
-        visualType = 'table';
-      } else if (/^#{1,4}\s+|^\s*[-*]\s+/m.test(text)) {
-        visualType = 'markdown';
-      }
-    }
-
-    // 5. Strip code fences if visualType is code
-    if (visualType === 'code' && typeof text === 'string') {
-      const fenceMatch = text.match(/^```([a-zA-Z0-9_-]*)\n([\s\S]*?)```$/);
-      if (fenceMatch) {
-        if (!meta.language && fenceMatch[1]) meta.language = fenceMatch[1].toLowerCase().trim();
-        text = fenceMatch[2].trim();
-      }
-    }
-
-    // 6. Ensure clean spoken response
-    let spoken = meta.spokenResponse || meta.spoken || '';
-    if (!spoken || spoken.trim().startsWith('{') || spoken.includes('"spoken"')) {
-      if (visualType === 'code') {
-        spoken = meta.title
-          ? `Done. I've placed ${meta.title} in the workspace.`
-          : "Done. I've placed the code implementation in the workspace.";
-      } else if (visualType === 'table') {
-        spoken = 'Here is the comparison table in the workspace.';
-      } else {
-        spoken = "I've placed the response in the workspace.";
-      }
-    }
-
-    meta.visualType = visualType;
-    meta.spoken = spoken;
-    meta.spokenResponse = spoken;
-
-    return { text, meta, spoken, visualType };
+    };
   }
 
   // ---------- Message Cards (Conversation & Timeline) ----------
+  function updateMessageCard(role, text, gen, meta = {}) {
+    const rows = document.querySelectorAll(`.msg-row[data-gen="${gen}"]`);
+    if (!rows.length) return addMessageCard(role, text, gen, meta);
+
+    const norm = normalizeAssistantPayload(text, meta);
+    const cleanText = norm.text;
+    const cleanMeta = norm.meta;
+    const visualType = cleanMeta.visualType || 'text';
+    let contentHtml;
+
+    if (visualType === 'code' && window.AuroraHighlighter) {
+      contentHtml = window.AuroraHighlighter.renderCodeBlock({
+        code: cleanText,
+        language: cleanMeta.language || 'cpp',
+        title: cleanMeta.title || 'Code Implementation',
+      });
+    } else if (visualType === 'table' && window.AuroraMarkdown) {
+      contentHtml = window.AuroraMarkdown.render(cleanText);
+    } else if (window.AuroraMarkdown) {
+      contentHtml = window.AuroraMarkdown.render(cleanText);
+    } else {
+      contentHtml = `<p style="white-space: pre-wrap">${escapeHtml(cleanText)}</p>`;
+    }
+
+    rows.forEach((row) => {
+      row.classList.add('has-rich-content');
+      const contentDiv = row.querySelector('.msg-content');
+      if (contentDiv) contentDiv.innerHTML = contentHtml;
+
+      const metaDiv = row.querySelector('.assistant-meta') || row.querySelector('.bubble-meta');
+      if (metaDiv && metaDiv.querySelector('.modality-pill')) {
+        const rawMode = String(
+          cleanMeta.responseMode || (visualType === 'text' ? 'VOICE' : 'TEXT')
+        ).toUpperCase();
+        let modeLabel = 'Speaking';
+        let modeClass = 'modality-voice';
+        if (rawMode === 'TEXT') {
+          modeLabel = 'Written in workspace';
+          modeClass = 'modality-text';
+        } else if (rawMode === 'HYBRID') {
+          modeLabel = 'Speaking + Workspace';
+          modeClass = 'modality-hybrid';
+        }
+        metaDiv.querySelector('.modality-pill').className = `modality-pill ${modeClass}`;
+        metaDiv.querySelector('.modality-pill').textContent = `● ${modeLabel}`;
+      }
+
+      if (window.AuroraHighlighter) {
+        window.AuroraHighlighter.attachCopyHandlers(row);
+      }
+    });
+
+    if (chatArea) {
+      chatArea.scrollTop = chatArea.scrollHeight;
+    }
+    if (chatAreaConv) {
+      chatAreaConv.scrollTop = chatAreaConv.scrollHeight;
+    }
+  }
+
   function addMessageCard(role, text, gen, meta = {}) {
     const row = document.createElement('div');
     row.dataset.gen = gen || '';
@@ -2473,13 +2456,11 @@ executeTask();`,
         const data = await res.json();
         renderSessionList(data.sessions || []);
       } else {
-        sessionList.innerHTML =
-          '<p class="empty-hint" style="padding:10px 0;">Could not load sessions.</p>';
+        sessionList.innerHTML = '';
       }
     } catch (err) {
       console.warn('Failed to load sessions', err);
-      sessionList.innerHTML =
-        '<p class="empty-hint" style="padding:10px 0;">Failed to load sessions.</p>';
+      sessionList.innerHTML = '';
     } finally {
       if (sessionListLoading) sessionListLoading.style.display = 'none';
     }
