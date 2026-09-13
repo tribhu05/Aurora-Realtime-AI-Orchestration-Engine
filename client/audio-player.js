@@ -61,9 +61,25 @@ class AuroraAudioPlayer {
     }
   }
 
+  async _decodeBase64(base64) {
+    this._ensureContext();
+    if (!this.ctx) return null;
+    try {
+      const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+      return await this.ctx.decodeAudioData(bytes.buffer.slice(0));
+    } catch (_) {
+      return null;
+    }
+  }
+
   queueBase64(base64, mimeType = 'audio/mpeg', generation = null, onComplete = null) {
     if (!base64 || typeof base64 !== 'string') return;
-    this.audioQueue.push({ base64, mimeType, generation, onComplete });
+    this._ensureContext();
+    if (generation != null) {
+      this.cacheAudio(generation, base64, mimeType);
+    }
+    const predecodePromise = this._decodeBase64(base64);
+    this.audioQueue.push({ base64, mimeType, generation, onComplete, predecodePromise });
     this._processQueue();
   }
 
@@ -71,16 +87,22 @@ class AuroraAudioPlayer {
     if (this.isQueuePlaying) return;
     this.isQueuePlaying = true;
     while (this.audioQueue.length > 0) {
+      if (!this.isQueuePlaying) break;
       const next = this.audioQueue.shift();
-      await this.playBase64(next.base64, next.mimeType, next.generation);
-      if (next.onComplete) next.onComplete();
+      let predecoded = null;
+      if (next.predecodePromise) {
+        try { predecoded = await next.predecodePromise; } catch (_) {}
+      }
+      if (!this.isQueuePlaying) break;
+      await this.playBase64(next.base64, next.mimeType, next.generation, predecoded);
+      if (next.onComplete && this.isQueuePlaying) next.onComplete();
     }
     this.isQueuePlaying = false;
     if (this.onQueueEmpty) this.onQueueEmpty();
   }
 
   /** Play base64-encoded audio (mp3/wav). Resolves when playback finishes naturally. */
-  async playBase64(base64, mimeType = 'audio/mpeg', generation = null) {
+  async playBase64(base64, mimeType = 'audio/mpeg', generation = null, predecodedBuffer = null) {
     if (!base64 || typeof base64 !== 'string') {
       return Promise.resolve();
     }
@@ -106,8 +128,8 @@ class AuroraAudioPlayer {
 
     // Attempt 1: Web Audio API (with reactive analyser for orb glow)
     try {
-      const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
-      const audioBuffer = await this.ctx.decodeAudioData(bytes.buffer.slice(0));
+      const audioBuffer = predecodedBuffer || (await this._decodeBase64(base64));
+      if (!audioBuffer) throw new Error('decodeAudioData returned null');
 
       const source = this.ctx.createBufferSource();
       source.buffer = audioBuffer;
@@ -123,7 +145,6 @@ class AuroraAudioPlayer {
         source.start(0);
       });
     } catch (e) {
-      console.warn('Web Audio decoding failed, falling back to HTML5 Audio:', e);
       // Attempt 2: HTML5 Audio element fallback (natively supported across all modern browsers)
       return new Promise((resolve) => {
         try {

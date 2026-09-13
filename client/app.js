@@ -172,6 +172,33 @@
   let listeningMode = false;
   let interruptCount = 0;
   let stalePacketsDiscarded = 0;
+  let pendingRenderRaf = null;
+  let latestChunkData = null;
+
+  function scheduleChunkUpdate(msg) {
+    latestChunkData = msg;
+    if (!pendingRenderRaf) {
+      pendingRenderRaf = requestAnimationFrame(() => {
+        pendingRenderRaf = null;
+        if (latestChunkData && latestChunkData.generation >= currentGen) {
+          updateMessageCard('assistant', latestChunkData.text, latestChunkData.generation, {
+            visualType: latestChunkData.visualType,
+            language: latestChunkData.language,
+            title: latestChunkData.title,
+            responseMode: latestChunkData.responseMode,
+          });
+        }
+      });
+    }
+  }
+
+  function flushChunkUpdate() {
+    if (pendingRenderRaf) {
+      cancelAnimationFrame(pendingRenderRaf);
+      pendingRenderRaf = null;
+    }
+    latestChunkData = null;
+  }
   let stepTimers = {};
   let stepIntervals = {};
   let transcript = [];
@@ -973,16 +1000,12 @@
       case 'ai_text_chunk': {
         if (msg.generation < currentGen) return;
         if (captionAi && msg.spoken) captionAi.textContent = `“${msg.spoken}”`;
-        updateMessageCard('assistant', msg.text, msg.generation, {
-          visualType: msg.visualType,
-          language: msg.language,
-          title: msg.title,
-          responseMode: msg.responseMode,
-        });
+        scheduleChunkUpdate(msg);
         break;
       }
 
       case 'ai_text': {
+        flushChunkUpdate();
         console.log('[DEBUG] ai_text received:', msg);
         console.log('[DEBUG] currentGen:', currentGen);
         if (msg.generation < currentGen) {
@@ -1313,6 +1336,7 @@
       }
 
       case 'done': {
+        flushChunkUpdate();
         setUiState('complete');
         const hasAudio =
           player.audioCache.has(msg.generation) ||
@@ -1399,6 +1423,7 @@
 
   /** Instant barge-in: silences audio synchronously in < 1ms before network roundtrip */
   function bargeIn() {
+    flushChunkUpdate();
     player.stop();
     if (window.speechSynthesis) window.speechSynthesis.cancel();
     hudMute.textContent = `${player.lastMuteLatencyMs} ms`;
@@ -1735,6 +1760,9 @@ executeTask();`,
   function sendQuery(text, mode = null) {
     if (!text || !text.trim()) return;
     const cleanText = text.trim();
+    if (player && typeof player._ensureContext === 'function') {
+      player._ensureContext();
+    }
 
     const isRunning =
       state === 'speaking' ||
@@ -2112,6 +2140,15 @@ executeTask();`,
       }
     });
   }
+
+  // Pre-warm Web Audio Context on earliest user interaction to guarantee zero playback delay
+  const prewarmAudio = () => {
+    if (player && typeof player._ensureContext === 'function') {
+      player._ensureContext();
+    }
+  };
+  document.addEventListener('pointerdown', prewarmAudio, { once: true });
+  document.addEventListener('keydown', prewarmAudio, { once: true });
 
   // ---------- Assistant Message Normalization Safeguard ----------
   // ---------- Assistant Message Normalization Safeguard ----------

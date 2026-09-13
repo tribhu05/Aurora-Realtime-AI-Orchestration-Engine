@@ -78,21 +78,24 @@ export async function getAssistantReply({
   if (onChunk && res.body) {
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
+    let sseBuffer = '';
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      const chunk = decoder.decode(value, { stream: true });
-      const lines = chunk.split('\n');
+      sseBuffer += decoder.decode(value, { stream: true });
+      const lines = sseBuffer.split('\n');
+      sseBuffer = lines.pop(); // Retain incomplete line
       for (const line of lines) {
-        if (line.startsWith('data: ') && line !== 'data: [DONE]') {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('data: ') && trimmed !== 'data: [DONE]') {
           try {
-            const data = JSON.parse(line.slice(6));
-            const content = data.choices[0]?.delta?.content || '';
+            const data = JSON.parse(trimmed.slice(6));
+            const content = data.choices?.[0]?.delta?.content || '';
             if (content) {
               rawText += content;
               onChunk(rawText);
             }
-          } catch(e) {}
+          } catch (_) {}
         }
       }
     }

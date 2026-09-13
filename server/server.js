@@ -943,6 +943,9 @@ async function handleTurn({
 
   send(ws, { type: 'user_text', text: userText, generation: myGen, timestamp: turnStartTime });
   state.history.push({ role: 'user', content: userText });
+  if (state.history.length > 20) {
+    state.history = state.history.slice(-20);
+  }
 
   const session = db.getOrCreateSession(state.sessionId, activeSpeaker, activeModel);
   const budgetStatus = checkSessionBudget(
@@ -1048,6 +1051,7 @@ async function handleTurn({
 
   // 2. Standard dual-channel LLM turn with Intelligent Response Routing
   state.ttsSentCount = 0;
+  state.ttsProcessedIndex = 0;
   state.ttsChain = Promise.resolve();
   let hasSentAiTextStart = false;
   send(ws, { type: 'thinking', generation: myGen, timestamp: Date.now() });
@@ -1065,7 +1069,7 @@ async function handleTurn({
         provider: llmConfig.provider,
         apiKey: llmConfig.apiKey,
         model: llmConfig.model,
-        messages: state.history,
+        messages: state.history.slice(-10),
         signal: controller.signal,
         userOverride,
         onChunk: (fullText) => {
@@ -1077,54 +1081,88 @@ async function handleTurn({
 
           send(ws, { type: 'ai_text_chunk', text: fullText, generation: myGen, visualType: 'text' });
 
-          let clean = fullText.replace(/```[\s\S]*?(?:```|$)/g, '').replace(/`[^`]+(?:`|$)/g, '');
-          const boundaries = /[.!?\n]+(?:\s+|$)/g;
-          let match;
-          let lastIndex = 0;
-          let completeChunks = [];
+          const clean = fullText.replace(/```[\s\S]*?(?:```|$)/g, '').replace(/`[^`]+(?:`|$)/g, '');
           
-          while ((match = boundaries.exec(clean)) !== null) {
-              const chunk = clean.substring(lastIndex, match.index + match[0].length).trim();
-              if (chunk.length > 0) completeChunks.push(chunk);
-              lastIndex = match.index + match[0].length;
-          }
+          while (true) {
+            const remaining = clean.slice(state.ttsProcessedIndex);
+            if (!remaining) break;
 
-          for (let i = state.ttsSentCount; i < completeChunks.length; i++) {
-              state.ttsSentCount++;
-              let textToSpeak = completeChunks[i].replace(/[*_#]/g, '').trim();
-              if (textToSpeak.length > 1) {
-                  state.ttsChain = state.ttsChain.then(() => {
-                      if (isStale(state, myGen)) return null;
-                      return synthesizeSpeech(textToSpeak, { ...rimeConfig, speaker: activeSpeaker, modelId: activeModel }, controller.signal)
-                          .then(buffer => {
-                              if (buffer && !isStale(state, myGen)) {
-                                  send(ws, {
-                                      type: 'audio',
-                                      generation: myGen,
-                                      speaker: activeSpeaker,
-                                      modelId: activeModel,
-                                      format: rimeConfig.audioFormat,
-                                      chunk: buffer.toString('base64'),
-                                      totalMs: Date.now() - turnStartTime
-                                  });
-                              }
-                          }).catch(e => {
-                              if (e?.name !== 'AbortError') {
-                                  console.error('[rime error]', e.message);
-                                  if (!isStale(state, myGen)) {
-                                      send(ws, {
-                                          type: 'speak_local',
-                                          text: textToSpeak,
-                                          generation: myGen,
-                                          totalMs: Date.now() - turnStartTime
-                                      });
-                                  }
-                              }
-                          });
-                  });
+            let match = null;
+            let matchLength = 0;
+
+            if (state.ttsSentCount === 0) {
+              // Sub-second TTFA optimization: break early on clause boundary (,;:—\n) if >= 4 words,
+              // or on first complete sentence
+              const clauseMatch = /[,;:\—\n]+(?:\s+|$)/.exec(remaining);
+              const sentMatch = /[.!?\n]+(?:\s+|$)/.exec(remaining);
+
+              if (sentMatch && (!clauseMatch || sentMatch.index <= clauseMatch.index)) {
+                match = sentMatch;
+                matchLength = sentMatch[0].length;
+              } else if (clauseMatch) {
+                const candidate = remaining.substring(0, clauseMatch.index).trim();
+                const wordCount = candidate.split(/\s+/).filter(Boolean).length;
+                if (wordCount >= 4) {
+                  match = clauseMatch;
+                  matchLength = clauseMatch[0].length;
+                } else if (sentMatch) {
+                  match = sentMatch;
+                  matchLength = sentMatch[0].length;
+                }
               }
+            } else {
+              // Subsequent chunks: use full sentences for natural prosodic cadence
+              const sentMatch = /[.!?\n]+(?:\s+|$)/.exec(remaining);
+              if (sentMatch) {
+                match = sentMatch;
+                matchLength = sentMatch[0].length;
+              }
+            }
+
+            if (!match) break;
+
+            const chunk = remaining.substring(0, match.index + matchLength).trim();
+            state.ttsProcessedIndex += (match.index + matchLength);
+
+            const textToSpeak = chunk.replace(/[*_#\[\]>]/g, '').trim();
+            if (textToSpeak.length > 1) {
+              state.ttsSentCount++;
+              const audioTurnStart = turnStartTime;
+              state.ttsChain = state.ttsChain.then(() => {
+                if (isStale(state, myGen)) return null;
+                return synthesizeSpeech(
+                  textToSpeak,
+                  { ...rimeConfig, speaker: activeSpeaker, modelId: activeModel },
+                  controller.signal
+                ).then((buffer) => {
+                  if (buffer && !isStale(state, myGen)) {
+                    send(ws, {
+                      type: 'audio',
+                      generation: myGen,
+                      speaker: activeSpeaker,
+                      modelId: activeModel,
+                      format: rimeConfig.audioFormat,
+                      chunk: buffer.toString('base64'),
+                      totalMs: Date.now() - audioTurnStart,
+                    });
+                  }
+                }).catch((e) => {
+                  if (e?.name !== 'AbortError') {
+                    console.error('[rime error]', e.message);
+                    if (!isStale(state, myGen)) {
+                      send(ws, {
+                        type: 'speak_local',
+                        text: textToSpeak,
+                        generation: myGen,
+                        totalMs: Date.now() - audioTurnStart,
+                      });
+                    }
+                  }
+                });
+              });
+            }
           }
-        }
+        },
       });
 
       const timeoutPromise = new Promise((_, reject) => {
@@ -1174,6 +1212,9 @@ async function handleTurn({
   console.log(`[TURN] LLM response received in ${llmMs}ms`);
   console.log(`[TURN] response normalized: mode=${replyObj.responseMode || 'VOICE'}`);
   state.history.push({ role: 'assistant', content: replyObj.content });
+  if (state.history.length > 20) {
+    state.history = state.history.slice(-20);
+  }
 
   send(ws, {
     type: 'ai_text',
@@ -1276,6 +1317,45 @@ async function handleTurn({
         text: cleanSpoken,
         generation: myGen,
         totalMs: Date.now() - turnStartTime,
+      });
+    }
+  } else {
+    // If some chunks were already spoken, check for any unvoiced tail in clean
+    const cleanFull = replyObj.content.replace(/```[\s\S]*?(?:```|$)/g, '').replace(/`[^`]+(?:`|$)/g, '');
+    const tail = cleanFull.slice(state.ttsProcessedIndex).replace(/[*_#\[\]>]/g, '').trim();
+    if (tail.length > 1) {
+      const audioTurnStart = turnStartTime;
+      state.ttsChain = state.ttsChain.then(async () => {
+        if (isStale(state, myGen)) return null;
+        try {
+          const buf = await synthesizeSpeech(
+            tail,
+            { ...rimeConfig, speaker: activeSpeaker, modelId: activeModel },
+            controller.signal
+          );
+          if (buf && !isStale(state, myGen)) {
+            send(ws, {
+              type: 'audio',
+              generation: myGen,
+              speaker: activeSpeaker,
+              modelId: activeModel,
+              format: rimeConfig.audioFormat,
+              chunk: buf.toString('base64'),
+              totalMs: Date.now() - audioTurnStart,
+            });
+            return;
+          }
+        } catch (e) {
+          if (e?.name !== 'AbortError') console.error('[rime tail error]', e.message);
+        }
+        if (!isStale(state, myGen)) {
+          send(ws, {
+            type: 'speak_local',
+            text: tail,
+            generation: myGen,
+            totalMs: Date.now() - audioTurnStart,
+          });
+        }
       });
     }
   }
