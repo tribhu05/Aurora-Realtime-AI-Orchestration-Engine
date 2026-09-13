@@ -102,6 +102,10 @@
   const sessionList = $('sessionList');
   const sessionListLoading = $('sessionListLoading');
   const btnNewSession = $('btnNewSession');
+  const btnSidebarNewChat = $('btnSidebarNewChat');
+  const btnTopbarNewChat = $('btnTopbarNewChat');
+  const sidebarRecentList = $('sidebarRecentList');
+  const sidebarRecentCount = $('sidebarRecentCount');
   const btnExportMarkdown = $('btnExportMarkdown');
 
   // Right panel
@@ -130,11 +134,13 @@
   const navVoiceStudio = $('navVoiceStudio');
   const navTranscripts = $('navTranscripts');
   const navTelemetry = $('navTelemetry');
-  const navConfig = $('navConfig');
+  const navSettings = $('navSettings') || $('navConfig');
+  const navConfig = navSettings;
   const drawerSectionVoice = $('drawerSectionVoice');
   const drawerSectionTranscripts = $('drawerSectionTranscripts');
   const drawerSectionTelemetry = $('drawerSectionTelemetry');
-  const drawerSectionConfig = $('drawerSectionConfig');
+  const drawerSectionSettings = $('drawerSectionSettings') || $('drawerSectionConfig');
+  const drawerSectionConfig = drawerSectionSettings;
   const drawerNavTabs = $('drawerNavTabs');
 
   // Core Audio & State
@@ -281,13 +287,18 @@
 
   function setActiveSettingsNav(target) {
     _activeSettingsSection = target;
-    const settingsButtons = [navVoiceStudio, navTranscripts, navTelemetry, navConfig];
+    const settingsButtons = [navVoiceStudio, navTranscripts, navTelemetry, navSettings];
     settingsButtons.forEach((btn) => {
-      if (btn) btn.classList.toggle('active', Boolean(target) && btn.dataset.target === target);
+      if (!btn) return;
+      const t = btn.dataset.target;
+      const match = t === target || (target === 'settings' && t === 'config') || (target === 'config' && t === 'settings');
+      btn.classList.toggle('active', Boolean(target) && match);
     });
     if (drawerNavTabs) {
       drawerNavTabs.querySelectorAll('.drawer-tab').forEach((tab) => {
-        tab.classList.toggle('active', Boolean(target) && tab.dataset.target === target);
+        const t = tab.dataset.target;
+        const match = t === target || (target === 'settings' && t === 'config') || (target === 'config' && t === 'settings');
+        tab.classList.toggle('active', Boolean(target) && match);
       });
     }
   }
@@ -322,87 +333,21 @@
   if (btnCloseSettings) btnCloseSettings.addEventListener('click', closeDrawer);
   if (drawerBackdrop) drawerBackdrop.addEventListener('click', closeDrawer);
 
-  // ---------- Settings Dropdown & Slide-Over Drawer ----------
-  const settingsDropdown = $('settingsDropdown');
-  const settingsMenuWrap = $('settingsMenuWrap');
-  const menuItemProfile = $('menuItemProfile');
-  const menuItemPreferences = $('menuItemPreferences');
-  const menuItemKeys = $('menuItemKeys');
-  const menuItemSignOut = $('menuItemSignOut');
-
-  function toggleSettingsDropdown(force) {
-    if (!settingsDropdown) return;
-    const isVisible = settingsDropdown.style.display !== 'none';
-    const next = typeof force === 'boolean' ? force : !isVisible;
-    settingsDropdown.style.display = next ? 'block' : 'none';
-    if (btnOpenSettings) {
-      btnOpenSettings.setAttribute('aria-expanded', String(next));
-    }
-  }
-
-  function closeSettingsDropdown() {
-    toggleSettingsDropdown(false);
-  }
-
+  // ---------- Dedicated Topbar Settings Button (Direct Slide-Over Drawer) ----------
   if (btnOpenSettings) {
     btnOpenSettings.addEventListener('click', (e) => {
       e.stopPropagation();
-      toggleSettingsDropdown();
-    });
-  }
-
-  if (menuItemProfile) {
-    menuItemProfile.addEventListener('click', () => {
-      closeSettingsDropdown();
-      openDrawerTo(drawerSectionTelemetry, 'telemetry');
-      fetchTelemetryData();
-    });
-  }
-
-  if (menuItemPreferences) {
-    menuItemPreferences.addEventListener('click', () => {
-      closeSettingsDropdown();
-      if (!speakersGrid || speakersGrid.children.length === 0) {
-        renderVoiceStudio(DEFAULT_SPEAKERS, DEFAULT_MODELS);
-      }
-      loadVoiceStudio();
-      openDrawerTo(drawerSectionVoice, 'voice');
-    });
-  }
-
-  if (menuItemKeys) {
-    menuItemKeys.addEventListener('click', () => {
-      closeSettingsDropdown();
-      openDrawerTo(drawerSectionConfig, 'config');
-    });
-  }
-
-  if (menuItemSignOut) {
-    menuItemSignOut.addEventListener('click', () => {
-      closeSettingsDropdown();
-      if (confirm('Are you sure you want to sign out and clear your session?')) {
-        try {
-          localStorage.removeItem('aurora-session-id');
-        } catch (_) {}
-        currentSessionId = null;
-        transcript = [];
-        if (chatArea) chatArea.innerHTML = '';
-        if (chatAreaConv) chatAreaConv.innerHTML = '';
-        updateWorkspaceState();
-        captionAi.textContent = '“Signed out. Started a fresh session.”';
-        log('User signed out.');
+      if (
+        settingsDrawer &&
+        settingsDrawer.classList.contains('open') &&
+        (_activeSettingsSection === 'settings' || _activeSettingsSection === 'config')
+      ) {
+        closeDrawer();
+      } else {
+        openDrawerTo(drawerSectionSettings, 'settings');
       }
     });
   }
-
-  // Close dropdown on outside click
-  document.addEventListener('click', (e) => {
-    if (settingsDropdown && settingsDropdown.style.display !== 'none') {
-      if (settingsMenuWrap && !settingsMenuWrap.contains(e.target)) {
-        closeSettingsDropdown();
-      }
-    }
-  });
 
   const btnPlusTools = $('btnPlusTools');
   if (btnPlusTools) {
@@ -430,19 +375,21 @@
         } else if (target === 'telemetry') {
           openDrawerTo(drawerSectionTelemetry, 'telemetry');
           fetchTelemetryData();
-        } else if (target === 'config') {
-          openDrawerTo(drawerSectionConfig, 'config');
+        } else if (target === 'settings' || target === 'config') {
+          openDrawerTo(drawerSectionSettings, 'settings');
         }
       });
     });
   }
 
   document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'n' || e.key === 'N')) {
+      e.preventDefault();
+      createNewSession();
+      return;
+    }
+
     if (e.key === 'Escape') {
-      if (settingsDropdown && settingsDropdown.style.display !== 'none') {
-        closeSettingsDropdown();
-        return;
-      }
       if (settingsDrawer && settingsDrawer.classList.contains('open')) {
         closeDrawer();
         return;
@@ -506,11 +453,11 @@
     } else if (target === 'transcripts' || target === 'history') {
       openDrawerTo(drawerSectionTranscripts, 'transcripts');
       fetchAndRenderSessions();
-    } else if (target === 'settings' || target === 'telemetry') {
+    } else if (target === 'telemetry') {
       openDrawerTo(drawerSectionTelemetry, 'telemetry');
       fetchTelemetryData();
-    } else if (target === 'config') {
-      openDrawerTo(drawerSectionConfig, 'config');
+    } else if (target === 'settings' || target === 'config') {
+      openDrawerTo(drawerSectionSettings, 'settings');
     }
   }
 
@@ -576,23 +523,23 @@
     });
   }
 
-  if (navConfig) {
-    navConfig.addEventListener('click', () => {
+  if (navSettings) {
+    navSettings.addEventListener('click', () => {
       if (
         settingsDrawer &&
         settingsDrawer.classList.contains('open') &&
-        _activeSettingsSection === 'config'
+        (_activeSettingsSection === 'settings' || _activeSettingsSection === 'config')
       ) {
         closeDrawer();
         return;
       }
-      openDrawerTo(drawerSectionConfig, 'config');
+      openDrawerTo(drawerSectionSettings, 'settings');
     });
   }
 
   if (qaTest) qaTest.addEventListener('click', () => runInteractiveBargeInTest());
   if (qaVoice) qaVoice.addEventListener('click', () => switchView('voice'));
-  if (qaLogs) qaLogs.addEventListener('click', () => switchView('settings'));
+  if (qaLogs) qaLogs.addEventListener('click', () => switchView('telemetry'));
   if (qaConv) qaConv.addEventListener('click', () => switchView('conversation'));
   if (qaHelp) {
     qaHelp.addEventListener('click', () => {
@@ -855,6 +802,7 @@
 
   connect();
   updateWorkspaceState();
+  initSessionOnBoot();
 
   // Initialize info panel defaults immediately
   if (infoModel) infoModel.textContent = currentActiveModel;
@@ -2548,22 +2496,76 @@ executeTask();`,
 
   // ---------- Sessions & Persistent SQLite Transcripts ----------
   async function fetchAndRenderSessions() {
-    if (!sessionList) return;
-    if (sessionListLoading) sessionListLoading.style.display = 'block';
     try {
-      const res = await fetchWithTimeout(apiUrl('/api/transcripts/sessions?limit=25'), {}, 4000);
+      if (sessionListLoading) sessionListLoading.style.display = 'block';
+      const res = await fetchWithTimeout(apiUrl('/api/transcripts/sessions?limit=30'), {}, 4000);
       if (res && res.ok) {
         const data = await res.json();
-        renderSessionList(data.sessions || []);
+        const sessions = data.sessions || [];
+        renderSessionList(sessions);
+        renderSidebarRecentChats(sessions);
       } else {
-        sessionList.innerHTML = '';
+        if (sessionList) sessionList.innerHTML = '';
+        if (sidebarRecentList) {
+          sidebarRecentList.innerHTML = '<p class="sidebar-recent-empty">No saved chats yet</p>';
+        }
       }
     } catch (err) {
       console.warn('Failed to load sessions', err);
-      sessionList.innerHTML = '';
+      if (sessionList) sessionList.innerHTML = '';
+      if (sidebarRecentList) {
+        sidebarRecentList.innerHTML = '<p class="sidebar-recent-empty">No saved chats yet</p>';
+      }
     } finally {
       if (sessionListLoading) sessionListLoading.style.display = 'none';
     }
+  }
+
+  function renderSidebarRecentChats(sessions) {
+    if (!sidebarRecentList) return;
+    sidebarRecentList.innerHTML = '';
+
+    if (sidebarRecentCount) {
+      sidebarRecentCount.textContent = String((sessions || []).length);
+    }
+
+    if (!sessions || sessions.length === 0) {
+      sidebarRecentList.innerHTML = '<p class="sidebar-recent-empty">No saved chats yet</p>';
+      return;
+    }
+
+    sessions.forEach((s) => {
+      const item = document.createElement('div');
+      const isActive = s.id === currentSessionId;
+      item.className = `sidebar-chat-item ${isActive ? 'active' : ''}`;
+      item.dataset.sessionId = s.id;
+
+      const title = s.title || `Chat ${s.id.slice(0, 8)}`;
+      item.innerHTML = `
+        <svg class="sidebar-chat-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+        </svg>
+        <span class="sidebar-chat-title" title="${escapeHtml(title)}">${escapeHtml(title)}</span>
+        <button class="btn-delete-sidebar-chat" title="Delete Chat" data-id="${s.id}">✕</button>
+      `;
+
+      item.addEventListener('click', (e) => {
+        if (e.target.closest('.btn-delete-sidebar-chat')) return;
+        if (s.id !== currentSessionId) {
+          loadSession(s.id);
+        }
+      });
+
+      const delBtn = item.querySelector('.btn-delete-sidebar-chat');
+      if (delBtn) {
+        delBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          deleteSession(s.id);
+        });
+      }
+
+      sidebarRecentList.appendChild(item);
+    });
   }
 
   function renderSessionList(sessions) {
@@ -2625,16 +2627,21 @@ executeTask();`,
   }
 
   async function loadSession(sessionId) {
+    if (!sessionId) return;
     try {
       const res = await fetchWithTimeout(
         apiUrl(`/api/transcripts/sessions/${sessionId}`),
         {},
         4000
       );
-      if (!res || !res.ok) throw new Error('Failed to fetch session');
+      if (!res || !res.ok) throw new Error(`Failed to fetch session ${sessionId}`);
       const data = await res.json();
       const session = data.session;
       const turns = data.turns || [];
+
+      // Stop any in-flight playback or generation
+      player.stopAll();
+      setUiState('idle');
 
       currentSessionId = session.id;
       try {
@@ -2644,39 +2651,57 @@ executeTask();`,
 
       if (session.speaker) {
         currentActiveSpeaker = session.speaker;
-        infoVoice.textContent = currentActiveSpeaker;
+        if (infoVoice) infoVoice.textContent = currentActiveSpeaker;
       }
       if (session.model_id) {
         currentActiveModel = session.model_id;
-        infoModel.textContent = currentActiveModel;
+        if (infoModel) infoModel.textContent = currentActiveModel;
       }
       updateVoiceStudioSelection();
+
+      // Notify WebSocket server of session switch to sync server context history
+      if (wsReady && ws) {
+        sendWs({
+          type: 'switch_session',
+          sessionId: currentSessionId,
+        });
+      }
 
       // Clear current chat UI
       transcript = [];
       if (chatArea) chatArea.innerHTML = '';
       if (chatAreaConv) chatAreaConv.innerHTML = '';
 
-      // Rehydrate messages
+      let maxGen = 0;
+
+      // Rehydrate messages into DOM
       turns.forEach((t) => {
-        const gen = t.turn_index || 1;
+        const gen = t.generation || t.turn_index || 1;
+        if (gen > maxGen) maxGen = gen;
+
         if (t.user_text) {
           addMessageCard('user', t.user_text, gen);
         }
-        if (t.spoken_text || t.visual_payload) {
-          const content = t.visual_payload?.content || t.spoken_text;
+        if (t.assistant_text || t.spoken_text || t.visual_payload) {
+          const content = t.visual_payload?.content || t.assistant_text || t.spoken_text;
           const meta = {
             speaker: t.speaker || currentActiveSpeaker,
             model: t.model_id || currentActiveModel,
             llmMs: t.llm_ms,
             spoken: t.spoken_text,
-            visualType: t.visual_payload?.type,
+            visualType: t.visual_payload?.type || t.visual_type,
             language: t.visual_payload?.language,
-            title: t.visual_payload?.title,
+            title: t.visual_payload?.title || t.visual_title,
+            responseMode: t.response_mode,
           };
           addMessageCard('assistant', content, gen, meta);
         }
       });
+
+      if (maxGen > 0) {
+        currentGen = maxGen;
+        if (dbgGen) dbgGen.textContent = `#${currentGen}`;
+      }
 
       updateTelemetryDisplay(null, {
         sessionId: session.id,
@@ -2688,17 +2713,38 @@ executeTask();`,
 
       fetchAndRenderSessions();
       updateWorkspaceState();
-      switchView('conversation');
+
+      if (turns.length > 0) {
+        setMainExperience('conversation');
+      } else {
+        setMainExperience('companion');
+      }
+
       closeDrawer();
+
+      // Auto-close sidebar on mobile
+      if (window.innerWidth <= 900 && appRoot) {
+        appRoot.classList.remove('sidebar-open');
+        if (btnToggleSidebar) btnToggleSidebar.classList.remove('active');
+      }
+
       log(`Loaded session ${session.id.slice(0, 8)} (${turns.length} turns)`);
     } catch (err) {
       console.error('Failed to load session:', err);
       log(`Error loading session ${sessionId}`);
+      throw err;
     }
   }
 
   async function createNewSession() {
     try {
+      // Cleanly abort in-flight turn & audio playback
+      player.stopAll();
+      setUiState('idle');
+      if (wsReady && ws) {
+        sendWs({ type: 'interrupt', timestamp: Date.now() });
+      }
+
       const res = await fetch(apiUrl('/api/sessions/new'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2715,7 +2761,21 @@ executeTask();`,
           localStorage.setItem('aurora-session-id', currentSessionId);
         } catch (_) {}
         if (dbgSession) dbgSession.textContent = currentSessionId;
+
+        // Reset server-side WS session & history
+        if (wsReady && ws) {
+          sendWs({
+            type: 'switch_session',
+            sessionId: currentSessionId,
+          });
+        }
+
+        currentGen = 0;
+        if (dbgGen) dbgGen.textContent = `#${currentGen}`;
+
         clearAllChat();
+        setMainExperience('companion', true);
+
         updateTelemetryDisplay(
           {
             llmMs: null,
@@ -2736,6 +2796,14 @@ executeTask();`,
           }
         );
         fetchAndRenderSessions();
+
+        // Auto-close sidebar on mobile
+        if (window.innerWidth <= 900 && appRoot) {
+          appRoot.classList.remove('sidebar-open');
+          if (btnToggleSidebar) btnToggleSidebar.classList.remove('active');
+        }
+
+        if (typeInput) typeInput.focus();
         log(`Created new session #${currentSessionId.slice(0, 8)}`);
       }
     } catch (err) {
@@ -2744,14 +2812,14 @@ executeTask();`,
   }
 
   async function deleteSession(sessionId) {
-    if (!confirm('Are you sure you want to delete this session transcript?')) return;
+    if (!confirm('Are you sure you want to delete this chat history?')) return;
     try {
       const res = await fetch(apiUrl(`/api/transcripts/sessions/${sessionId}`), {
         method: 'DELETE',
       });
       if (res && res.ok) {
         if (currentSessionId === sessionId) {
-          createNewSession();
+          await createNewSession();
         } else {
           fetchAndRenderSessions();
         }
@@ -2759,6 +2827,37 @@ executeTask();`,
       }
     } catch (err) {
       console.error('Failed to delete session:', err);
+    }
+  }
+
+  let _bootInitialized = false;
+  async function initSessionOnBoot() {
+    if (_bootInitialized) return;
+    _bootInitialized = true;
+    try {
+      const savedSessionId = currentSessionId || localStorage.getItem('aurora-session-id');
+      if (savedSessionId) {
+        await loadSession(savedSessionId);
+      } else {
+        const res = await fetchWithTimeout(apiUrl('/api/transcripts/sessions?limit=1'), {}, 3000);
+        if (res && res.ok) {
+          const data = await res.json();
+          if (data.sessions && data.sessions.length > 0) {
+            await loadSession(data.sessions[0].id);
+          } else {
+            await createNewSession();
+          }
+        } else {
+          await createNewSession();
+        }
+      }
+    } catch (err) {
+      console.warn('Session boot fallback:', err);
+      try {
+        await createNewSession();
+      } catch (_) {}
+    } finally {
+      fetchAndRenderSessions();
     }
   }
 
@@ -2794,6 +2893,8 @@ executeTask();`,
   }
 
   if (btnNewSession) btnNewSession.addEventListener('click', createNewSession);
+  if (btnSidebarNewChat) btnSidebarNewChat.addEventListener('click', createNewSession);
+  if (btnTopbarNewChat) btnTopbarNewChat.addEventListener('click', createNewSession);
   if (btnExportMarkdown) btnExportMarkdown.addEventListener('click', exportTranscriptAsMarkdown);
 
   if (btnExportHistory) {
@@ -3371,6 +3472,41 @@ executeTask();`,
           llmStatusMsg.style.color = '#7ee3a8';
           llmStatusMsg.textContent = '✓ Saved locally in browser for direct inference.';
         }
+      }
+    });
+  }
+
+  // ---------- Storage & Session Management ----------
+  const btnResetActiveChat = $('btnResetActiveChat');
+  const btnClearAllData = $('btnClearAllData');
+  const storageStatusMsg = $('storageStatusMsg');
+
+  if (btnResetActiveChat) {
+    btnResetActiveChat.addEventListener('click', async () => {
+      if (confirm('Start a fresh chat? Current conversation will remain saved in your history.')) {
+        await createNewSession();
+        if (storageStatusMsg) {
+          storageStatusMsg.style.color = '#7ee3a8';
+          storageStatusMsg.textContent = '✓ Started a fresh conversation.';
+          setTimeout(() => { storageStatusMsg.textContent = ''; }, 3000);
+        }
+      }
+    });
+  }
+
+  if (btnClearAllData) {
+    btnClearAllData.addEventListener('click', () => {
+      if (confirm('Are you sure you want to clear all local storage, API keys, and session cache from this browser?')) {
+        try {
+          localStorage.clear();
+        } catch (_) {}
+        if (storageStatusMsg) {
+          storageStatusMsg.style.color = '#7ee3a8';
+          storageStatusMsg.textContent = '✓ Local data cleared. Reloading…';
+        }
+        setTimeout(() => {
+          window.location.reload();
+        }, 800);
       }
     });
   }

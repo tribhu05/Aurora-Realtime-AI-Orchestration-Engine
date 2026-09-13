@@ -728,6 +728,35 @@ export function createAuroraServer(options = {}) {
         return;
       }
 
+      if (msg.type === 'switch_session') {
+        if (typeof msg.sessionId === 'string' && msg.sessionId.trim()) {
+          const targetId = msg.sessionId.trim();
+          const session = db.getOrCreateSession(targetId, state.speaker, state.modelId);
+          state.sessionId = session.id;
+          state.speaker = session.speaker || state.speaker;
+          state.modelId = session.model_id || state.modelId;
+          state.history = db.getSessionMessagesForContext(state.sessionId, 20);
+          if (state.activeController) {
+            state.activeController.abort();
+            state.activeController = null;
+          }
+          state.generation = 0;
+          send(ws, {
+            type: 'session_switched',
+            sessionId: state.sessionId,
+            speaker: state.speaker,
+            modelId: state.modelId,
+            sessionMetrics: {
+              turnCount: session.turn_count,
+              totalTokens: session.total_tokens,
+              totalCostUsd: session.total_cost_usd,
+              budgetCapUsd: DEFAULT_SESSION_BUDGET_CAP_USD,
+            },
+          });
+        }
+        return;
+      }
+
       if (msg.type === 'interrupt') {
         const t0 = process.hrtime.bigint();
         const ackedGen = state.generation;
@@ -792,6 +821,15 @@ export function createAuroraServer(options = {}) {
           ['VOICE', 'TEXT', 'HYBRID'].includes(msg.mode.toUpperCase())
             ? msg.mode.toUpperCase()
             : null;
+
+        if (
+          typeof msg.sessionId === 'string' &&
+          msg.sessionId.trim() &&
+          msg.sessionId.trim() !== state.sessionId
+        ) {
+          state.sessionId = msg.sessionId.trim();
+          state.history = db.getSessionMessagesForContext(state.sessionId, 20);
+        }
 
         // Synchronously abort in-flight turn and bind new controller immediately
         if (state.activeController) {
