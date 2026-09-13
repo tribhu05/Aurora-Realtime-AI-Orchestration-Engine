@@ -16,6 +16,16 @@
 
 ---
 
+## 🌐 Live Demo
+
+Try Aurora live in your browser:
+- **Frontend App**: [https://aurora-ai.vercel.app](https://aurora-ai.vercel.app) (or your deployed Vercel URL)
+- **Backend WebSocket Server**: Deployable to [Railway](https://railway.app) / Render for persistent, full-duplex WebSocket connections and streaming Rime TTS.
+
+> In cloud environments without persistent WebSocket backends, Aurora automatically falls back to HTTP turn inference with native browser speech synthesis.
+
+---
+
 ## 🌟 Overview
 
 Aurora bridges the gap between fast conversational voice assistants and developer productivity workspaces.
