@@ -1245,8 +1245,14 @@
         if (speakText.trim().startsWith('{') || speakText.includes('"spoken"')) {
           const norm = normalizeAssistantPayload(speakText, {});
           speakText = norm.spoken;
+        } else {
+          speakText = speakText.replace(/```[\s\S]*?(?:```|$)/g, '').replace(/[*_#`\[\]>]/g, '').trim();
         }
-        speakWithBrowser(speakText);
+        if (!speakText) speakText = "I've written the response in the chat.";
+        if (captionAi) captionAi.textContent = `“${speakText}”`;
+        speakWithBrowser(speakText, () => {
+          if (msg.generation === currentGen) afterSpeaking();
+        });
         break;
       }
 
@@ -1308,6 +1314,24 @@
 
       case 'done': {
         setUiState('complete');
+        const hasAudio =
+          player.audioCache.has(msg.generation) ||
+          player.isQueuePlaying ||
+          (player.sourceNode !== null);
+        if (!hasAudio && msg.generation === currentGen) {
+          const card = document.querySelector(`.msg-row.assistant[data-gen="${msg.generation}"]`);
+          let spokenText = (card && card.dataset.spoken) || (captionAi ? captionAi.textContent.replace(/[“”"]/g, '').trim() : '');
+          if (spokenText && !spokenText.includes('Generating') && !spokenText.includes('Thinking') && !spokenText.includes('Interrupted')) {
+            setUiState('speaking');
+            speakWithBrowser(spokenText, () => {
+              if (msg.generation === currentGen) afterSpeaking();
+            });
+          } else {
+            afterSpeaking();
+          }
+        } else if (!player.isQueuePlaying && !player.sourceNode) {
+          afterSpeaking();
+        }
         break;
       }
 
@@ -2095,9 +2119,19 @@ executeTask();`,
     let cleanSpoken = text.replace(/```[\s\S]*?(?:```|$)/g, '').replace(/`[^`]+(?:`|$)/g, '');
     cleanSpoken = cleanSpoken.replace(/[*_#\[\]>]/g, '').trim();
 
+    if (!cleanSpoken) {
+      if (meta.title) {
+        cleanSpoken = `Here is the ${meta.title} in the chat.`;
+      } else if (text.includes('```')) {
+        cleanSpoken = "I've written the implementation in the chat.";
+      } else {
+        cleanSpoken = text.slice(0, 150);
+      }
+    }
+
     return {
       text: text,
-      spoken: cleanSpoken || 'Done.',
+      spoken: cleanSpoken,
       meta: {
         visualType: 'text',
         responseMode: 'TEXT',
@@ -2108,7 +2142,7 @@ executeTask();`,
 
   // ---------- Message Cards (Conversation & Timeline) ----------
   function updateMessageCard(role, text, gen, meta = {}) {
-    const rows = document.querySelectorAll(`.msg-row[data-gen="${gen}"]`);
+    const rows = document.querySelectorAll(`.msg-row.assistant[data-gen="${gen}"]`);
     if (!rows.length) return addMessageCard(role, text, gen, meta);
 
     const norm = normalizeAssistantPayload(text, meta);
@@ -2117,14 +2151,14 @@ executeTask();`,
     const visualType = cleanMeta.visualType || 'text';
     let contentHtml;
 
-    if (visualType === 'code' && window.AuroraHighlighter) {
+    if (!cleanText || !cleanText.trim()) {
+      contentHtml = `<p class="streaming-placeholder" style="color: var(--text-muted, #94a3b8); font-style: italic;">Thinking & typing...</p>`;
+    } else if (visualType === 'code' && window.AuroraHighlighter) {
       contentHtml = window.AuroraHighlighter.renderCodeBlock({
         code: cleanText,
         language: cleanMeta.language || 'cpp',
         title: cleanMeta.title || 'Code Implementation',
       });
-    } else if (visualType === 'table' && window.AuroraMarkdown) {
-      contentHtml = window.AuroraMarkdown.render(cleanText);
     } else if (window.AuroraMarkdown) {
       contentHtml = window.AuroraMarkdown.render(cleanText);
     } else {
@@ -2133,6 +2167,7 @@ executeTask();`,
 
     rows.forEach((row) => {
       row.classList.add('has-rich-content');
+      row.dataset.spoken = norm.spoken;
       const contentDiv = row.querySelector('.msg-content');
       if (contentDiv) contentDiv.innerHTML = contentHtml;
 
@@ -2159,6 +2194,13 @@ executeTask();`,
       }
     });
 
+    if (cleanText && cleanText.trim()) {
+      const lastT = transcript[transcript.length - 1];
+      if (lastT && lastT.role === 'assistant' && lastT.generation === gen) {
+        lastT.text = cleanText;
+      }
+    }
+
     if (chatArea) {
       chatArea.scrollTop = chatArea.scrollHeight;
     }
@@ -2174,21 +2216,21 @@ executeTask();`,
     if (role === 'assistant') {
       row.className = 'msg-row assistant msg';
       const norm = normalizeAssistantPayload(text, meta);
+      row.dataset.spoken = norm.spoken;
       const cleanText = norm.text;
       const cleanMeta = norm.meta;
       const visualType = cleanMeta.visualType || 'text';
       let contentHtml;
 
-      if (visualType === 'code' && window.AuroraHighlighter) {
+      if (!cleanText || !cleanText.trim()) {
+        contentHtml = `<p class="streaming-placeholder" style="color: var(--text-muted, #94a3b8); font-style: italic;">Thinking & typing...</p>`;
+      } else if (visualType === 'code' && window.AuroraHighlighter) {
         row.classList.add('has-rich-content');
         contentHtml = window.AuroraHighlighter.renderCodeBlock({
           code: cleanText,
           language: cleanMeta.language || 'cpp',
           title: cleanMeta.title || 'Code Implementation',
         });
-      } else if (visualType === 'table' && window.AuroraMarkdown) {
-        row.classList.add('has-rich-content');
-        contentHtml = window.AuroraMarkdown.render(cleanText);
       } else if (window.AuroraMarkdown) {
         row.classList.add('has-rich-content');
         contentHtml = window.AuroraMarkdown.render(cleanText);

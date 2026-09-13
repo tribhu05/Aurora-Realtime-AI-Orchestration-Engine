@@ -423,12 +423,17 @@ export function createAuroraServer(options = {}) {
         content: replyObj.content,
       };
 
-      const spokenText =
-        replyObj.spokenResponse ||
-        replyObj.spoken ||
-        (visualPayload.type === 'code'
-          ? "I've written the code in the workspace."
-          : "I've placed the response in the workspace.");
+      let cleanSpoken = (replyObj.spokenResponse || replyObj.spoken || replyObj.content || '')
+        .replace(/```[\s\S]*?(?:```|$)/g, '')
+        .replace(/`[^`]+(?:`|$)/g, '')
+        .replace(/[*_#\[\]>]/g, '')
+        .trim();
+      if (!cleanSpoken) {
+        cleanSpoken = visualPayload.type === 'code' || (replyObj.content && replyObj.content.includes('```'))
+          ? "I've written the code in the chat for you."
+          : (replyObj.content ? replyObj.content.slice(0, 150) : "Here is the response.");
+      }
+      const spokenText = cleanSpoken;
 
       const requestRimeApiKey =
         (typeof req.headers['x-rime-api-key'] === 'string' &&
@@ -1095,7 +1100,17 @@ async function handleTurn({
                                   });
                               }
                           }).catch(e => {
-                              if (e?.name !== 'AbortError') console.error('[rime error]', e.message);
+                              if (e?.name !== 'AbortError') {
+                                  console.error('[rime error]', e.message);
+                                  if (!isStale(state, myGen)) {
+                                      send(ws, {
+                                          type: 'speak_local',
+                                          text: textToSpeak,
+                                          generation: myGen,
+                                          totalMs: Date.now() - turnStartTime
+                                      });
+                                  }
+                              }
                           });
                   });
               }
@@ -1201,16 +1216,59 @@ async function handleTurn({
     speaker: activeSpeaker,
   });
 
-  if (!rimeConfig.apiKey) {
-    // Graceful fallback: no Rime key -> speak locally in-browser.
-    send(ws, {
-      type: 'speak_local',
-      text: replyObj.content,
-      generation: myGen,
-      llmMs,
-      totalMs,
-      timestamp: Date.now(),
-    });
+  // Ensure verbal response is spoken if no audio chunks were sent during stream
+  let cleanSpoken = replyObj.content.replace(/```[\s\S]*?(?:```|$)/g, '').replace(/`[^`]+(?:`|$)/g, '');
+  cleanSpoken = cleanSpoken.replace(/[*_#\[\]>]/g, '').trim();
+  if (!cleanSpoken) {
+    if (replyObj.content.includes('```')) {
+      cleanSpoken = "I've written the implementation in the chat for you.";
+    } else {
+      cleanSpoken = replyObj.content.slice(0, 150);
+    }
+  }
+
+  if (state.ttsSentCount === 0) {
+    if (rimeConfig.apiKey && cleanSpoken) {
+      state.ttsChain = state.ttsChain.then(async () => {
+        if (isStale(state, myGen)) return null;
+        try {
+          const buf = await synthesizeSpeech(
+            cleanSpoken,
+            { ...rimeConfig, speaker: activeSpeaker, modelId: activeModel },
+            controller.signal
+          );
+          if (buf && !isStale(state, myGen)) {
+            send(ws, {
+              type: 'audio',
+              generation: myGen,
+              speaker: activeSpeaker,
+              modelId: activeModel,
+              format: rimeConfig.audioFormat,
+              chunk: buf.toString('base64'),
+              totalMs: Date.now() - turnStartTime,
+            });
+            return;
+          }
+        } catch (e) {
+          if (e?.name !== 'AbortError') console.error('[rime fallback error]', e.message);
+        }
+        if (!isStale(state, myGen)) {
+          send(ws, {
+            type: 'speak_local',
+            text: cleanSpoken,
+            generation: myGen,
+            totalMs: Date.now() - turnStartTime,
+          });
+        }
+      });
+    } else if (cleanSpoken) {
+      send(ws, {
+        type: 'speak_local',
+        text: cleanSpoken,
+        generation: myGen,
+        totalMs: Date.now() - turnStartTime,
+      });
+    }
   }
 
   state.ttsChain.then(() => {
