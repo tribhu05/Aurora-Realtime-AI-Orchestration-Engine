@@ -164,6 +164,8 @@ export function createAuroraServer(options = {}) {
     })
   );
 
+  app.use(express.json({ limit: '10mb' }));
+
   app.use(
     express.static(path.join(__dirname, '..', 'client'), {
       etag: false,

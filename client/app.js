@@ -173,6 +173,17 @@
   });
 
   let wsReady = false;
+  function sendWs(payload) {
+    if (ws && (ws.readyState === 1 || (window.WebSocket && ws.readyState === WebSocket.OPEN))) {
+      try {
+        ws.send(typeof payload === 'string' ? payload : JSON.stringify(payload));
+        return true;
+      } catch (err) {
+        console.warn('sendWs failed:', err);
+      }
+    }
+    return false;
+  }
   let currentGen = 0;
   let state = 'idle'; // idle | listening | thinking | speaking
   let listeningMode = false;
@@ -1285,6 +1296,7 @@
 
       case 'done': {
         flushChunkUpdate();
+        fetchAndRenderSessions();
         setUiState('complete');
         const hasAudio =
           player.audioCache.has(msg.generation) ||
@@ -1335,11 +1347,18 @@
     onInterim: (text) => {
       captionUser.style.display = 'block';
       captionUser.textContent = text + '…';
+      if (typeInput && !typeInput.value) {
+        typeInput.placeholder = text + '…';
+      }
       orb.setMicLevel(0.4);
     },
     onFinalResult: (text) => {
       orb.setMicLevel(0);
+      if (typeInput) {
+        typeInput.placeholder = 'Ask anything…';
+      }
       if (!text || !text.trim()) return;
+      captionUser.textContent = text;
       sendQuery(text);
     },
     onEnd: () => {
@@ -2525,27 +2544,36 @@ executeTask();`,
     if (!sidebarRecentList) return;
     sidebarRecentList.innerHTML = '';
 
+    // Include sessions that have recorded turns or are the current active session
+    const displaySessions = (sessions || []).filter(
+      (s) => (s.turn_count && s.turn_count > 0) || (s.total_turns && s.total_turns > 0) || s.id === currentSessionId
+    );
+
     if (sidebarRecentCount) {
-      sidebarRecentCount.textContent = String((sessions || []).length);
+      sidebarRecentCount.textContent = String(displaySessions.length);
     }
 
-    if (!sessions || sessions.length === 0) {
+    if (displaySessions.length === 0) {
       sidebarRecentList.innerHTML = '<p class="sidebar-recent-empty">No saved chats yet</p>';
       return;
     }
 
-    sessions.forEach((s) => {
+    displaySessions.forEach((s) => {
       const item = document.createElement('div');
       const isActive = s.id === currentSessionId;
       item.className = `sidebar-chat-item ${isActive ? 'active' : ''}`;
       item.dataset.sessionId = s.id;
 
       const title = s.title || `Chat ${s.id.slice(0, 8)}`;
+      const turns = s.turn_count != null ? s.turn_count : (s.total_turns || 0);
+      const turnsBadge = turns > 0 ? `<span class="sidebar-chat-turns" style="font-size: 11px; color: var(--ink-muted, #94a3b8); margin-right: 6px; font-weight: 500;">${turns}</span>` : '';
+
       item.innerHTML = `
         <svg class="sidebar-chat-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
         </svg>
         <span class="sidebar-chat-title" title="${escapeHtml(title)}">${escapeHtml(title)}</span>
+        ${turnsBadge}
         <button class="btn-delete-sidebar-chat" title="Delete Chat" data-id="${s.id}">✕</button>
       `;
 
@@ -2660,12 +2688,10 @@ executeTask();`,
       updateVoiceStudioSelection();
 
       // Notify WebSocket server of session switch to sync server context history
-      if (wsReady && ws) {
-        sendWs({
-          type: 'switch_session',
-          sessionId: currentSessionId,
-        });
-      }
+      sendWs({
+        type: 'switch_session',
+        sessionId: currentSessionId,
+      });
 
       // Clear current chat UI
       transcript = [];
@@ -2711,8 +2737,8 @@ executeTask();`,
         budgetCapUsd: 0.25,
       });
 
-      fetchAndRenderSessions();
       updateWorkspaceState();
+      await fetchAndRenderSessions();
 
       if (turns.length > 0) {
         setMainExperience('conversation');
@@ -2741,9 +2767,7 @@ executeTask();`,
       // Cleanly abort in-flight turn & audio playback
       player.stopAll();
       setUiState('idle');
-      if (wsReady && ws) {
-        sendWs({ type: 'interrupt', timestamp: Date.now() });
-      }
+      sendWs({ type: 'interrupt', timestamp: Date.now() });
 
       const res = await fetch(apiUrl('/api/sessions/new'), {
         method: 'POST',
@@ -2763,17 +2787,16 @@ executeTask();`,
         if (dbgSession) dbgSession.textContent = currentSessionId;
 
         // Reset server-side WS session & history
-        if (wsReady && ws) {
-          sendWs({
-            type: 'switch_session',
-            sessionId: currentSessionId,
-          });
-        }
+        sendWs({
+          type: 'switch_session',
+          sessionId: currentSessionId,
+        });
 
         currentGen = 0;
         if (dbgGen) dbgGen.textContent = `#${currentGen}`;
 
         clearAllChat();
+        updateWorkspaceState();
         setMainExperience('companion', true);
 
         updateTelemetryDisplay(
@@ -2795,7 +2818,7 @@ executeTask();`,
             budgetCapUsd: 0.25,
           }
         );
-        fetchAndRenderSessions();
+        await fetchAndRenderSessions();
 
         // Auto-close sidebar on mobile
         if (window.innerWidth <= 900 && appRoot) {
