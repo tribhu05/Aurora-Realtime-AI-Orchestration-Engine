@@ -164,8 +164,17 @@ export function createAuroraServer(options = {}) {
     })
   );
 
-  app.use(express.json());
-  app.use(express.static(path.join(__dirname, '..', 'client')));
+  app.use(
+    express.static(path.join(__dirname, '..', 'client'), {
+      etag: false,
+      maxAge: 0,
+      setHeaders: (res) => {
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+      },
+    })
+  );
 
   app.get(['/health', '/api/health'], (_req, res) => {
     const dbHealth = db.healthCheck();

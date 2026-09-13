@@ -1446,6 +1446,9 @@
       return;
     }
     window.speechSynthesis.cancel();
+    if (typeof window.speechSynthesis.resume === 'function') {
+      window.speechSynthesis.resume();
+    }
     const utter = new SpeechSynthesisUtterance(text);
     utter.rate = 1.05;
     const finish = () => {

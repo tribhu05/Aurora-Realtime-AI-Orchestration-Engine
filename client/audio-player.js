@@ -85,12 +85,15 @@ class AuroraAudioPlayer {
       return Promise.resolve();
     }
     this._ensureContext();
-    if (this.ctx.state === 'suspended') await this.ctx.resume();
-    // Do NOT clear the queue here; just stop current playing node
-    try {
-      this.gainNode.gain.cancelScheduledValues(this.ctx.currentTime);
-      this.gainNode.gain.setValueAtTime(0, this.ctx.currentTime);
-    } catch (_) {}
+    if (this.ctx && this.ctx.state === 'suspended') {
+      try { await this.ctx.resume(); } catch (_) {}
+    }
+    if (this.gainNode) {
+      try {
+        this.gainNode.gain.cancelScheduledValues(this.ctx.currentTime);
+        this.gainNode.gain.setValueAtTime(0, this.ctx.currentTime);
+      } catch (_) {}
+    }
     if (this.sourceNode) {
       try { this.sourceNode.stop(0); } catch (_) {}
       this.sourceNode.disconnect();
@@ -101,6 +104,7 @@ class AuroraAudioPlayer {
       this.cacheAudio(generation, base64, mimeType);
     }
 
+    // Attempt 1: Web Audio API (with reactive analyser for orb glow)
     try {
       const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
       const audioBuffer = await this.ctx.decodeAudioData(bytes.buffer.slice(0));
@@ -119,8 +123,18 @@ class AuroraAudioPlayer {
         source.start(0);
       });
     } catch (e) {
-      console.warn('Failed to decode or play audio buffer:', e);
-      return Promise.resolve();
+      console.warn('Web Audio decoding failed, falling back to HTML5 Audio:', e);
+      // Attempt 2: HTML5 Audio element fallback (natively supported across all modern browsers)
+      return new Promise((resolve) => {
+        try {
+          const audio = new Audio(`data:${mimeType};base64,${base64}`);
+          audio.onended = () => resolve();
+          audio.onerror = () => resolve();
+          audio.play().catch(() => resolve());
+        } catch (_) {
+          resolve();
+        }
+      });
     }
   }
 
