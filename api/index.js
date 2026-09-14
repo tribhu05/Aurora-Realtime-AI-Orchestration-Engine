@@ -26,20 +26,34 @@ export default function handler(req, res) {
   }
 
   // Normalize path if rewritten by Vercel serverless functions
-  const matchedPath =
-    req.headers['x-matched-path'] ||
-    req.headers['x-forwarded-uri'] ||
-    req.headers['x-original-url'];
-
-  if (matchedPath && !matchedPath.includes('index.js') && matchedPath.startsWith('/')) {
-    req.url = matchedPath;
+  if (
+    typeof req.url === 'string' &&
+    !req.url.includes('index.js') &&
+    (req.url.startsWith('/api/') || req.url === '/health' || req.url === '/config' || req.url === '/turn')
+  ) {
+    // Already cleanly normalized
   } else {
-    const match = (req.url || '').match(/[?&](?:path|1)=([^&]+)/);
-    if (match) {
-      const sub = decodeURIComponent(match[1]).replace(/^\/+/, '');
+    const queryMatch = (req.url || '').match(/[?&](?:path|1)=([^&]+)/);
+    if (queryMatch) {
+      const sub = decodeURIComponent(queryMatch[1]).replace(/^\/+/, '');
       req.url = `/api/${sub}`;
-    } else if (matchedPath && matchedPath.startsWith('/')) {
-      req.url = matchedPath;
+    } else {
+      const matchedPath =
+        req.headers['x-matched-path'] ||
+        req.headers['x-forwarded-uri'] ||
+        req.headers['x-original-url'];
+
+      if (matchedPath && typeof matchedPath === 'string') {
+        if (!matchedPath.includes('index.js') && matchedPath.startsWith('/')) {
+          req.url = matchedPath;
+        } else {
+          const headerMatch = matchedPath.match(/[?&](?:path|1)=([^&]+)/);
+          if (headerMatch) {
+            const sub = decodeURIComponent(headerMatch[1]).replace(/^\/+/, '');
+            req.url = `/api/${sub}`;
+          }
+        }
+      }
     }
   }
 

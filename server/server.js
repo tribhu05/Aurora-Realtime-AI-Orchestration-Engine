@@ -54,9 +54,80 @@ export function sanitizeError(err) {
 
 // Treat obvious template placeholders ("your_..._key_here") as unset so the
 // app cleanly falls back to offline demo mode instead of failing API calls.
-function realKey(v) {
-  if (!v) return '';
-  return /^your_.*_here$/i.test(v.trim()) ? '' : v.trim();
+export function realKey(v) {
+  if (!v || typeof v !== 'string') return '';
+  const trimmed = v.trim().replace(/^["']|["']$/g, '').trim();
+  if (!trimmed) return '';
+  return /^your_.*_here$/i.test(trimmed) ? '' : trimmed;
+}
+
+/**
+ * Resolves the active LLM configuration from options and backend environment variables.
+ * Inspects multiple provider key aliases (LLM_API_KEY, GEMINI_API_KEY, GOOGLE_API_KEY, etc.)
+ * strictly on the server side to ensure seamless Vercel deployment.
+ *
+ * @param {object} [options={}] - Optional overrides.
+ * @returns {{ provider: string, apiKey: string, model: string }}
+ */
+export function resolveLlmConfig(options = {}) {
+  const provider = (
+    options.llmProvider ||
+    options.provider ||
+    process.env.LLM_PROVIDER ||
+    (realKey(process.env.GROQ_API_KEY) ? 'groq' : null) ||
+    (realKey(process.env.OPENAI_API_KEY) ? 'openai' : null) ||
+    (realKey(process.env.OPENROUTER_API_KEY) ? 'openrouter' : null) ||
+    'gemini'
+  ).toLowerCase();
+
+  let explicitKey = options.llmApiKey ?? options.apiKey ?? null;
+  let apiKey = realKey(explicitKey);
+
+  if (!apiKey) {
+    apiKey = realKey(process.env.LLM_API_KEY);
+  }
+
+  if (!apiKey) {
+    if (provider === 'gemini') {
+      apiKey =
+        realKey(process.env.GEMINI_API_KEY) ||
+        realKey(process.env.GOOGLE_API_KEY) ||
+        realKey(process.env.GOOGLE_GENERATIVE_AI_API_KEY);
+    } else if (provider === 'groq') {
+      apiKey = realKey(process.env.GROQ_API_KEY);
+    } else if (provider === 'openai') {
+      apiKey = realKey(process.env.OPENAI_API_KEY);
+    } else if (provider === 'openrouter') {
+      apiKey = realKey(process.env.OPENROUTER_API_KEY);
+    }
+  }
+
+  if (!apiKey) {
+    apiKey =
+      realKey(process.env.GEMINI_API_KEY) ||
+      realKey(process.env.GOOGLE_API_KEY) ||
+      realKey(process.env.GROQ_API_KEY) ||
+      realKey(process.env.OPENAI_API_KEY) ||
+      realKey(process.env.OPENROUTER_API_KEY) ||
+      '';
+  }
+
+  const defaultModelForProvider =
+    provider === 'gemini'
+      ? 'gemini-3.5-flash-lite'
+      : provider === 'openai'
+        ? 'gpt-4o-mini'
+        : 'llama-3.1-8b-instant';
+
+  const model =
+    options.llmModel ||
+    options.model ||
+    (provider === (process.env.LLM_PROVIDER || 'gemini').toLowerCase()
+      ? process.env.LLM_MODEL
+      : null) ||
+    defaultModelForProvider;
+
+  return { provider, apiKey, model };
 }
 
 /**
@@ -96,32 +167,48 @@ export function createAuroraServer(options = {}) {
     mockAudio: options.mockAudio ?? mock,
   };
 
+  const initialLlm = resolveLlmConfig(options);
   const llmConfig = {
-    provider: options.llmProvider || process.env.LLM_PROVIDER || 'gemini',
-    apiKey: mock
-      ? ''
-      : (options.llmApiKey ?? realKey(process.env.LLM_API_KEY || process.env.GEMINI_API_KEY)),
-    model: options.llmModel || process.env.LLM_MODEL || 'gemini-3.5-flash-lite',
+    provider: initialLlm.provider,
+    apiKey: mock ? '' : initialLlm.apiKey,
+    model: initialLlm.model,
   };
 
   const app = express();
 
   // Normalize rewritten URLs from Vercel serverless functions
   app.use((req, _res, next) => {
+    // If req.url is already a cleanly normalized API endpoint, avoid duplicate processing
+    if (
+      typeof req.url === 'string' &&
+      !req.url.includes('index.js') &&
+      (req.url.startsWith('/api/') || req.url === '/health' || req.url === '/config' || req.url === '/turn')
+    ) {
+      return next();
+    }
+
+    const queryMatch = (req.url || '').match(/[?&](?:path|1)=([^&]+)/);
+    if (queryMatch) {
+      const sub = decodeURIComponent(queryMatch[1]).replace(/^\/+/, '');
+      req.url = `/api/${sub}`;
+      return next();
+    }
+
     const matchedPath =
       req.headers['x-matched-path'] ||
       req.headers['x-forwarded-uri'] ||
       req.headers['x-original-url'];
 
-    if (matchedPath && !matchedPath.includes('index.js') && matchedPath.startsWith('/')) {
-      req.url = matchedPath;
-    } else {
-      const match = (req.url || '').match(/[?&](?:path|1)=([^&]+)/);
-      if (match) {
-        const sub = decodeURIComponent(match[1]).replace(/^\/+/, '');
-        req.url = `/api/${sub}`;
-      } else if (matchedPath && matchedPath.startsWith('/')) {
+    if (matchedPath && typeof matchedPath === 'string') {
+      if (!matchedPath.includes('index.js') && matchedPath.startsWith('/')) {
         req.url = matchedPath;
+        return next();
+      }
+      const headerMatch = matchedPath.match(/[?&](?:path|1)=([^&]+)/);
+      if (headerMatch) {
+        const sub = decodeURIComponent(headerMatch[1]).replace(/^\/+/, '');
+        req.url = `/api/${sub}`;
+        return next();
       }
     }
     next();
@@ -181,17 +268,22 @@ export function createAuroraServer(options = {}) {
   app.get(['/health', '/api/health'], (_req, res) => {
     const dbHealth = db.healthCheck();
     const isHealthy = dbHealth.ok;
+    const currentLlm = resolveLlmConfig({
+      provider: llmConfig.provider,
+      model: llmConfig.model,
+      apiKey: llmConfig.apiKey,
+    });
     res.status(isHealthy ? 200 : 503).json({
       ok: isHealthy,
       status: isHealthy ? 'healthy' : 'degraded',
-      llmConfigured: Boolean(llmConfig.apiKey),
-      llmProvider: llmConfig.provider,
+      llmConfigured: mock ? false : Boolean(currentLlm.apiKey),
+      llmProvider: currentLlm.provider,
       rimeConfigured: Boolean(rimeConfig.apiKey),
       database: dbHealth,
       llm: {
-        configured: Boolean(llmConfig.apiKey),
-        provider: llmConfig.provider,
-        model: llmConfig.model,
+        configured: mock ? false : Boolean(currentLlm.apiKey),
+        provider: currentLlm.provider,
+        model: currentLlm.model,
       },
       tts: {
         configured: Boolean(rimeConfig.apiKey),
@@ -235,18 +327,23 @@ export function createAuroraServer(options = {}) {
     res.json({ ok: true, session });
   });
 
-  app.get(['/config', '/api/config'], (_req, res) =>
-    res.json({
+  app.get(['/config', '/api/config'], (_req, res) => {
+    const currentLlm = resolveLlmConfig({
+      provider: llmConfig.provider,
+      model: llmConfig.model,
+      apiKey: llmConfig.apiKey,
+    });
+    return res.json({
       rimeConfigured: Boolean(rimeConfig.apiKey),
-      llmConfigured: Boolean(llmConfig.apiKey),
+      llmConfigured: mock ? false : Boolean(currentLlm.apiKey),
       speaker: rimeConfig.speaker,
       modelId: rimeConfig.modelId,
-      llmProvider: llmConfig.provider,
-      llmModel: llmConfig.model,
+      llmProvider: currentLlm.provider,
+      llmModel: currentLlm.model,
       audioFormat: rimeConfig.audioFormat,
       delayMs: artificialDelayMs,
-    })
-  );
+    });
+  });
 
   app.get(['/voices', '/api/voices'], (_req, res) => {
     res.json({
@@ -396,12 +493,17 @@ export function createAuroraServer(options = {}) {
         degraded = true;
       } else {
         try {
-          console.log(`[TURN] LLM request started: ${llmConfig.provider} (${llmConfig.model})`);
+          const currentLlm = resolveLlmConfig({
+            provider: llmConfig.provider,
+            model: llmConfig.model,
+            apiKey: llmConfig.apiKey,
+          });
+          console.log(`[TURN] LLM request started: ${currentLlm.provider} (${currentLlm.model})`);
           replyObj = await Promise.race([
             getAssistantReply({
-              provider: llmConfig.provider,
-              apiKey: llmConfig.apiKey,
-              model: llmConfig.model,
+              provider: currentLlm.provider,
+              apiKey: mock ? '' : currentLlm.apiKey,
+              model: currentLlm.model,
               messages: conversationHistory,
               userOverride,
             }),
@@ -1107,11 +1209,16 @@ async function handleTurn({
     degraded = true;
   } else {
     try {
-      console.log(`[TURN] LLM request started: ${llmConfig.provider} (${llmConfig.model})`);
-      const llmPromise = getAssistantReply({
+      const currentLlm = resolveLlmConfig({
         provider: llmConfig.provider,
-        apiKey: llmConfig.apiKey,
         model: llmConfig.model,
+        apiKey: llmConfig.apiKey,
+      });
+      console.log(`[TURN] LLM request started: ${currentLlm.provider} (${currentLlm.model})`);
+      const llmPromise = getAssistantReply({
+        provider: currentLlm.provider,
+        apiKey: mock ? '' : currentLlm.apiKey,
+        model: currentLlm.model,
         messages: state.history.slice(-10),
         signal: controller.signal,
         userOverride,

@@ -46,18 +46,20 @@ export async function getAssistantReply({
 }) {
   const userQuery =
     messages && messages.length > 0 ? messages[messages.length - 1]?.content || '' : '';
-  if (!apiKey) {
+  const cleanApiKey =
+    typeof apiKey === 'string' ? apiKey.trim().replace(/^["']|["']$/g, '').trim() : '';
+  if (!cleanApiKey) {
     return { content: 'No API key configured. Please set one up.', responseMode: 'TEXT' };
   }
 
   const url = ENDPOINTS[provider] || ENDPOINTS.gemini;
-  const defaultModel = provider === 'gemini' ? 'gemini-2.0-flash' : 'llama-3.1-8b-instant';
+  const defaultModel = provider === 'gemini' ? 'gemini-3.5-flash-lite' : 'llama-3.1-8b-instant';
   const effectiveModel = model && model.trim() ? model.trim() : defaultModel;
 
   const res = await fetch(url, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${apiKey}`,
+      Authorization: `Bearer ${cleanApiKey}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
@@ -71,7 +73,8 @@ export async function getAssistantReply({
   });
 
   if (!res.ok) {
-    throw new Error(`LLM request failed (HTTP ${res.status})`);
+    const errorBody = await res.text().catch(() => '');
+    throw new Error(`LLM request failed (HTTP ${res.status}): ${errorBody.slice(0, 200)}`);
   }
 
   let rawText = '';
