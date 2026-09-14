@@ -54,7 +54,10 @@ export async function getAssistantReply({
 
   const url = ENDPOINTS[provider] || ENDPOINTS.gemini;
   const defaultModel = provider === 'gemini' ? 'gemini-3.5-flash-lite' : 'llama-3.1-8b-instant';
-  const effectiveModel = model && model.trim() ? model.trim() : defaultModel;
+  let effectiveModel = model && model.trim() ? model.trim() : defaultModel;
+  if (provider === 'gemini' && (effectiveModel === 'gemini-2.0-flash' || effectiveModel === 'gemini-1.5-flash')) {
+    effectiveModel = 'gemini-3.5-flash-lite';
+  }
 
   const res = await fetch(url, {
     method: 'POST',
