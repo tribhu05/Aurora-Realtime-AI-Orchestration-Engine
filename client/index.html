@@ -16,7 +16,7 @@
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="style.css?v=20260916_mobile" />
+    <link rel="stylesheet" href="style.css?v=20260916_android_fix" />
   </head>
   <body>
     <div class="app" id="appRoot">
@@ -771,6 +771,73 @@
         </div>
       </aside>
 
+      <!-- Android / Mobile Mic Guidance Modal -->
+      <div
+        id="androidMicModal"
+        class="aurora-modal-backdrop"
+        style="display: none"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="androidMicTitle"
+      >
+        <div class="aurora-modal-card">
+          <div class="aurora-modal-header">
+            <div class="aurora-modal-title-row">
+              <svg
+                width="22"
+                height="22"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="#38ef7d"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                <line x1="12" y1="19" x2="12" y2="22"></line>
+              </svg>
+              <h3 id="androidMicTitle">Microphone Setup for Android</h3>
+            </div>
+            <button class="aurora-modal-close" id="btnCloseAndroidMicModal" aria-label="Close dialog">✕</button>
+          </div>
+          <div class="aurora-modal-body">
+            <p class="modal-lead">
+              Chrome on Android routes voice through Android's OS Speech Engine. If Chrome has permission but says blocked:
+            </p>
+            <div class="modal-steps">
+              <div class="modal-step-item">
+                <span class="step-num">1</span>
+                <div>
+                  <strong>Google Speech Services Permission</strong>
+                  <p>In phone <em>Settings &gt; Apps &gt; Google</em> (or <em>Speech Services by Google</em>) &gt; <em>Permissions</em> &gt; <em>Microphone</em> &rarr; Set to <strong>Allow only while using the app</strong>.</p>
+                </div>
+              </div>
+              <div class="modal-step-item">
+                <span class="step-num">2</span>
+                <div>
+                  <strong>Global Android Mic Access Toggle</strong>
+                  <p>Swipe down twice from top of phone screen. Ensure the green <strong>"Mic access"</strong> privacy tile is turned ON.</p>
+                </div>
+              </div>
+              <div class="modal-step-item">
+                <span class="step-num">3</span>
+                <div>
+                  <strong>Chrome Site Setting &amp; HTTPS</strong>
+                  <p>Tap the 🔒 lock icon in Chrome's URL bar &gt; <em>Permissions</em> &gt; <em>Microphone</em> &rarr; <strong>Allowed</strong>. Ensure you are on the secure HTTPS live link.</p>
+                </div>
+              </div>
+            </div>
+            <div class="modal-tip-note">
+              💡 <strong>Instant Alternative:</strong> You can always type your question directly in the chat bar below!
+            </div>
+          </div>
+          <div class="aurora-modal-footer">
+            <button class="primary-btn" id="btnDismissAndroidMicModal" style="width: 100%">Got It</button>
+          </div>
+        </div>
+      </div>
+
       <!-- Hidden compatibility anchors for existing subsystems -->
       <div id="compatibilityAnchors" style="display: none" aria-hidden="true">
         <span id="captionUser"></span>
@@ -789,12 +856,12 @@
     </div>
 
     <!-- Scripts -->
-    <script src="config.js?v=20260916_mobile"></script>
-    <script src="audio-player.js?v=20260916_mobile"></script>
-    <script src="orb.js?v=20260916_mobile"></script>
-    <script src="vad-mic.js?v=20260916_mobile"></script>
-    <script src="markdown.js?v=20260916_mobile"></script>
-    <script src="highlighter.js?v=20260916_mobile"></script>
-    <script src="app.js?v=20260916_mobile"></script>
+    <script src="config.js?v=20260916_android_fix"></script>
+    <script src="audio-player.js?v=20260916_android_fix"></script>
+    <script src="orb.js?v=20260916_android_fix"></script>
+    <script src="vad-mic.js?v=20260916_android_fix"></script>
+    <script src="markdown.js?v=20260916_android_fix"></script>
+    <script src="highlighter.js?v=20260916_android_fix"></script>
+    <script src="app.js?v=20260916_android_fix"></script>
   </body>
 </html>

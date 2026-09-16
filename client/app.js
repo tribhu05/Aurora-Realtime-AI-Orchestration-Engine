@@ -1433,6 +1433,31 @@
     }
   }
 
+  // ---------- Android Mic Guidance Modal Helpers ----------
+  const androidMicModal = $('androidMicModal');
+  const btnCloseAndroidMicModal = $('btnCloseAndroidMicModal');
+  const btnDismissAndroidMicModal = $('btnDismissAndroidMicModal');
+
+  function showAndroidMicModal() {
+    if (androidMicModal) {
+      androidMicModal.style.display = 'flex';
+    }
+  }
+
+  function hideAndroidMicModal() {
+    if (androidMicModal) {
+      androidMicModal.style.display = 'none';
+    }
+  }
+
+  if (btnCloseAndroidMicModal) btnCloseAndroidMicModal.addEventListener('click', hideAndroidMicModal);
+  if (btnDismissAndroidMicModal) btnDismissAndroidMicModal.addEventListener('click', hideAndroidMicModal);
+  if (androidMicModal) {
+    androidMicModal.addEventListener('click', (e) => {
+      if (e.target === androidMicModal) hideAndroidMicModal();
+    });
+  }
+
   // ---------- Mic & VAD Handler ----------
   const mic = new window.AuroraMic({
     onSpeechStart: () => {
@@ -1463,9 +1488,19 @@
     },
     onEnd: () => {
       orb.setMicLevel(0);
+      const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+        navigator.userAgent
+      );
+      if (isMobileDevice) {
+        listeningMode = false;
+      }
       if (!listeningMode && state === 'listening') setUiState('idle');
     },
     onError: (err) => {
+      listeningMode = false;
+      setUiState('idle');
+      const isAndroid = /Android/i.test(navigator.userAgent);
+
       if (err === 'insecure-context') {
         if (connText) connText.textContent = 'Mic requires HTTPS';
         if (statusPill) statusPill.title = 'Web Speech API requires HTTPS or localhost on mobile browsers';
@@ -1473,18 +1508,38 @@
           typeInput.placeholder = 'Mic requires HTTPS on mobile. Type here…';
           typeInput.focus();
         }
-      } else if (err === 'not-allowed' || err === 'permission-denied') {
+      } else if (err === 'not-allowed' || err === 'service-not-allowed' || err === 'permission-denied') {
         if (connText) connText.textContent = 'Mic blocked';
-        if (statusPill) statusPill.title = 'Microphone permission was denied. Please allow it in browser settings';
+        if (statusPill) {
+          statusPill.title = isAndroid
+            ? 'Mic blocked on Android: Check Chrome site permissions AND ensure Google App / Speech Services has Mic permission in phone Settings.'
+            : 'Microphone permission was denied. Please allow it in browser settings';
+        }
         if (typeInput) {
-          typeInput.placeholder = 'Mic blocked. Type here…';
+          typeInput.placeholder = isAndroid
+            ? 'Mic blocked. Check phone Settings > Apps > Google > Mic, or type here…'
+            : 'Mic blocked. Allow mic in browser settings, or type here…';
           typeInput.focus();
+        }
+        if (isAndroid) {
+          showAndroidMicModal();
         }
       } else if (err === 'audio-capture') {
         if (connText) connText.textContent = 'No mic found';
         if (typeInput) typeInput.placeholder = 'No mic detected. Type here…';
       }
       log(`Mic error: ${err}`);
+
+      // Auto-restore connection status text after 4.5s so status doesn't stay permanently stuck
+      setTimeout(() => {
+        if (connText && connText.textContent.startsWith('Mic')) {
+          if (ws && wsReady && ws.readyState === WebSocket.OPEN) {
+            connText.textContent = 'Online (Realtime)';
+          } else {
+            connText.textContent = 'Online (HTTP)';
+          }
+        }
+      }, 4500);
     },
   });
 
