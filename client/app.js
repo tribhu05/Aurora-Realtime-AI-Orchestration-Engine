@@ -148,14 +148,14 @@
   player.onQueueEmpty = () => { afterSpeaking(); };
   const orb = new window.AuroraOrb(orbCanvas, player);
 
-  // Mobile Web Audio Unlock on first interaction (touchstart/click/key)
+  // Mobile & Desktop Web Audio Unlock on user interactions
   const unlockAudioOnUserGesture = () => {
     if (player && typeof player.unlock === 'function') {
       player.unlock();
     }
   };
-  ['touchstart', 'touchend', 'click', 'keydown'].forEach((evt) => {
-    document.addEventListener(evt, unlockAudioOnUserGesture, { once: true, passive: true });
+  ['pointerdown', 'touchstart', 'touchend', 'click', 'keydown'].forEach((evt) => {
+    document.addEventListener(evt, unlockAudioOnUserGesture, { passive: true });
   });
 
   // Handle phone wake / app returning to foreground
@@ -827,18 +827,21 @@
     return `${base.replace(/\/+$/, '')}${cleanEndpoint}`;
   }
 
+  let wsReconnectDelay = 3000;
   function connect() {
     const wsTarget = getBackendWsUrl();
     try {
       ws = new WebSocket(wsTarget);
     } catch (e) {
       console.warn('Failed to initialize WebSocket to', wsTarget, e);
-      setTimeout(connect, 2000);
+      setTimeout(connect, Math.min(wsReconnectDelay, 30000));
+      wsReconnectDelay = Math.min(wsReconnectDelay * 1.5, 30000);
       return;
     }
 
     ws.onopen = () => {
       wsReady = true;
+      wsReconnectDelay = 3000;
       setConnStatus(true, 'Online (Realtime)');
       dbgWs.textContent = 'Connected (Realtime)';
       log(`WebSocket connected (${wsTarget})`);
@@ -853,8 +856,9 @@
         setConnStatus(false, 'Connecting…');
         dbgWs.textContent = 'Disconnected — reconnecting…';
       }
-      log('WebSocket closed, using HTTP fallback');
-      setTimeout(connect, 3000);
+      log(`WebSocket closed, using HTTP mode (reconnect in ${Math.round(wsReconnectDelay / 1000)}s)`);
+      setTimeout(connect, wsReconnectDelay);
+      wsReconnectDelay = Math.min(wsReconnectDelay * 1.5, 30000);
     };
 
     ws.onerror = () => {
@@ -1488,10 +1492,7 @@
     },
     onEnd: () => {
       orb.setMicLevel(0);
-      const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
-        navigator.userAgent
-      );
-      if (isMobileDevice) {
+      if (!mic.listening) {
         listeningMode = false;
       }
       if (!listeningMode && state === 'listening') setUiState('idle');
@@ -1603,25 +1604,60 @@
     setUiState(listeningMode ? 'listening' : 'idle');
   }
 
+  let speechDebounceTimer = null;
   function speakWithBrowser(text, onComplete = null) {
     if (!window.speechSynthesis) {
       if (typeof onComplete === 'function') onComplete();
       else afterSpeaking();
       return;
     }
-    window.speechSynthesis.cancel();
-    if (typeof window.speechSynthesis.resume === 'function') {
-      window.speechSynthesis.resume();
+
+    if (speechDebounceTimer) {
+      clearTimeout(speechDebounceTimer);
+      speechDebounceTimer = null;
     }
-    const utter = new SpeechSynthesisUtterance(text);
-    utter.rate = 1.05;
-    const finish = () => {
-      if (typeof onComplete === 'function') onComplete();
-      else afterSpeaking();
-    };
-    utter.onend = finish;
-    utter.onerror = finish;
-    window.speechSynthesis.speak(utter);
+
+    // Cancel prior utterance only if currently speaking
+    if (window.speechSynthesis.speaking) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch (_) {}
+    }
+
+    if (typeof window.speechSynthesis.resume === 'function') {
+      try {
+        window.speechSynthesis.resume();
+      } catch (_) {}
+    }
+
+    // A brief 60ms delay prevents the Android Chrome TTS engine from hanging/deadlocking
+    speechDebounceTimer = setTimeout(() => {
+      speechDebounceTimer = null;
+      try {
+        const utter = new SpeechSynthesisUtterance(text);
+        utter.rate = 1.05;
+        let finished = false;
+        const finish = () => {
+          if (finished) return;
+          finished = true;
+          if (typeof onComplete === 'function') onComplete();
+          else afterSpeaking();
+        };
+
+        utter.onend = finish;
+        utter.onerror = finish;
+
+        // Safety timeout in case browser TTS driver never fires onend
+        const words = (text || '').split(/\s+/).length;
+        const estMs = Math.max(3000, (words / 2.5) * 1000 + 1500);
+        setTimeout(finish, estMs);
+
+        window.speechSynthesis.speak(utter);
+      } catch (_) {
+        if (typeof onComplete === 'function') onComplete();
+        else afterSpeaking();
+      }
+    }, 60);
   }
 
   // ---------- Intelligent Client-Side Fallback Generator ----------
@@ -2196,7 +2232,9 @@ executeTask();`,
         });
       } else if (normalized.spoken) {
         setUiState('speaking');
-        speakWithBrowser(normalized.spoken);
+        speakWithBrowser(normalized.spoken, () => {
+          if (myGen === currentGen) afterSpeaking();
+        });
       } else {
         afterSpeaking();
       }

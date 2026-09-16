@@ -17,7 +17,7 @@ export default function handler(req, res) {
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader(
     'Access-Control-Allow-Headers',
-    'Content-Type, Authorization, x-matched-path, x-forwarded-uri, x-original-url, x-session-id, x-rime-api-key, x-gemini-api-key'
+    'Content-Type, Authorization, x-matched-path, x-forwarded-uri, x-original-url, x-session-id, x-rime-api-key, x-gemini-api-key, x-llm-api-key, x-llm-provider, x-llm-model'
   );
 
   if (req.method === 'OPTIONS') {

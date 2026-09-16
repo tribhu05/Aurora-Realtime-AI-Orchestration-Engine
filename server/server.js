@@ -271,6 +271,10 @@ export function createAuroraServer(options = {}) {
         'x-original-url',
         'x-session-id',
         'x-rime-api-key',
+        'x-gemini-api-key',
+        'x-llm-api-key',
+        'x-llm-provider',
+        'x-llm-model',
       ],
     })
   );
