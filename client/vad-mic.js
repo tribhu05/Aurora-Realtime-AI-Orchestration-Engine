@@ -96,6 +96,15 @@ class AuroraMic {
       }
       if (err === 'not-allowed' || err === 'service-not-allowed') {
         this._wantListening = false;
+        const isInsecure =
+          window.isSecureContext === false ||
+          (location.protocol !== 'https:' &&
+            location.hostname !== 'localhost' &&
+            location.hostname !== '127.0.0.1');
+        if (isInsecure) {
+          this.onError('insecure-context');
+          return;
+        }
       }
       this.onError(err);
     };

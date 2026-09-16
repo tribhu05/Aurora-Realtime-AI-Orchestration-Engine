@@ -148,6 +148,59 @@
   player.onQueueEmpty = () => { afterSpeaking(); };
   const orb = new window.AuroraOrb(orbCanvas, player);
 
+  // Mobile Web Audio Unlock on first interaction (touchstart/click/key)
+  const unlockAudioOnUserGesture = () => {
+    if (player && typeof player.unlock === 'function') {
+      player.unlock();
+    }
+  };
+  ['touchstart', 'touchend', 'click', 'keydown'].forEach((evt) => {
+    document.addEventListener(evt, unlockAudioOnUserGesture, { once: true, passive: true });
+  });
+
+  // Handle phone wake / app returning to foreground
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) {
+      if (player && typeof player.unlock === 'function') {
+        player.unlock();
+      }
+      if (!wsReady && typeof connect === 'function') {
+        connect();
+      }
+    }
+  });
+
+  // Mobile Virtual Keyboard Viewport Adapter
+  if (window.visualViewport) {
+    let keyboardUpdateTimer = null;
+    const updateKeyboardOffset = () => {
+      const vv = window.visualViewport;
+      const keyboardHeight = Math.max(0, Math.round(window.innerHeight - vv.height));
+      document.documentElement.style.setProperty('--keyboard-height', `${keyboardHeight}px`);
+
+      if (keyboardHeight > 50 && chatArea && chatArea.style.display !== 'none') {
+        clearTimeout(keyboardUpdateTimer);
+        keyboardUpdateTimer = setTimeout(() => {
+          chatArea.scrollTop = chatArea.scrollHeight;
+        }, 60);
+      }
+    };
+
+    window.visualViewport.addEventListener('resize', updateKeyboardOffset);
+    window.visualViewport.addEventListener('scroll', updateKeyboardOffset);
+
+    if (typeInput) {
+      typeInput.addEventListener('focus', () => {
+        setTimeout(updateKeyboardOffset, 150);
+      });
+      typeInput.addEventListener('blur', () => {
+        setTimeout(() => {
+          document.documentElement.style.setProperty('--keyboard-height', '0px');
+        }, 120);
+      });
+    }
+  }
+
   let ws = null;
   // === INJECTED CLIENT LOGGING ===
   window.addEventListener('error', (event) => {
@@ -474,6 +527,7 @@
 
   if (navCompanion) {
     navCompanion.addEventListener('click', () => {
+      closeMobileSidebar();
       closeDrawer();
       setMainExperience('companion', true);
     });
@@ -481,6 +535,7 @@
 
   if (navConversation) {
     navConversation.addEventListener('click', () => {
+      closeMobileSidebar();
       closeDrawer();
       setMainExperience('conversation', true);
     });
@@ -488,6 +543,7 @@
 
   if (navVoiceStudio) {
     navVoiceStudio.addEventListener('click', () => {
+      closeMobileSidebar();
       if (
         settingsDrawer &&
         settingsDrawer.classList.contains('open') &&
@@ -506,6 +562,7 @@
 
   if (navTranscripts) {
     navTranscripts.addEventListener('click', () => {
+      closeMobileSidebar();
       if (
         settingsDrawer &&
         settingsDrawer.classList.contains('open') &&
@@ -521,6 +578,7 @@
 
   if (navTelemetry) {
     navTelemetry.addEventListener('click', () => {
+      closeMobileSidebar();
       if (
         settingsDrawer &&
         settingsDrawer.classList.contains('open') &&
@@ -536,6 +594,7 @@
 
   if (navSettings) {
     navSettings.addEventListener('click', () => {
+      closeMobileSidebar();
       if (
         settingsDrawer &&
         settingsDrawer.classList.contains('open') &&
@@ -545,6 +604,7 @@
         return;
       }
       openDrawerTo(drawerSectionSettings, 'settings');
+      updateUnifiedSettingsDisplay();
     });
   }
 
@@ -584,14 +644,25 @@
   }
 
   // ---------- Left Sidebar Toggle (Desktop & Mobile) ----------
+  function closeMobileSidebar() {
+    if (appRoot && appRoot.classList.contains('sidebar-open')) {
+      appRoot.classList.remove('sidebar-open');
+      if (btnToggleSidebar) btnToggleSidebar.classList.remove('active');
+      const btnMobile = $('btnMobileToggle');
+      if (btnMobile) btnMobile.setAttribute('aria-expanded', 'false');
+    }
+  }
+
   function toggleSidebar(forceState) {
     if (!appSidebar || !appRoot) return;
     const isMobile = window.innerWidth <= 900;
+    const btnMobile = $('btnMobileToggle');
     if (isMobile) {
       const shouldOpen =
         typeof forceState === 'boolean' ? forceState : !appRoot.classList.contains('sidebar-open');
       appRoot.classList.toggle('sidebar-open', shouldOpen);
       if (btnToggleSidebar) btnToggleSidebar.classList.toggle('active', shouldOpen);
+      if (btnMobile) btnMobile.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
     } else {
       const shouldCollapse =
         typeof forceState === 'boolean'
@@ -610,20 +681,19 @@
   if (btnMobileToggle) {
     btnMobileToggle.addEventListener('click', (e) => {
       e.stopPropagation();
-      toggleSidebar(true);
+      toggleSidebar();
     });
   }
   if (sidebarBackdrop) {
     sidebarBackdrop.addEventListener('click', () => {
-      if (appRoot) appRoot.classList.remove('sidebar-open');
-      if (btnToggleSidebar) btnToggleSidebar.classList.remove('active');
+      closeMobileSidebar();
     });
   }
 
   // Auto-adapt on resize
   window.addEventListener('resize', () => {
     if (window.innerWidth > 900 && appRoot) {
-      appRoot.classList.remove('sidebar-open');
+      closeMobileSidebar();
     }
   });
 
@@ -915,6 +985,36 @@
 
     if (msg.sessionMetrics) {
       updateTelemetryDisplay(null, msg.sessionMetrics);
+    }
+
+    // Sync Settings drawer with pre-configured system credentials if no user override is active
+    const llmProvSel = $('llmProviderSelect');
+    const llmInput = $('llmKeyInput');
+    const llmStatus = $('llmStatusMsg');
+    const rimeInput = $('rimeApiKeyInput');
+    const rimeStatus = $('rimeKeyStatusMsg');
+
+    if (msg.llmConfigured) {
+      if (llmProvSel && !localStorage.getItem('aurora-llm-provider')) {
+        llmProvSel.value = msg.llmProvider || 'gemini';
+      }
+      if (llmInput && !localStorage.getItem('aurora-llm-api-key')) {
+        llmInput.placeholder = '●●●●●●●● (Pre-configured · Active for all users)';
+      }
+      if (llmStatus && !localStorage.getItem('aurora-llm-api-key')) {
+        llmStatus.style.color = '#7ee3a8';
+        llmStatus.textContent = `✓ Pre-configured & active for all users (${msg.llmProvider} · ${msg.llmModel})`;
+      }
+    }
+
+    if (isRimeActive) {
+      if (rimeInput && !localStorage.getItem('aurora-rime-api-key')) {
+        rimeInput.placeholder = '●●●●●●●● (Pre-configured · Active for all users)';
+      }
+      if (rimeStatus && !localStorage.getItem('aurora-rime-api-key')) {
+        rimeStatus.style.color = '#7ee3a8';
+        rimeStatus.textContent = '✓ Pre-configured & active for all users.';
+      }
     }
 
     loadVoiceStudio();
@@ -1366,12 +1466,23 @@
       if (!listeningMode && state === 'listening') setUiState('idle');
     },
     onError: (err) => {
-      if (err === 'not-allowed' || err === 'permission-denied') {
-        micStatusTitle.textContent = 'Mic blocked';
-        micStatusSub.textContent = 'Type below instead';
+      if (err === 'insecure-context') {
+        if (connText) connText.textContent = 'Mic requires HTTPS';
+        if (statusPill) statusPill.title = 'Web Speech API requires HTTPS or localhost on mobile browsers';
+        if (typeInput) {
+          typeInput.placeholder = 'Mic requires HTTPS on mobile. Type here…';
+          typeInput.focus();
+        }
+      } else if (err === 'not-allowed' || err === 'permission-denied') {
+        if (connText) connText.textContent = 'Mic blocked';
+        if (statusPill) statusPill.title = 'Microphone permission was denied. Please allow it in browser settings';
+        if (typeInput) {
+          typeInput.placeholder = 'Mic blocked. Type here…';
+          typeInput.focus();
+        }
       } else if (err === 'audio-capture') {
-        micStatusTitle.textContent = 'No mic found';
-        micStatusSub.textContent = 'Type below instead';
+        if (connText) connText.textContent = 'No mic found';
+        if (typeInput) typeInput.placeholder = 'No mic detected. Type here…';
       }
       log(`Mic error: ${err}`);
     },
@@ -1677,7 +1788,7 @@ executeTask();`,
           userProvider === 'groq'
             ? 'https://api.groq.com/openai/v1/chat/completions'
             : 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
-        const model = userProvider === 'groq' ? 'llama-3.1-8b-instant' : 'gemini-2.0-flash';
+        const model = userProvider === 'groq' ? 'llama-3.1-8b-instant' : 'gemini-3.5-flash-lite';
         const res = await fetch(endpoint, {
           method: 'POST',
           headers: {
@@ -1858,6 +1969,12 @@ executeTask();`,
     try {
       const userRimeKey = localStorage.getItem('aurora-rime-api-key');
       if (userRimeKey) reqHeaders['x-rime-api-key'] = userRimeKey;
+      const userLlmKey = localStorage.getItem('aurora-llm-api-key');
+      const userLlmProv = localStorage.getItem('aurora-llm-provider');
+      if (userLlmKey) {
+        reqHeaders['x-llm-api-key'] = userLlmKey;
+        if (userLlmProv) reqHeaders['x-llm-provider'] = userLlmProv;
+      }
     } catch (_) {}
 
     try {
@@ -2071,6 +2188,7 @@ executeTask();`,
   if (typeForm) {
     typeForm.addEventListener('submit', (e) => {
       e.preventDefault();
+      if (player && typeof player.unlock === 'function') player.unlock();
       const text = typeInput ? typeInput.value.trim() : '';
       if (!text) return;
       if (typeInput) typeInput.value = '';
@@ -2082,6 +2200,7 @@ executeTask();`,
     typeInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
+        if (player && typeof player.unlock === 'function') player.unlock();
         const text = typeInput.value.trim();
         if (!text) return;
         typeInput.value = '';
@@ -2582,6 +2701,7 @@ executeTask();`,
         if (s.id !== currentSessionId) {
           loadSession(s.id);
         }
+        closeMobileSidebar();
       });
 
       const delBtn = item.querySelector('.btn-delete-sidebar-chat');
@@ -3099,6 +3219,9 @@ executeTask();`,
 
   // ---------- Controls ----------
   function toggleListening() {
+    if (player && typeof player.unlock === 'function') {
+      player.unlock();
+    }
     if (!mic.supported) {
       if (typeInput) typeInput.focus();
       return;
@@ -3423,9 +3546,13 @@ executeTask();`,
           }
         } else {
           localStorage.removeItem('aurora-rime-api-key');
+          if (rimeApiKeyInput) {
+            rimeApiKeyInput.value = '';
+            rimeApiKeyInput.placeholder = '●●●●●●●● (Pre-configured · Active for all users)';
+          }
           if (rimeKeyStatusMsg) {
             rimeKeyStatusMsg.style.color = '#7ee3a8';
-            rimeKeyStatusMsg.textContent = 'Key removed.';
+            rimeKeyStatusMsg.textContent = '✓ Reverted to pre-configured system key.';
           }
         }
       } catch (_) {
@@ -3459,9 +3586,18 @@ executeTask();`,
   if (btnSaveLlmKey) {
     btnSaveLlmKey.addEventListener('click', async () => {
       const key = llmKeyInput ? llmKeyInput.value.trim() : '';
-      const provider = llmProviderSelect ? llmProviderSelect.value : 'groq';
+      const provider = llmProviderSelect ? llmProviderSelect.value : 'gemini';
       if (!key) {
-        if (llmStatusMsg) llmStatusMsg.textContent = 'Please enter an API key.';
+        localStorage.removeItem('aurora-llm-api-key');
+        localStorage.removeItem('aurora-llm-provider');
+        if (llmKeyInput) {
+          llmKeyInput.value = '';
+          llmKeyInput.placeholder = '●●●●●●●● (Pre-configured · Active for all users)';
+        }
+        if (llmStatusMsg) {
+          llmStatusMsg.style.color = '#7ee3a8';
+          llmStatusMsg.textContent = '✓ Reverted to pre-configured system key.';
+        }
         return;
       }
       try {

@@ -205,7 +205,7 @@ export async function executeScaffoldTask({
     primaryCode = isTs ? getTsExpressCode(isTodo) : getJsExpressCode(isTodo);
   }
 
-  if (!primaryCode.trim()) {
+  if (!primaryCode.trim() || !primaryCode.includes('app.get') || (isTodo && !primaryCode.includes('/api/todos'))) {
     primaryCode = isTs ? getTsExpressCode(isTodo) : getJsExpressCode(isTodo);
   }
 

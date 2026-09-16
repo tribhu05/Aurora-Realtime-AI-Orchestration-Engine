@@ -81,7 +81,7 @@ export const DEFAULT_RIME_KEY = Buffer.from(
  * @returns {{ provider: string, apiKey: string, model: string }}
  */
 export function resolveLlmConfig(options = {}) {
-  const provider = (
+  let provider = (
     options.llmProvider ||
     options.provider ||
     process.env.LLM_PROVIDER ||
@@ -119,8 +119,15 @@ export function resolveLlmConfig(options = {}) {
       realKey(process.env.GOOGLE_API_KEY) ||
       realKey(process.env.GROQ_API_KEY) ||
       realKey(process.env.OPENAI_API_KEY) ||
-      realKey(process.env.OPENROUTER_API_KEY) ||
-      DEFAULT_LLM_KEY;
+      realKey(process.env.OPENROUTER_API_KEY);
+    if (!apiKey) {
+      apiKey = DEFAULT_LLM_KEY;
+      provider = 'gemini';
+    }
+  }
+
+  if (apiKey === DEFAULT_LLM_KEY) {
+    provider = 'gemini';
   }
 
   const defaultModelForProvider =
@@ -511,9 +518,9 @@ export function createAuroraServer(options = {}) {
       } else {
         try {
           const currentLlm = resolveLlmConfig({
-            provider: llmConfig.provider,
-            model: llmConfig.model,
-            apiKey: llmConfig.apiKey,
+            provider: req.headers['x-llm-provider'] || req.body?.llmProvider || llmConfig.provider,
+            model: req.headers['x-llm-model'] || req.body?.llmModel || llmConfig.model,
+            apiKey: req.headers['x-llm-api-key'] || req.headers['x-gemini-api-key'] || req.body?.llmApiKey || llmConfig.apiKey,
           });
           console.log(`[TURN] LLM request started: ${currentLlm.provider} (${currentLlm.model})`);
           replyObj = await Promise.race([
@@ -1387,12 +1394,24 @@ async function handleTurn({
   if (state.history.length > 20) {
     state.history = state.history.slice(-20);
   }
+  const visualPayload = replyObj.visualResponse || {
+    type: replyObj.visualType || replyObj.type || 'text',
+    language: replyObj.language || null,
+    title: replyObj.title || null,
+    content: replyObj.content,
+  };
 
   send(ws, {
     type: 'ai_text',
-    text: replyObj.content,
-    visualType: 'text',
-    responseMode: 'TEXT',
+    text: visualPayload.content || replyObj.content,
+    spoken: replyObj.spokenResponse || replyObj.spoken || '',
+    visual: visualPayload,
+    visualType: visualPayload.type || replyObj.visualType || replyObj.type || 'text',
+    language: visualPayload.language || replyObj.language || null,
+    title: visualPayload.title || replyObj.title || null,
+    responseMode: replyObj.responseMode || 'VOICE',
+    spokenResponse: replyObj.spokenResponse || replyObj.spoken || '',
+    visualResponse: visualPayload,
     generation: myGen,
     llmMs,
     timestamp: Date.now(),

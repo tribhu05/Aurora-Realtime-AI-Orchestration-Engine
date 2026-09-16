@@ -30,6 +30,26 @@ class AuroraAudioPlayer {
     this.analyser.connect(this.ctx.destination);
   }
 
+  /**
+   * Explicitly unlocks Web Audio playback on mobile browsers (iOS Safari, Android Chrome).
+   * MUST be called during a direct user gesture (touchstart, touchend, click, keydown).
+   */
+  unlock() {
+    this._ensureContext();
+    if (!this.ctx) return;
+    if (this.ctx.state === 'suspended') {
+      this.ctx.resume().catch(() => {});
+    }
+    // Play a 1-sample silent buffer to activate the mobile hardware audio session
+    try {
+      const buffer = this.ctx.createBuffer(1, 1, 22050);
+      const source = this.ctx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(this.gainNode || this.ctx.destination);
+      source.start(0);
+    } catch (_) {}
+  }
+
   /** Instantly silence any current playback. Synchronous, <1ms. */
   stop() {
     this.audioQueue = [];

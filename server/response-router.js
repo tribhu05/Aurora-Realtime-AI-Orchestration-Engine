@@ -397,7 +397,189 @@ export function safeParseOrExtract(rawText) {
  * Ensures model hallucinations, unescaped raw JSON, or misclassifications
  * are deterministically normalized and corrected before reaching Rime TTS or the workspace.
  */
-export function validateAndEnforceContract(rawObj, originalUserQuery = '', history = [], manualMode = null) {
-  // Dummy passthrough since we are stripping the JSON response architecture
-  return rawObj;
+export function validateAndEnforceContract(rawObj, userText = '', history = [], userOverride = null) {
+  const fallbackMode = deterministicClassify(userText, history);
+
+  // 1. Basic parsing safety & string unwrapping
+  let obj = rawObj;
+  if (typeof rawObj === 'string') {
+    const extracted = safeParseOrExtract(rawObj);
+    if (extracted) {
+      obj = extracted;
+    } else {
+      obj = {
+        responseMode: fallbackMode,
+        spokenResponse: rawObj,
+        visualResponse: null,
+      };
+    }
+  } else if (obj && typeof obj === 'object') {
+    obj = unwrapNestedJson(obj);
+  } else {
+    obj = {
+      responseMode: fallbackMode,
+      spokenResponse: '',
+      visualResponse: null,
+    };
+  }
+
+  // 2. Validate responseMode
+  let mode = String(obj.responseMode || '').toUpperCase().trim();
+  if (![RESPONSE_MODES.VOICE, RESPONSE_MODES.TEXT, RESPONSE_MODES.HYBRID].includes(mode)) {
+    mode = fallbackMode;
+  }
+
+  // Apply user override if explicitly set and valid
+  if (userOverride && [RESPONSE_MODES.VOICE, RESPONSE_MODES.TEXT].includes(userOverride.toUpperCase())) {
+    mode = userOverride.toUpperCase();
+  }
+
+  // 3. Extract spoken response
+  let spoken = String(obj.spokenResponse || obj.spoken || '').trim();
+
+  // 4. Extract visual response
+  let visual = obj.visualResponse;
+  if (!visual || typeof visual !== 'object') {
+    visual = {
+      type: obj.visualType || obj.type || (mode === RESPONSE_MODES.VOICE ? 'text' : 'markdown'),
+      language: obj.language || null,
+      title: obj.title || null,
+      content: obj.content || obj.text || null,
+    };
+  }
+
+  // Normalize visual fields
+  let visualContent = visual.content != null ? String(visual.content).trim() : '';
+
+  // Safeguard: Check if visualContent itself is stringified JSON!
+  if (visualContent.startsWith('{') && (
+    visualContent.includes('"spoken"') ||
+    visualContent.includes('"content"') ||
+    visualContent.includes('"type"') ||
+    visualContent.includes('"visualResponse"')
+  )) {
+    const unnested = safeParseOrExtract(visualContent);
+    if (unnested) {
+      if (unnested.spoken && !spoken) spoken = unnested.spoken;
+      if (unnested.visualResponse?.content) visualContent = unnested.visualResponse.content;
+      else if (unnested.content) visualContent = unnested.content;
+
+      const unnestedType = unnested.visualResponse?.type || unnested.type;
+      const unnestedLang = unnested.visualResponse?.language || unnested.language;
+      const unnestedTitle = unnested.visualResponse?.title || unnested.title;
+
+      if (unnestedType) visual.type = unnestedType;
+      if (unnestedLang) visual.language = unnestedLang;
+      if (unnestedTitle) visual.title = unnestedTitle;
+    }
+  }
+
+  let visualType = ['text', 'code', 'table', 'markdown', 'task'].includes(visual.type)
+    ? visual.type
+    : (containsStructuredContent(visualContent) ? 'markdown' : 'text');
+  let visualLanguage = (visualType === 'code' && visual.language) ? String(visual.language).toLowerCase().trim() : null;
+  let visualTitle = visual.title ? String(visual.title).trim() : null;
+
+  // Safeguard: If visualContent contains markdown code fences, strip them for clean code rendering
+  if (visualType === 'code' && visualContent) {
+    const fenceMatch = visualContent.match(/^```([a-zA-Z0-9_-]*)\n([\s\S]*?)```$/);
+    if (fenceMatch) {
+      if (!visualLanguage && fenceMatch[1]) visualLanguage = fenceMatch[1].toLowerCase().trim();
+      visualContent = fenceMatch[2].trim();
+    }
+  }
+
+  // 5. Deterministic Safety Corrections:
+  // Rule A1: If visual content is a rich artifact (code block, table, extensive list),
+  // but the model incorrectly classified it as VOICE -> Force TEXT or HYBRID!
+  const hasRichVisualContent = visualType === 'code' || visualType === 'table' || visualType === 'task' ||
+    containsStructuredContent(visualContent) || visualContent.length > 350;
+
+  if (mode === RESPONSE_MODES.VOICE && hasRichVisualContent) {
+    const wantsExplanation = /\b(explain|how|why|describe|walkthrough)\b/i.test(userText);
+    mode = wantsExplanation ? RESPONSE_MODES.HYBRID : RESPONSE_MODES.TEXT;
+  }
+
+  // Rule A2: If the model classified as TEXT, but there is NO rich visual content
+  // (no code, no table, no structured list, short plain text) and user did not override -> Correct to VOICE!
+  const explicitlyWantsText = /\b(in (the )?workspace|written|show me code|write code|table|json|yaml|schema)\b/i.test(userText);
+  if (mode === RESPONSE_MODES.TEXT && !hasRichVisualContent && !userOverride && !explicitlyWantsText) {
+    mode = RESPONSE_MODES.VOICE;
+    if (!spoken || spoken.toLowerCase().includes('workspace') || spoken.toLowerCase().includes('chat')) {
+      spoken = visualContent;
+    }
+  }
+
+  // Rule B: If spoken response contains raw code, table pipes, JSON braces, or markdown syntax,
+  // sanitize it immediately so Rime never speaks raw syntax!
+  if (containsStructuredContent(spoken) || spoken.trim().startsWith('{')) {
+    if (mode === RESPONSE_MODES.TEXT) {
+      const itemDesc = visualType === 'code' ? (visualTitle || 'code') : (visualType === 'table' ? 'comparison table' : 'response');
+      spoken = `Done. I've placed the ${itemDesc} in the workspace.`;
+    } else if (mode === RESPONSE_MODES.HYBRID) {
+      spoken = "I've summarized the key concept, and placed the full implementation in the workspace.";
+    } else {
+      // In voice mode with code syntax, move the code into visualResponse and make spoken clean
+      if (!visualContent) {
+        visualContent = spoken;
+        visualType = 'code';
+      }
+      mode = RESPONSE_MODES.TEXT;
+      spoken = "I've placed the code implementation in the workspace.";
+    }
+  }
+
+  // Rule C: In TEXT mode, Rime should receive ONLY a short acknowledgement.
+  if (mode === RESPONSE_MODES.TEXT) {
+    if (!spoken || spoken.length > 120 || (!spoken.toLowerCase().includes('workspace') && !spoken.toLowerCase().includes('chat'))) {
+      const itemDesc = visualType === 'code' ? (visualTitle || 'code implementation') : (visualType === 'table' ? 'comparison table' : 'response');
+      spoken = `Done. I've placed the ${itemDesc} in the workspace.`;
+    }
+  }
+
+  // Rule D: In HYBRID mode, ensure both a concise spoken summary and a rich visual artifact exist.
+  if (mode === RESPONSE_MODES.HYBRID) {
+    if (!visualContent && spoken) {
+      visualContent = spoken;
+      visualType = 'markdown';
+    }
+    if (!spoken || spoken.length > 200) {
+      spoken = "I've provided a summary, and added the full details to the workspace.";
+    }
+  }
+
+  // Rule E: In VOICE mode, visualResponse holds the transcript representation
+  if (mode === RESPONSE_MODES.VOICE) {
+    if (!visualContent && spoken) {
+      visualContent = spoken;
+      visualType = 'text';
+    }
+  }
+
+  // 6. Enforce Spoken Word Budget
+  const budgetedSpoken = enforceSpokenBudget(spoken, mode);
+
+  // 7. Assemble validated structured contract
+  const finalVisualResponse = {
+    type: visualType,
+    language: visualLanguage,
+    title: visualTitle,
+    content: visualContent || budgetedSpoken,
+  };
+
+  return {
+    responseMode: mode,
+    spokenResponse: budgetedSpoken,
+    visualResponse: finalVisualResponse,
+    visual: finalVisualResponse,
+
+    // Backward compatibility properties for existing clients & test harnesses
+    text: finalVisualResponse.content,
+    spoken: budgetedSpoken,
+    type: finalVisualResponse.type,
+    visualType: finalVisualResponse.type,
+    language: finalVisualResponse.language,
+    title: finalVisualResponse.title,
+    content: finalVisualResponse.content,
+  };
 }

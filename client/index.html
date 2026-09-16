@@ -2,7 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content"
+    />
     <title>Aurora — AI Assistant</title>
     <link rel="icon" type="image/png" sizes="64x64" href="favicon.png" />
     <link rel="icon" type="image/x-icon" href="favicon.ico" />
@@ -13,7 +16,7 @@
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="style.css" />
+    <link rel="stylesheet" href="style.css?v=20260916_mobile" />
   </head>
   <body>
     <div class="app" id="appRoot">
@@ -231,6 +234,8 @@
               class="btn-sidebar-toggle mobile-hamburger"
               id="btnMobileToggle"
               aria-label="Open Navigation"
+              aria-expanded="false"
+              aria-controls="appSidebar"
               title="Navigation"
             >
               <svg
@@ -284,7 +289,7 @@
                 class="btn-settings-toggle"
                 id="btnOpenSettings"
                 aria-label="Open Settings"
-                title="Settings &amp; API Keys"
+                title="Settings &amp; Preferences"
               >
                 <svg
                   width="18"
@@ -649,6 +654,15 @@
               Manage LLM intelligence providers, Rime TTS credentials, server connectivity, and local storage.
             </p>
 
+            <!-- Pre-Configured Ready Banner -->
+            <div class="system-ready-banner">
+              <div class="banner-status-dot"></div>
+              <div class="banner-content">
+                <strong>System Ready · Pre-Configured for All Users</strong>
+                <span>Google Gemini 3.5 Cloud Brain and Rime Neural Voice are pre-configured. No API key setup required — start chatting immediately.</span>
+              </div>
+            </div>
+
             <!-- 1. LLM Brain & Provider -->
             <div class="config-field">
               <label for="llmProviderSelect">Language Model Brain</label>
@@ -657,8 +671,8 @@
               </p>
               <div class="input-action-row" style="margin-bottom: 8px;">
                 <select id="llmProviderSelect" class="settings-select" aria-label="LLM Provider">
+                  <option value="gemini" selected>Google Gemini (Gemini 3.5 Flash · Pre-configured)</option>
                   <option value="groq">Groq (Ultra-fast Llama 3.3 / Mixtral)</option>
-                  <option value="gemini">Google Gemini (Gemini 2.5 Flash)</option>
                   <option value="anthropic">Anthropic (Claude 3.5 Haiku / Sonnet)</option>
                   <option value="openai">OpenAI (GPT-4o mini / GPT-4o)</option>
                 </select>
@@ -667,12 +681,12 @@
                 <input
                   type="password"
                   id="llmKeyInput"
-                  placeholder="Enter LLM API Key (gsk_... / AIza... / sk-...)"
+                  placeholder="●●●●●●●● (Pre-configured · Active for all users)"
                   autocomplete="off"
                 />
-                <button id="btnSaveLlmKey" class="small-action-btn">Save Key</button>
+                <button id="btnSaveLlmKey" class="small-action-btn" title="Optional: Override with your own custom key">Override Key</button>
               </div>
-              <div class="preview-status" id="llmStatusMsg"></div>
+              <div class="preview-status" id="llmStatusMsg" style="color: #7ee3a8;">✓ Cloud Brain is active and ready for all users.</div>
             </div>
 
             <!-- 2. Rime Production TTS Key -->
@@ -685,12 +699,12 @@
                 <input
                   type="password"
                   id="rimeApiKeyInput"
-                  placeholder="Enter Rime API Key (smHVPL...)"
+                  placeholder="●●●●●●●● (Pre-configured · Active for all users)"
                   autocomplete="off"
                 />
-                <button id="btnSaveRimeApiKey" class="small-action-btn">Save Key</button>
+                <button id="btnSaveRimeApiKey" class="small-action-btn" title="Optional: Override with your own custom key">Override Key</button>
               </div>
-              <div class="preview-status" id="rimeKeyStatusMsg"></div>
+              <div class="preview-status" id="rimeKeyStatusMsg" style="color: #7ee3a8;">✓ Neural voice synthesis is active.</div>
             </div>
 
             <!-- 3. Real-Time Backend Host -->
@@ -775,12 +789,12 @@
     </div>
 
     <!-- Scripts -->
-    <script src="config.js?v=20260914_opt2"></script>
-    <script src="audio-player.js?v=20260914_opt2"></script>
-    <script src="orb.js?v=20260914_opt2"></script>
-    <script src="vad-mic.js?v=20260914_opt2"></script>
-    <script src="markdown.js?v=20260914_opt2"></script>
-    <script src="highlighter.js?v=20260914_opt2"></script>
-    <script src="app.js?v=20260914_opt2"></script>
+    <script src="config.js?v=20260916_mobile"></script>
+    <script src="audio-player.js?v=20260916_mobile"></script>
+    <script src="orb.js?v=20260916_mobile"></script>
+    <script src="vad-mic.js?v=20260916_mobile"></script>
+    <script src="markdown.js?v=20260916_mobile"></script>
+    <script src="highlighter.js?v=20260916_mobile"></script>
+    <script src="app.js?v=20260916_mobile"></script>
   </body>
 </html>
