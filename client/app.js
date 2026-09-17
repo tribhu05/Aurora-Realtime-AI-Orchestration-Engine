@@ -280,6 +280,11 @@
   try {
     currentSessionId = localStorage.getItem('aurora-session-id') || null;
   } catch (_) {}
+  const LOCAL_SESSIONS_KEY = 'aurora-local-sessions';
+  const LOCAL_SESSION_TURNS_PREFIX = 'aurora-session-turns-';
+  let _bootInitialized = false;
+  let _isLoadingSession = false;
+  let _allConversationSessions = [];
   let currentActiveSpeaker = 'astra';
   try {
     currentActiveSpeaker = localStorage.getItem('aurora-speaker') || 'astra';
@@ -913,7 +918,6 @@
 
   connect();
   updateWorkspaceState();
-  initSessionOnBoot();
 
   // Initialize info panel defaults immediately
   if (infoModel) infoModel.textContent = currentActiveModel;
@@ -1571,12 +1575,12 @@
   });
 
   if (!mic.supported) {
-    micStatusTitle.textContent = 'Voice unsupported';
-    micStatusSub.textContent = 'Type your message';
-    dbgAsr.textContent = 'Unsupported (Use Chrome/Edge)';
-    micBtn.classList.add('muted-hint');
+    if (micStatusTitle) micStatusTitle.textContent = 'Voice unsupported';
+    if (micStatusSub) micStatusSub.textContent = 'Type your message';
+    if (dbgAsr) dbgAsr.textContent = 'Unsupported (Use Chrome/Edge)';
+    if (micBtn) micBtn.classList.add('muted-hint');
   } else {
-    dbgAsr.textContent = 'Web Speech ASR Ready';
+    if (dbgAsr) dbgAsr.textContent = 'Web Speech ASR Ready';
   }
 
   let activeHttpAbortController = null;
@@ -2758,10 +2762,6 @@ executeTask();`,
   }
 
   // ---------- Dual-Layer Persistence (LocalStorage + Backend) ----------
-  const LOCAL_SESSIONS_KEY = 'aurora-local-sessions';
-  const LOCAL_SESSION_TURNS_PREFIX = 'aurora-session-turns-';
-  let _isLoadingSession = false;
-  let _allConversationSessions = [];
 
   function getLocalSessions() {
     try {
@@ -3068,7 +3068,7 @@ executeTask();`,
 
   function filterAndRenderConversationHistory() {
     if (!convHistoryGrid) return;
-    const query = (convSearchInput ? convSearchInput.value : '').trim().toLowerCase();
+    const query = (convSearchInput && convSearchInput.value ? String(convSearchInput.value) : '').trim().toLowerCase();
 
     // Filter sessions by search query (matching title or snippet)
     const filtered = (_allConversationSessions || []).filter((s) => {
@@ -3314,33 +3314,14 @@ executeTask();`,
       }
 
       // 2. Cleanly abort in-flight turn & audio playback
-      player.stopAll();
+      if (player && typeof player.stopAll === 'function') player.stopAll();
+      if (window.speechSynthesis) window.speechSynthesis.cancel();
       setUiState('idle');
       sendWs({ type: 'interrupt', timestamp: Date.now() });
 
-      // 3. Request new session from server (with client fallback)
-      let newSessionId = null;
-      try {
-        const res = await fetchWithTimeout(apiUrl('/api/sessions/new'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            speaker: currentActiveSpeaker,
-            modelId: currentActiveModel,
-          }),
-        }, 3000);
-        if (res && res.ok) {
-          const data = await res.json();
-          newSessionId = data.session?.id;
-        }
-      } catch (err) {
-        console.warn('Backend new session request failed, using client ID', err);
-      }
-
-      if (!newSessionId) {
-        newSessionId = 'sess_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 7);
-      }
-
+      // 3. Generate new session ID instantly (0ms delay)
+      const newSessionId =
+        'sess_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 7);
       currentSessionId = newSessionId;
       try {
         localStorage.setItem('aurora-session-id', currentSessionId);
@@ -3353,13 +3334,25 @@ executeTask();`,
         sessionId: currentSessionId,
       });
 
-      // 4. Reset active chat state
+      // 4. INSTANT UI RESET (Synchronous, 0ms delay)
       currentGen = 0;
-      if (dbgGen) dbgGen.textContent = `#${currentGen}`;
+      if (dbgGen) dbgGen.textContent = '#0';
 
       transcript = [];
       if (chatArea) chatArea.innerHTML = '';
-      if (chatAreaConv) chatAreaConv.innerHTML = '';
+      if (chatAreaConv) {
+        chatAreaConv.innerHTML =
+          '<p class="empty-hint" id="convEmptyHint">No messages yet. Speak or type below to start the conversation timeline.</p>';
+      }
+      if (historyList) historyList.innerHTML = '';
+      if (captionUser) {
+        captionUser.style.display = 'none';
+        captionUser.textContent = '';
+      }
+      if (captionAi) {
+        captionAi.textContent = '“Welcome! How can I help you today?”';
+      }
+      if (cancelPill) cancelPill.classList.remove('show');
 
       if (appRoot) {
         appRoot.classList.remove('in-conversation');
@@ -3371,6 +3364,15 @@ executeTask();`,
 
       updateWorkspaceState();
       setMainExperience('companion', true);
+      closeMobileSidebar();
+
+      if (typeInput) {
+        typeInput.value = '';
+        typeInput.focus();
+      }
+      if (typeInputConv) {
+        typeInputConv.value = '';
+      }
 
       updateTelemetryDisplay(
         {
@@ -3392,16 +3394,30 @@ executeTask();`,
         }
       );
 
-      await fetchAndRenderSessions();
+      // Render local sessions immediately so the archived chat appears right away in sidebar & history
+      const localMerged = mergeSessions([], getLocalSessions());
+      renderSidebarRecentChats(localMerged);
+      renderConversationHistoryView(localMerged);
 
-      // Auto-close sidebar on mobile
-      closeMobileSidebar();
-
-      if (typeInput) {
-        typeInput.value = '';
-        typeInput.focus();
-      }
       log(`Started fresh session #${currentSessionId.slice(0, 8)}`);
+
+      // 5. Asynchronously register with backend in background without blocking UI
+      (async () => {
+        try {
+          await fetchWithTimeout(apiUrl('/api/sessions/new'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              speaker: currentActiveSpeaker,
+              modelId: currentActiveModel,
+              sessionId: currentSessionId,
+            }),
+          }, 2500);
+        } catch (_) {}
+        try {
+          await fetchAndRenderSessions();
+        } catch (_) {}
+      })();
     } catch (err) {
       console.error('Failed to create new session:', err);
     }
@@ -3431,7 +3447,6 @@ executeTask();`,
     }
   }
 
-  let _bootInitialized = false;
   async function initSessionOnBoot() {
     if (_bootInitialized) return;
     _bootInitialized = true;
@@ -3668,9 +3683,16 @@ executeTask();`,
   }
 
   function log(msg) {
-    const line = document.createElement('div');
-    line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
-    debugLog.prepend(line);
+    if (!debugLog) return;
+    try {
+      const line = document.createElement('div');
+      line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+      if (typeof debugLog.prepend === 'function') {
+        debugLog.prepend(line);
+      } else if (typeof debugLog.appendChild === 'function') {
+        debugLog.appendChild(line);
+      }
+    } catch (_) {}
   }
 
   if (btnClearLog) {
@@ -4191,4 +4213,9 @@ executeTask();`,
         })[c]
     );
   }
+  // Initialize sessions and initial workspace state safely after all event listeners and DOM bindings are registered
+  initSessionOnBoot();
+
+  // Global handle for programmatic or button invocation
+  window.createNewSession = createNewSession;
 })();
