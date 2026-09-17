@@ -18,11 +18,19 @@ class AuroraMic {
     this._isRunning = false;
     this._isStarting = false;
     this._isDirectGesture = false; // Tracks if start was from direct user action
+    this._permissionUnlocked = false; // Tracks if getUserMedia permission was already granted
     this._restartTimer = null;
     this._silenceTimer = null;
-    this._silenceTimeoutMs = 1000; // 1 second of natural silence before finalizing
+    this._silenceTimeoutMs = 1000; // 1 second of natural silence on desktop
+    this._mobileSilenceTimeoutMs = 650; // Snappier silence detection on mobile
     this._accumulatedText = '';
     this._interimText = '';
+
+    // Device detection: Android, iPhone/iPad, mobile viewport with touch
+    this.isMobile =
+      typeof navigator !== 'undefined' &&
+      (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+        (typeof window !== 'undefined' && window.innerWidth <= 900 && 'ontouchstart' in window));
 
     if (!this.supported) return;
 
@@ -44,10 +52,17 @@ class AuroraMic {
     }
 
     this.recognition = new SR();
-    // Enable continuous listening across both desktop and mobile
-    this.recognition.continuous = true;
+    // Desktop Chrome supports continuous listening; Mobile (Android Chrome & iOS Safari)
+    // restricts or fails continuous recognition sessions. Use single-turn for mobile.
+    this.recognition.continuous = !this.isMobile;
     this.recognition.interimResults = true;
-    this.recognition.lang = 'en-US';
+    this.recognition.maxAlternatives = 1;
+
+    // Use device locale if available, falling back to en-US
+    const deviceLang =
+      (typeof navigator !== 'undefined' && (navigator.language || (navigator.languages && navigator.languages[0]))) ||
+      'en-US';
+    this.recognition.lang = deviceLang;
 
     this.recognition.onstart = () => {
       this._isRunning = true;
@@ -97,9 +112,10 @@ class AuroraMic {
         }
 
         // Wait for natural pause before finalizing complete sentence
+        const timeout = this.isMobile ? this._mobileSilenceTimeoutMs : this._silenceTimeoutMs;
         this._silenceTimer = setTimeout(() => {
           this._finalizeUtterance();
-        }, this._silenceTimeoutMs);
+        }, timeout);
       }
     };
 
@@ -151,8 +167,9 @@ class AuroraMic {
 
       this.onEnd();
 
-      // If full-duplex continuous listening is requested, attempt resilient restart
-      if (this._wantListening) {
+      // On desktop with continuous mode enabled, attempt resilient restart.
+      // On mobile, never auto-restart in background (requires direct user gesture).
+      if (!this.isMobile && this._wantListening) {
         this._scheduleRestart();
       }
     };
@@ -168,12 +185,21 @@ class AuroraMic {
     this._interimText = '';
     this._heardThisTurn = false;
 
+    if (this.isMobile) {
+      // On mobile, completing the sentence concludes the turn so mic does not record during AI speech
+      this._wantListening = false;
+      try {
+        this.recognition.stop();
+      } catch (_) {}
+    }
+
     if (fullText && fullText.length > 0) {
       this.onFinalResult(fullText);
     }
   }
 
-  _scheduleRestart(delay = 50) {
+  _scheduleRestart(delay = 60) {
+    if (this.isMobile) return; // Never restart on mobile without direct gesture
     if (this._restartTimer) {
       clearTimeout(this._restartTimer);
     }
@@ -196,21 +222,26 @@ class AuroraMic {
       this.recognition.start();
     } catch (err) {
       this._isStarting = false;
-      // If start failed synchronously and it was a direct tap:
+      if (err && (err.name === 'InvalidStateError' || err.message?.includes('already started'))) {
+        this._isRunning = true;
+        return;
+      }
       if (isDirectGesture) {
         if (err && (err.name === 'NotAllowedError' || err.message?.includes('not-allowed'))) {
           this._wantListening = false;
           this.onError('not-allowed');
         }
       } else {
-        // In background restart, gracefully cease listening without throwing UI error
         this._wantListening = false;
       }
     }
   }
 
-  /** Starts listening synchronously inside a user gesture */
-  start() {
+  /**
+   * Starts listening inside a user gesture.
+   * On mobile or first microphone request, pre-unlocks hardware permissions via getUserMedia.
+   */
+  async start() {
     if (!this.supported) return;
     this._wantListening = true;
     this._heardThisTurn = false;
@@ -223,6 +254,31 @@ class AuroraMic {
     if (this._restartTimer) {
       clearTimeout(this._restartTimer);
       this._restartTimer = null;
+    }
+
+    // On mobile or first microphone activation, ensure hardware permissions are granted
+    if (
+      !this._permissionUnlocked &&
+      typeof navigator !== 'undefined' &&
+      navigator.mediaDevices &&
+      typeof navigator.mediaDevices.getUserMedia === 'function'
+    ) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        this._permissionUnlocked = true;
+        // Release stream tracks immediately so SpeechRecognition has exclusive capture
+        stream.getTracks().forEach((track) => {
+          try {
+            track.stop();
+          } catch (_) {}
+        });
+      } catch (permErr) {
+        if (permErr.name === 'NotAllowedError' || permErr.name === 'PermissionDeniedError') {
+          this._wantListening = false;
+          this.onError('not-allowed');
+          return;
+        }
+      }
     }
 
     if (!this._isRunning && !this._isStarting) {

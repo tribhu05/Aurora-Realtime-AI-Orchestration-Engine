@@ -1518,6 +1518,9 @@
       }
       if (!text || !text.trim()) return;
       captionUser.textContent = text;
+      if (mic && mic.isMobile) {
+        listeningMode = false;
+      }
       sendQuery(text);
     },
     onEnd: () => {
@@ -1631,6 +1634,9 @@
   }
 
   function afterSpeaking() {
+    if (mic && mic.isMobile) {
+      listeningMode = false;
+    }
     setUiState(listeningMode ? 'listening' : 'idle');
   }
 
@@ -3716,14 +3722,14 @@ executeTask();`,
       if (typeof mic.resetForNewCommand === 'function') {
         mic.resetForNewCommand();
       } else {
-        mic.start();
+        Promise.resolve(mic.start()).catch(() => {});
       }
       setUiState('listening');
       return;
     }
     listeningMode = !listeningMode;
     if (listeningMode) {
-      mic.start();
+      Promise.resolve(mic.start()).catch(() => {});
       setUiState('listening');
     } else {
       mic.stop();
