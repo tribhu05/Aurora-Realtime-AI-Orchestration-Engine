@@ -90,6 +90,13 @@ export async function synthesizeSpeech(text, config, signal) {
     mockAudio = false,
   } = config || {};
 
+  // If text contains Devanagari characters (Hindi), Rime TTS (English acoustic model)
+  // cannot synthesize it. Returning null allows the client to smoothly synthesize
+  // using the browser's native Hindi voice (hi-IN).
+  if (typeof text === 'string' && /[\u0900-\u097F]/.test(text)) {
+    return null;
+  }
+
   if (mockAudio) {
     // Deterministic mock audio buffer for offline testing and CI
     return Buffer.alloc(128, 0xaa);

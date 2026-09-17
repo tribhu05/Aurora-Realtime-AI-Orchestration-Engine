@@ -26,6 +26,12 @@ class AuroraMic {
     this._accumulatedText = '';
     this._interimText = '';
 
+    // Language preference: 'auto' (Hinglish / en-IN), 'hi-IN' (Hindi), 'en-IN' (Hinglish/Indian EN), 'en-US'
+    const savedLang =
+      (typeof localStorage !== 'undefined' && localStorage.getItem('aurora-speech-lang')) ||
+      'auto';
+    this.speechLang = savedLang;
+
     // Device detection: Android, iPhone/iPad, mobile viewport with touch
     this.isMobile =
       typeof navigator !== 'undefined' &&
@@ -35,6 +41,34 @@ class AuroraMic {
     if (!this.supported) return;
 
     this._initRecognizer();
+  }
+
+  _resolveLang(langSetting) {
+    if (langSetting === 'hi-IN' || langSetting === 'hi') return 'hi-IN';
+    if (langSetting === 'en-IN' || langSetting === 'hinglish') return 'en-IN';
+    if (langSetting === 'en-US' || langSetting === 'en') return 'en-US';
+
+    // 'auto' mode: check browser language
+    if (typeof navigator !== 'undefined') {
+      const dev = (navigator.language || (navigator.languages && navigator.languages[0]) || '').toLowerCase();
+      if (dev.startsWith('hi')) return 'hi-IN';
+      if (dev.includes('in')) return 'en-IN';
+    }
+    // Default to en-IN for optimal Hinglish / Indian speech recognition
+    return 'en-IN';
+  }
+
+  /** Dynamically updates speech recognition language */
+  setLanguage(lang) {
+    this.speechLang = lang || 'auto';
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('aurora-speech-lang', this.speechLang);
+      }
+    } catch (_) {}
+    if (this.recognition) {
+      this.recognition.lang = this._resolveLang(this.speechLang);
+    }
   }
 
   _initRecognizer() {
@@ -58,11 +92,8 @@ class AuroraMic {
     this.recognition.interimResults = true;
     this.recognition.maxAlternatives = 1;
 
-    // Use device locale if available, falling back to en-US
-    const deviceLang =
-      (typeof navigator !== 'undefined' && (navigator.language || (navigator.languages && navigator.languages[0]))) ||
-      'en-US';
-    this.recognition.lang = deviceLang;
+    // Set recognition language based on active preference
+    this.recognition.lang = this._resolveLang(this.speechLang);
 
     this.recognition.onstart = () => {
       this._isRunning = true;

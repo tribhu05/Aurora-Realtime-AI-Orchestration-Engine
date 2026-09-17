@@ -53,6 +53,54 @@ export function containsStructuredContent(text) {
 }
 
 /**
+ * Detects whether the given text is Hindi (Devanagari script),
+ * Hinglish (Hindi written in Roman/Latin script), or English.
+ *
+ * @param {string} text - Input text.
+ * @returns {'hi'|'hinglish'|'en'}
+ */
+export function detectLanguage(text) {
+  if (!text || typeof text !== 'string') return 'en';
+
+  // 1. Devanagari script detection (Hindi)
+  if (/[\u0900-\u097F]/.test(text)) {
+    return 'hi';
+  }
+
+  // 2. Hinglish vocabulary & common conversational patterns
+  const hinglishPatterns = [
+    /\b(namaste|namaskar|pranam|kya|kyun|kyu|kaise|kaisa|kaisi|kab|kahan|kidhar|kaun)\b/i,
+    /\b(hai|hain|ho|hoon|hun|tha|thi|the|hoga|hogi|honge|raha|rahi|rahe)\b/i,
+    /\b(mujhe|tum|tumhe|aap|aapko|hum|hume|mera|meri|mere|tera|teri|tere|apna|apni|apne)\b/i,
+    /\b(uska|uski|uske|iska|iski|iske|unka|unki|unke|inka|inki|inke|yeh|ye|woh|wo)\b/i,
+    /\b(batao|bataiye|samjhao|samjha|karo|kar|kariye|karna|karne|karta|karti|karte|do|de|dena|dijiye)\b/i,
+    /\b(sakte|sakta|sakti|sakenge|chahiye|mangta|padega|padegi)\b/i,
+    /\b(thik|theek|sahi|galat|nahi|nahin|mat|bhi|hi|toh|to|aur|ya|lekin|magar|par)\b/i,
+    /\b(bhai|yaar|dost|sir|madam|ji|sahab|accha|achha|acha|bohot|bahut|kuch|sab)\b/i,
+    /\b(kaam|baat|sawal|jawaab|jawab|likho|likhna|dikhaye|dekho|bhejo|suno)\b/i,
+    /\b(shukriya|dhanyawad|alvida|zarur|zaroor|bilkul|asani|aasan|mushkil)\b/i,
+  ];
+
+  let matchCount = 0;
+  for (const pattern of hinglishPatterns) {
+    if (pattern.test(text)) {
+      matchCount++;
+      if (matchCount >= 2) return 'hinglish';
+    }
+  }
+
+  if (
+    /\b(bhai|yaar|kaise ho|kya haal|kya chal raha|kya kar sakte|madad karo|samjha do|likh do|kar do|bata do|batao na|theek hai|sahi hai|pata hai|kya hai|namaste|shukriya|dhanyawad)\b/i.test(
+      text
+    )
+  ) {
+    return 'hinglish';
+  }
+
+  return 'en';
+}
+
+/**
  * Enforces the spoken response word budget while preserving grammatically
  * complete sentences and natural flow.
  */
@@ -87,7 +135,8 @@ export function enforceSpokenBudget(spokenText, mode = 'VOICE') {
   }
 
   // 2. Sentence-aware trimming: accumulate complete sentences up to maxWords
-  const sentenceMatches = clean.match(/[^.!?]+[.!?]+(\s+|$)/g);
+  // Supports English punctuation [.!?] as well as Devanagari purna viram (। \u0964, ॥ \u0965)
+  const sentenceMatches = clean.match(/[^.!?।॥]+[.!?।॥]+(\s+|$)/g);
   if (sentenceMatches && sentenceMatches.length > 0) {
     let accumulated = '';
     let wordCount = 0;
@@ -107,11 +156,12 @@ export function enforceSpokenBudget(spokenText, mode = 'VOICE') {
     }
   }
 
-  // 3. Fallback: Trim to nearest word within budget and add period
+  // 3. Fallback: Trim to nearest word within budget and add proper punctuation
   const truncatedWords = words.slice(0, maxWords);
   let truncatedText = truncatedWords.join(' ').replace(/[,;:\s]+$/, '');
-  if (!/[.!?]$/.test(truncatedText)) {
-    truncatedText += '.';
+  const lang = detectLanguage(truncatedText);
+  if (!/[.!?।॥]$/.test(truncatedText)) {
+    truncatedText += (lang === 'hi' ? '।' : '.');
   }
 
   return truncatedText;
@@ -510,14 +560,32 @@ export function validateAndEnforceContract(rawObj, userText = '', history = [], 
     }
   }
 
+  const userLang = detectLanguage(userText);
+  const contentLang = detectLanguage(visualContent || spoken);
+  const effectiveLang = userLang !== 'en' ? userLang : contentLang;
+
   // Rule B: If spoken response contains raw code, table pipes, JSON braces, or markdown syntax,
   // sanitize it immediately so Rime never speaks raw syntax!
   if (containsStructuredContent(spoken) || spoken.trim().startsWith('{')) {
     if (mode === RESPONSE_MODES.TEXT) {
-      const itemDesc = visualType === 'code' ? (visualTitle || 'code') : (visualType === 'table' ? 'comparison table' : 'response');
-      spoken = `Done. I've placed the ${itemDesc} in the workspace.`;
+      if (effectiveLang === 'hi') {
+        const itemDesc = visualType === 'code' ? 'कोड' : (visualType === 'table' ? 'तालिका' : 'जवाब');
+        spoken = `लीजिए, मैंने वर्कस्पेस में ${itemDesc} तैयार कर दिया है।`;
+      } else if (effectiveLang === 'hinglish') {
+        const itemDesc = visualType === 'code' ? 'code' : (visualType === 'table' ? 'table' : 'response');
+        spoken = `Maine workspace me ${itemDesc} taiyar kar diya hai.`;
+      } else {
+        const itemDesc = visualType === 'code' ? (visualTitle || 'code') : (visualType === 'table' ? 'comparison table' : 'response');
+        spoken = `Done. I've placed the ${itemDesc} in the workspace.`;
+      }
     } else if (mode === RESPONSE_MODES.HYBRID) {
-      spoken = "I've summarized the key concept, and placed the full implementation in the workspace.";
+      if (effectiveLang === 'hi') {
+        spoken = "मैंने मुख्य विचार समझा दिया है, और पूरा समाधान वर्कस्पेस में लिख दिया है।";
+      } else if (effectiveLang === 'hinglish') {
+        spoken = "Maine concept explain kar diya hai, aur full implementation workspace me daal diya hai.";
+      } else {
+        spoken = "I've summarized the key concept, and placed the full implementation in the workspace.";
+      }
     } else {
       // In voice mode with code syntax, move the code into visualResponse and make spoken clean
       if (!visualContent) {
@@ -525,15 +593,33 @@ export function validateAndEnforceContract(rawObj, userText = '', history = [], 
         visualType = 'code';
       }
       mode = RESPONSE_MODES.TEXT;
-      spoken = "I've placed the code implementation in the workspace.";
+      if (effectiveLang === 'hi') {
+        spoken = "मैंने वर्कस्पेस में कोड तैयार कर दिया है।";
+      } else if (effectiveLang === 'hinglish') {
+        spoken = "Maine workspace me code taiyar kar diya hai.";
+      } else {
+        spoken = "I've placed the code implementation in the workspace.";
+      }
     }
   }
 
   // Rule C: In TEXT mode, Rime should receive ONLY a short acknowledgement.
   if (mode === RESPONSE_MODES.TEXT) {
-    if (!spoken || spoken.length > 120 || (!spoken.toLowerCase().includes('workspace') && !spoken.toLowerCase().includes('chat'))) {
-      const itemDesc = visualType === 'code' ? (visualTitle || 'code implementation') : (visualType === 'table' ? 'comparison table' : 'response');
-      spoken = `Done. I've placed the ${itemDesc} in the workspace.`;
+    const isHindiOk = effectiveLang === 'hi' && (spoken.includes('वर्कस्पेस') || spoken.includes('कोड') || spoken.includes('तालिका') || /[\u0900-\u097F]/.test(spoken));
+    const isHinglishOk = effectiveLang === 'hinglish' && (spoken.toLowerCase().includes('workspace') || spoken.toLowerCase().includes('taiyar') || spoken.toLowerCase().includes('code'));
+    const isEnglishOk = spoken.toLowerCase().includes('workspace') || spoken.toLowerCase().includes('chat');
+
+    if (!spoken || spoken.length > 140 || (!isHindiOk && !isHinglishOk && !isEnglishOk)) {
+      if (effectiveLang === 'hi') {
+        const itemDesc = visualType === 'code' ? 'कोड' : (visualType === 'table' ? 'तालिका' : 'जवाब');
+        spoken = `लीजिए, मैंने वर्कस्पेस में ${itemDesc} तैयार कर दिया है।`;
+      } else if (effectiveLang === 'hinglish') {
+        const itemDesc = visualType === 'code' ? 'code' : (visualType === 'table' ? 'table' : 'response');
+        spoken = `Maine workspace me ${itemDesc} taiyar kar diya hai.`;
+      } else {
+        const itemDesc = visualType === 'code' ? (visualTitle || 'code implementation') : (visualType === 'table' ? 'comparison table' : 'response');
+        spoken = `Done. I've placed the ${itemDesc} in the workspace.`;
+      }
     }
   }
 
@@ -544,7 +630,13 @@ export function validateAndEnforceContract(rawObj, userText = '', history = [], 
       visualType = 'markdown';
     }
     if (!spoken || spoken.length > 200) {
-      spoken = "I've provided a summary, and added the full details to the workspace.";
+      if (effectiveLang === 'hi') {
+        spoken = "मैंने मुख्य विचार संक्षेप में समझा दिया है, और पूरा विवरण वर्कस्पेस में जोड़ दिया है।";
+      } else if (effectiveLang === 'hinglish') {
+        spoken = "Maine key concept samjha diya hai, aur pura implementation workspace me add kar diya hai.";
+      } else {
+        spoken = "I've provided a summary, and added the full details to the workspace.";
+      }
     }
   }
 

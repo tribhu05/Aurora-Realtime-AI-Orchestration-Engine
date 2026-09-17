@@ -1640,6 +1640,91 @@
     setUiState(listeningMode ? 'listening' : 'idle');
   }
 
+  // ---------- Multi-Lingual Speech & Language Helpers ----------
+  function detectClientLanguage(text) {
+    if (!text || typeof text !== 'string') return 'en';
+    if (/[\u0900-\u097F]/.test(text)) return 'hi';
+    const hinglishPatterns = [
+      /\b(namaste|namaskar|pranam|kya|kyun|kyu|kaise|kaisa|kaisi|kab|kahan|kidhar|kaun)\b/i,
+      /\b(hai|hain|ho|hoon|hun|tha|thi|the|hoga|hogi|honge|raha|rahi|rahe)\b/i,
+      /\b(mujhe|tum|tumhe|aap|aapko|hum|hume|mera|meri|mere|tera|teri|tere|apna|apni|apne)\b/i,
+      /\b(uska|uski|uske|iska|iski|iske|unka|unki|unke|inka|inki|inke|yeh|ye|woh|wo)\b/i,
+      /\b(batao|bataiye|samjhao|samjha|karo|kar|kariye|karna|karne|karta|karti|karte|do|de|dena|dijiye)\b/i,
+      /\b(sakte|sakta|sakti|sakenge|chahiye|mangta|padega|padegi)\b/i,
+      /\b(thik|theek|sahi|galat|nahi|nahin|mat|bhi|hi|toh|to|aur|ya|lekin|magar|par)\b/i,
+      /\b(bhai|yaar|dost|sir|madam|ji|sahab|accha|achha|acha|bohot|bahut|kuch|sab)\b/i,
+      /\b(kaam|baat|sawal|jawaab|jawab|likho|likhna|dikhaye|dekho|bhejo|suno)\b/i,
+      /\b(shukriya|dhanyawad|alvida|zarur|zaroor|bilkul|asani|aasan|mushkil)\b/i,
+    ];
+    let matchCount = 0;
+    for (const pattern of hinglishPatterns) {
+      if (pattern.test(text)) {
+        matchCount++;
+        if (matchCount >= 2) return 'hinglish';
+      }
+    }
+    if (
+      /\b(bhai|yaar|kaise ho|kya haal|kya chal raha|kya kar sakte|madad karo|samjha do|likh do|kar do|bata do|batao na|theek hai|sahi hai|pata hai|kya hai|namaste|shukriya|dhanyawad)\b/i.test(
+        text
+      )
+    ) {
+      return 'hinglish';
+    }
+    return 'en';
+  }
+
+  let cachedVoices = [];
+  function populateVoices() {
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      cachedVoices = window.speechSynthesis.getVoices() || [];
+    }
+  }
+  populateVoices();
+  if (typeof window !== 'undefined' && window.speechSynthesis) {
+    window.speechSynthesis.onvoiceschanged = populateVoices;
+  }
+
+  function getBestVoiceForText(text) {
+    if (!cachedVoices || !cachedVoices.length) populateVoices();
+    const lang = detectClientLanguage(text);
+    const activeSetting = (typeof localStorage !== 'undefined' && localStorage.getItem('aurora-speech-lang')) || 'auto';
+
+    // 1. Hindi (Devanagari)
+    if (lang === 'hi' || activeSetting === 'hi-IN') {
+      const hiVoice = cachedVoices.find(
+        (v) => (v.lang && (v.lang === 'hi-IN' || v.lang.startsWith('hi'))) || /hindi|हिन्दी/i.test(v.name)
+      );
+      if (hiVoice) return { voice: hiVoice, lang: 'hi-IN' };
+
+      // Fallback to Indian English voice
+      const inVoice = cachedVoices.find(
+        (v) => (v.lang && (v.lang === 'en-IN' || v.lang.startsWith('en-IN'))) || /india|neerja|prabhat/i.test(v.name)
+      );
+      if (inVoice) return { voice: inVoice, lang: 'en-IN' };
+      return { voice: null, lang: 'hi-IN' };
+    }
+
+    // 2. Hinglish (Roman Hindi)
+    if (lang === 'hinglish' || activeSetting === 'en-IN') {
+      const inVoice = cachedVoices.find(
+        (v) => (v.lang && (v.lang === 'en-IN' || v.lang.startsWith('en-IN'))) || /india|neerja|prabhat|veena|heera/i.test(v.name)
+      );
+      if (inVoice) return { voice: inVoice, lang: 'en-IN' };
+
+      const hiVoice = cachedVoices.find(
+        (v) => (v.lang && (v.lang === 'hi-IN' || v.lang.startsWith('hi'))) || /hindi|हिन्दी/i.test(v.name)
+      );
+      if (hiVoice) return { voice: hiVoice, lang: 'hi-IN' };
+      return { voice: null, lang: 'en-IN' };
+    }
+
+    // 3. Default English
+    const enVoice =
+      cachedVoices.find((v) => v.lang && v.lang.startsWith('en') && v.default) ||
+      cachedVoices.find((v) => v.lang && v.lang.startsWith('en'));
+    return { voice: enVoice || null, lang: enVoice?.lang || 'en-US' };
+  }
+
   let speechDebounceTimer = null;
   function speakWithBrowser(text, onComplete = null) {
     if (!window.speechSynthesis) {
@@ -1671,7 +1756,15 @@
       speechDebounceTimer = null;
       try {
         const utter = new SpeechSynthesisUtterance(text);
-        utter.rate = 1.05;
+        utter.rate = 1.0;
+
+        // Apply authentic native Hindi / Indian English / US English voice
+        const target = getBestVoiceForText(text);
+        if (target) {
+          if (target.voice) utter.voice = target.voice;
+          if (target.lang) utter.lang = target.lang;
+        }
+
         let finished = false;
         const finish = () => {
           if (finished) return;
@@ -1700,6 +1793,78 @@
   function generateClientFallbackReply(userText, _history = []) {
     const query = (userText || '').trim();
     const lower = query.toLowerCase();
+    const lang = detectClientLanguage(query);
+
+    // 0. Hindi (Devanagari) conversational intelligence
+    if (lang === 'hi') {
+      if (lower.includes('नमस्ते') || lower.includes('नमस्कार') || lower.includes('प्रणाम') || lower.includes('हाय') || lower.includes('हेलो')) {
+        return {
+          responseMode: 'VOICE',
+          spoken: 'नमस्ते! मैं ऑरोरा हूँ। मैं आपकी क्या मदद कर सकता हूँ?',
+          text: 'नमस्ते! मैं **ऑरोरा (Aurora)** हूँ, आपका वॉइस-फर्स्ट AI असिस्टेंट।\n\nमैं कोडिंग, सवालों के जवाब और समस्याओं को सुलझाने में आपकी सहायता कर सकता हूँ। बताइए, आज क्या करना है?',
+          visualType: 'text',
+          title: 'नमस्ते!',
+        };
+      }
+      if (lower.includes('कौन हो') || lower.includes('कौन हैं') || lower.includes('तुम्हारा नाम') || lower.includes('आपका नाम')) {
+        return {
+          responseMode: 'VOICE',
+          spoken: 'मैं ऑरोरा हूँ, आपका रियल-टाइम वॉइस AI असिस्टेंट।',
+          text: 'मैं **ऑरोरा (Aurora)** हूँ — एक रियल-टाइम AI असिस्टेंट जो वॉइस कन्वर्सेशन और विज़ुअल वर्कस्पेस दोनों को सपोर्ट करता है।',
+          visualType: 'text',
+          title: 'ऑरोरा का परिचय',
+        };
+      }
+      if (lower.includes('कैसे हो') || lower.includes('क्या हाल') || lower.includes('सब ठीक')) {
+        return {
+          responseMode: 'VOICE',
+          spoken: 'मैं बिल्कुल ठीक हूँ, पूछने के लिए धन्यवाद! आप कैसे हैं?',
+          text: 'मैं बिल्कुल ठीक हूँ और आपकी मदद के लिए तैयार हूँ! आप बताइए, आज आपका दिन कैसा चल रहा है?',
+          visualType: 'text',
+          title: 'हाल-चाल',
+        };
+      }
+      if (lower.includes('हिंदी बोल') || lower.includes('हिंदी आती') || lower.includes('हिंदी जानते') || lower.includes('हिंदी में बात')) {
+        return {
+          responseMode: 'VOICE',
+          spoken: 'हाँ बिल्कुल! मैं हिंदी और हिंग्लिश दोनों में आसानी से बात कर सकता हूँ।',
+          text: 'हाँ, मैं **हिंदी** और **हिंग्लिश** दोनों में पूरी तरह सक्षम हूँ। आप बेझिझक हिंदी में मुझसे कोई भी सवाल पूछ सकते हैं।',
+          visualType: 'text',
+          title: 'हिंदी भाषा सपोर्ट',
+        };
+      }
+    }
+
+    // 0. Hinglish (Roman Hindi) conversational intelligence
+    if (lang === 'hinglish') {
+      if (lower.includes('namaste') || lower.includes('kya haal') || lower.includes('kaise ho') || lower.includes('kaisa hai') || lower.includes('kya chal raha')) {
+        return {
+          responseMode: 'VOICE',
+          spoken: 'Main bilkul badhiya hoon! Aap bataiye, aaj kya madad karoon?',
+          text: 'Namaste! Main **Aurora** hoon — aapka voice-first AI assistant.\n\nAaj hum kis topic par kaam karenge? Coding, doubt solving, ya koi naya project?',
+          visualType: 'text',
+          title: 'Namaste!',
+        };
+      }
+      if (lower.includes('kaun ho') || lower.includes('kaun hai') || lower.includes('who are you') || lower.includes('naam kya hai')) {
+        return {
+          responseMode: 'VOICE',
+          spoken: 'Main Aurora hoon, aapka real-time voice AI assistant.',
+          text: 'Main **Aurora** hoon — ek real-time AI assistant jo voice conversation aur interactive workspace ke sath kaam karta hai.',
+          visualType: 'text',
+          title: 'Aurora Intro',
+        };
+      }
+      if (lower.includes('hindi बोल') || lower.includes('hindi aati') || lower.includes('hindi me baat') || lower.includes('can you speak hindi')) {
+        return {
+          responseMode: 'VOICE',
+          spoken: 'Haan bilkul! Main Hindi aur Hinglish dono me fluent baat kar sakta hoon.',
+          text: 'Haan bilkul! Main **Hindi (हिन्दी)** aur **Hinglish** dono me bohot naturally baat aur code dono kar sakta hoon. Boliye, aaj kya code ya explain karna hai?',
+          visualType: 'text',
+          title: 'Hindi & Hinglish Support',
+        };
+      }
+    }
 
     // 1. Geography, cultures, people (including Asia)
     if (lower.includes('asia') || lower.includes('asian')) {
@@ -1734,15 +1899,18 @@
 
     // 2. Code generation requests
     const isCode =
-      /\b(code|program|function|script|write|implement|algorithm|class|python|c\+\+|javascript|typescript|java|sql|html|css)\b/i.test(
+      /\b(code|program|function|script|write|implement|algorithm|class|python|c\+\+|javascript|typescript|java|sql|html|css|कोड|likho|likh do)\b/i.test(
         lower
       );
 
     if (isCode) {
-      if (lower.includes('prime')) {
+      if (lower.includes('prime') || lower.includes('प्राइम') || lower.includes('अभाज्य')) {
+        let primeSpoken = "I've written the prime number checker in Python for you.";
+        if (lang === 'hi') primeSpoken = "लीजिए, मैंने वर्कस्पेस में पायथन प्राइम नंबर चेकर तैयार कर दिया है।";
+        else if (lang === 'hinglish') primeSpoken = "Maine workspace me Python prime checker ready kar diya hai.";
         return {
           responseMode: 'TEXT',
-          spoken: "I've written the prime number checker in Python for you.",
+          spoken: primeSpoken,
           text: `def is_prime(n: int) -> bool:
     """Checks whether a given integer is a prime number."""
     if n <= 1:
@@ -1769,10 +1937,13 @@ if __name__ == '__main__':
         };
       }
 
-      if (lower.includes('binary search')) {
+      if (lower.includes('binary search') || lower.includes('बाइनरी सर्च')) {
+        let bsSpoken = "I've written the binary search implementation in C++.";
+        if (lang === 'hi') bsSpoken = "लीजिए, मैंने वर्कस्पेस में बाइनरी सर्च का C++ कोड लिख दिया है।";
+        else if (lang === 'hinglish') bsSpoken = "Maine workspace me binary search ka C++ implementation place kar diya hai.";
         return {
           responseMode: 'TEXT',
-          spoken: "I've written the binary search implementation in C++.",
+          spoken: bsSpoken,
           text: `#include <iostream>
 #include <vector>
 
@@ -4057,6 +4228,40 @@ executeTask();`,
       }
     });
   }
+
+  // ---------- Speech & Conversation Language Configuration ----------
+  const voiceLangSelect = $('voiceLangSelect');
+  const settingsLangSelect = $('settingsLangSelect');
+
+  function syncSpeechLanguage(lang) {
+    const validLang = lang || 'auto';
+    if (voiceLangSelect) voiceLangSelect.value = validLang;
+    if (settingsLangSelect) settingsLangSelect.value = validLang;
+    try {
+      localStorage.setItem('aurora-speech-lang', validLang);
+    } catch (_) {}
+    if (mic && typeof mic.setLanguage === 'function') {
+      mic.setLanguage(validLang);
+    }
+  }
+
+  if (voiceLangSelect) {
+    voiceLangSelect.addEventListener('change', (e) => {
+      syncSpeechLanguage(e.target.value);
+    });
+  }
+
+  if (settingsLangSelect) {
+    settingsLangSelect.addEventListener('change', (e) => {
+      syncSpeechLanguage(e.target.value);
+    });
+  }
+
+  // Restore saved speech language
+  try {
+    const savedSpeechLang = localStorage.getItem('aurora-speech-lang') || 'auto';
+    syncSpeechLanguage(savedSpeechLang);
+  } catch (_) {}
 
   // ---------- Online LLM Key Activation ----------
   const llmProviderSelect = $('llmProviderSelect');
