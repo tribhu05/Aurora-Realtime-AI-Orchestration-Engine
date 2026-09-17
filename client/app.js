@@ -107,6 +107,10 @@
   const sidebarRecentList = $('sidebarRecentList');
   const sidebarRecentCount = $('sidebarRecentCount');
   const btnExportMarkdown = $('btnExportMarkdown');
+  const conversationHistoryView = $('conversationHistoryView');
+  const convSearchInput = $('convSearchInput');
+  const btnConvNewChat = $('btnConvNewChat');
+  const convHistoryGrid = $('convHistoryGrid');
 
   // Right panel
   const stepper = $('stepper');
@@ -473,18 +477,43 @@
     if (navCompanion) navCompanion.classList.toggle('active', view === 'companion');
     if (navConversation) navConversation.classList.toggle('active', view === 'conversation');
 
-    if (appRoot) {
-      appRoot.classList.toggle('in-conversation', view === 'conversation');
-    }
+    const heroEl = $('heroSection');
+    const composerEl = $('composerContainer');
 
-    if (view === 'conversation' && chatArea) {
-      requestAnimationFrame(() => {
-        chatArea.scrollTop = chatArea.scrollHeight;
-      });
-    }
+    if (view === 'companion') {
+      if (conversationHistoryView) conversationHistoryView.style.display = 'none';
+      if (composerEl) composerEl.style.display = '';
 
-    if (focusInput && typeInput) {
-      typeInput.focus();
+      const hasMessages = transcript && transcript.length > 0;
+      if (appRoot) {
+        appRoot.classList.toggle('in-conversation', hasMessages);
+      }
+      if (heroEl) {
+        heroEl.style.display = '';
+      }
+      if (chatArea) {
+        chatArea.style.display = hasMessages ? 'flex' : 'none';
+        if (hasMessages) {
+          requestAnimationFrame(() => {
+            chatArea.scrollTop = chatArea.scrollHeight;
+          });
+        }
+      }
+      if (focusInput && typeInput) {
+        typeInput.focus();
+      }
+    } else if (view === 'conversation') {
+      if (conversationHistoryView) {
+        conversationHistoryView.style.display = 'flex';
+        if (convSearchInput) {
+          setTimeout(() => convSearchInput.focus(), 80);
+        }
+      }
+      if (heroEl) heroEl.style.display = 'none';
+      if (chatArea) chatArea.style.display = 'none';
+      if (composerEl) composerEl.style.display = 'none';
+
+      fetchAndRenderSessions();
     }
 
     if (orb && typeof orb.resize === 'function') {
@@ -492,10 +521,7 @@
     }
 
     // Auto-close sidebar on mobile after navigating
-    if (window.innerWidth <= 900 && appRoot) {
-      appRoot.classList.remove('sidebar-open');
-      if (btnToggleSidebar) btnToggleSidebar.classList.remove('active');
-    }
+    closeMobileSidebar();
   }
 
   function switchView(target) {
@@ -537,7 +563,7 @@
     navConversation.addEventListener('click', () => {
       closeMobileSidebar();
       closeDrawer();
-      setMainExperience('conversation', true);
+      setMainExperience('conversation');
     });
   }
 
@@ -628,14 +654,14 @@
       navConvBadge.style.display = hasMessages ? 'inline-flex' : 'none';
     }
 
-    if (hasMessages) {
-      setMainExperience('conversation');
-    } else {
-      setMainExperience('companion');
+    if (appRoot) {
+      appRoot.classList.toggle('in-conversation', hasMessages);
     }
 
-    if (chatArea) {
-      chatArea.style.display = hasMessages ? 'flex' : 'none';
+    if (_activeMainView === 'companion') {
+      if (chatArea) {
+        chatArea.style.display = hasMessages ? 'flex' : 'none';
+      }
     }
 
     if (orb && typeof orb.resize === 'function') {
@@ -2527,10 +2553,16 @@ executeTask();`,
 
       // Record clean message in transcript (NOT raw JSON)
       transcript.push({ role, text: cleanText, time: new Date(), generation: gen });
+      if (!_isLoadingSession && currentSessionId) {
+        recordTurnLocally('assistant', cleanText, gen, cleanMeta);
+      }
     } else {
       row.className = 'msg-row user msg';
       row.innerHTML = `<div class="msg-bubble-user bubble">${escapeHtml(text)}</div>`;
       transcript.push({ role, text, time: new Date(), generation: gen });
+      if (!_isLoadingSession && currentSessionId) {
+        recordTurnLocally('user', text, gen);
+      }
     }
 
     if (chatArea) {
@@ -2725,28 +2757,186 @@ executeTask();`,
     log(`💰 BUDGET: ${message || 'Session budget limit reached'}`);
   }
 
-  // ---------- Sessions & Persistent SQLite Transcripts ----------
+  // ---------- Dual-Layer Persistence (LocalStorage + Backend) ----------
+  const LOCAL_SESSIONS_KEY = 'aurora-local-sessions';
+  const LOCAL_SESSION_TURNS_PREFIX = 'aurora-session-turns-';
+  let _isLoadingSession = false;
+  let _allConversationSessions = [];
+
+  function getLocalSessions() {
+    try {
+      const raw = localStorage.getItem(LOCAL_SESSIONS_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function saveLocalSessions(sessions) {
+    try {
+      localStorage.setItem(LOCAL_SESSIONS_KEY, JSON.stringify((sessions || []).slice(0, 50)));
+    } catch (_) {}
+  }
+
+  function getLocalSessionTurns(sessionId) {
+    if (!sessionId) return [];
+    try {
+      const raw = localStorage.getItem(LOCAL_SESSION_TURNS_PREFIX + sessionId);
+      return raw ? JSON.parse(raw) : [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function saveLocalSessionTurns(sessionId, turns) {
+    if (!sessionId) return;
+    try {
+      localStorage.setItem(LOCAL_SESSION_TURNS_PREFIX + sessionId, JSON.stringify(turns || []));
+    } catch (_) {}
+  }
+
+  function upsertLocalSession(sessionMeta) {
+    if (!sessionMeta || !sessionMeta.id) return;
+    const list = getLocalSessions();
+    const idx = list.findIndex((s) => s.id === sessionMeta.id);
+    if (idx >= 0) {
+      list[idx] = { ...list[idx], ...sessionMeta };
+    } else {
+      list.unshift(sessionMeta);
+    }
+    saveLocalSessions(list);
+  }
+
+  function removeLocalSession(sessionId) {
+    if (!sessionId) return;
+    try {
+      localStorage.removeItem(LOCAL_SESSION_TURNS_PREFIX + sessionId);
+      const list = getLocalSessions().filter((s) => s.id !== sessionId);
+      saveLocalSessions(list);
+    } catch (_) {}
+  }
+
+  function recordTurnLocally(role, text, gen, meta = {}) {
+    if (!currentSessionId) {
+      currentSessionId = 'sess_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 7);
+      try {
+        localStorage.setItem('aurora-session-id', currentSessionId);
+      } catch (_) {}
+      if (dbgSession) dbgSession.textContent = currentSessionId;
+    }
+
+    const isAsst = role === 'assistant';
+    const turnObj = {
+      id: 'turn_' + (gen || Date.now()) + (isAsst ? '_asst' : '_user'),
+      session_id: currentSessionId,
+      generation: gen || currentGen || 1,
+      role,
+      user_text: isAsst ? null : text,
+      assistant_text: isAsst ? text : null,
+      spoken_text: isAsst ? (meta.spoken || text) : null,
+      visual_type: isAsst ? (meta.visualType || 'text') : null,
+      visual_title: isAsst ? meta.title : null,
+      visual_payload: isAsst && meta.visualType && meta.visualType !== 'text' ? {
+        type: meta.visualType,
+        language: meta.language,
+        title: meta.title,
+        content: text,
+      } : null,
+      response_mode: isAsst ? (meta.responseMode || 'VOICE') : null,
+      speaker: isAsst ? (meta.speaker || currentActiveSpeaker) : null,
+      model_id: isAsst ? (meta.model || currentActiveModel) : null,
+      created_at: Date.now(),
+    };
+
+    const existingTurns = getLocalSessionTurns(currentSessionId);
+    existingTurns.push(turnObj);
+    saveLocalSessionTurns(currentSessionId, existingTurns);
+
+    const firstUserTurn = existingTurns.find((t) => t.user_text || (t.role === 'user' && t.text));
+    let title = firstUserTurn ? (firstUserTurn.user_text || firstUserTurn.text) : 'Conversation';
+    if (title.length > 50) title = title.substring(0, 48) + '…';
+    const lastSnippet = text;
+
+    upsertLocalSession({
+      id: currentSessionId,
+      title,
+      speaker: currentActiveSpeaker,
+      model_id: currentActiveModel,
+      turn_count: existingTurns.length,
+      last_snippet: lastSnippet,
+      created_at: existingTurns[0]?.created_at || new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+
+    // Quick sync sidebar and history view
+    const merged = mergeSessions([], getLocalSessions());
+    renderSidebarRecentChats(merged);
+    if (_activeMainView === 'conversation') {
+      renderConversationHistoryView(merged);
+    }
+  }
+
+  function mergeSessions(serverSessions = [], localSessions = []) {
+    const map = new Map();
+
+    // 1. Local sessions first
+    (localSessions || []).forEach((s) => {
+      if (s && s.id) {
+        map.set(s.id, { ...s });
+      }
+    });
+
+    // 2. Merge server sessions (server turns/cost take precedence if present)
+    (serverSessions || []).forEach((s) => {
+      if (s && s.id) {
+        const existing = map.get(s.id) || {};
+        map.set(s.id, {
+          ...existing,
+          ...s,
+          title: s.title || existing.title || `Chat ${s.id.slice(0, 8)}`,
+          turn_count: s.turn_count != null ? s.turn_count : (s.total_turns != null ? s.total_turns : (existing.turn_count || 0)),
+          last_snippet: existing.last_snippet || s.summary || '',
+          updated_at: s.updated_at || existing.updated_at || s.created_at || existing.created_at,
+        });
+      }
+    });
+
+    // Sort by updated_at / created_at descending
+    const list = Array.from(map.values());
+    list.sort((a, b) => {
+      const timeA = new Date(a.updated_at || a.created_at || 0).getTime();
+      const timeB = new Date(b.updated_at || b.created_at || 0).getTime();
+      return timeB - timeA;
+    });
+    return list;
+  }
+
+  // ---------- Sessions & Persistent Transcripts ----------
   async function fetchAndRenderSessions() {
     try {
       if (sessionListLoading) sessionListLoading.style.display = 'block';
-      const res = await fetchWithTimeout(apiUrl('/api/transcripts/sessions?limit=30'), {}, 4000);
-      if (res && res.ok) {
-        const data = await res.json();
-        const sessions = data.sessions || [];
-        renderSessionList(sessions);
-        renderSidebarRecentChats(sessions);
-      } else {
-        if (sessionList) sessionList.innerHTML = '';
-        if (sidebarRecentList) {
-          sidebarRecentList.innerHTML = '<p class="sidebar-recent-empty">No saved chats yet</p>';
+      let serverSessions = [];
+      try {
+        const res = await fetchWithTimeout(apiUrl('/api/transcripts/sessions?limit=30'), {}, 3500);
+        if (res && res.ok) {
+          const data = await res.json();
+          serverSessions = data.sessions || [];
         }
+      } catch (err) {
+        console.warn('Server sessions fetch failed, using local sessions:', err);
       }
+
+      const merged = mergeSessions(serverSessions, getLocalSessions());
+      saveLocalSessions(merged);
+
+      renderSessionList(merged);
+      renderSidebarRecentChats(merged);
+      renderConversationHistoryView(merged);
     } catch (err) {
-      console.warn('Failed to load sessions', err);
-      if (sessionList) sessionList.innerHTML = '';
-      if (sidebarRecentList) {
-        sidebarRecentList.innerHTML = '<p class="sidebar-recent-empty">No saved chats yet</p>';
-      }
+      console.warn('Failed in fetchAndRenderSessions:', err);
+      const local = getLocalSessions();
+      renderSidebarRecentChats(local);
+      renderConversationHistoryView(local);
     } finally {
       if (sessionListLoading) sessionListLoading.style.display = 'none';
     }
@@ -2793,6 +2983,8 @@ executeTask();`,
         if (e.target.closest('.btn-delete-sidebar-chat')) return;
         if (s.id !== currentSessionId) {
           loadSession(s.id);
+        } else {
+          setMainExperience('companion', true);
         }
         closeMobileSidebar();
       });
@@ -2867,18 +3059,154 @@ executeTask();`,
     });
   }
 
+  // ---------- Dedicated Conversation History View Rendering ----------
+  function renderConversationHistoryView(sessions) {
+    if (!convHistoryGrid) return;
+    _allConversationSessions = sessions || [];
+    filterAndRenderConversationHistory();
+  }
+
+  function filterAndRenderConversationHistory() {
+    if (!convHistoryGrid) return;
+    const query = (convSearchInput ? convSearchInput.value : '').trim().toLowerCase();
+
+    // Filter sessions by search query (matching title or snippet)
+    const filtered = (_allConversationSessions || []).filter((s) => {
+      if (!query) return true;
+      const title = (s.title || '').toLowerCase();
+      const snippet = (s.last_snippet || s.summary || '').toLowerCase();
+      const speaker = (s.speaker || s.active_speaker || '').toLowerCase();
+      return title.includes(query) || snippet.includes(query) || speaker.includes(query);
+    });
+
+    convHistoryGrid.innerHTML = '';
+
+    if (filtered.length === 0) {
+      convHistoryGrid.innerHTML = `
+        <div class="conv-history-empty">
+          <svg class="conv-history-empty-icon" width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+          </svg>
+          <h3 class="conv-history-empty-title">${query ? 'No matching conversations' : 'No saved conversations yet'}</h3>
+          <p class="conv-history-empty-desc">${query ? `No chat records found matching "${escapeHtml(query)}". Try a different search term.` : 'Start a chat with Aurora to build your conversation history.'}</p>
+        </div>
+      `;
+      return;
+    }
+
+    filtered.forEach((s) => {
+      const card = document.createElement('div');
+      const isActive = s.id === currentSessionId;
+      card.className = `conv-history-card ${isActive ? 'active' : ''}`;
+      card.dataset.sessionId = s.id;
+
+      const title = s.title || `Conversation ${s.id.slice(0, 8)}`;
+      const turns = s.turn_count != null ? s.turn_count : (s.total_turns || 0);
+      const snippet = s.last_snippet || s.summary || 'Click to reopen and continue this conversation…';
+
+      let dateStr = 'Recent';
+      if (s.updated_at || s.created_at) {
+        try {
+          const d = new Date(s.updated_at || s.created_at);
+          if (!isNaN(d.getTime())) {
+            dateStr = d.toLocaleDateString([], {
+              month: 'short',
+              day: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit',
+            });
+          }
+        } catch (_) {}
+      }
+
+      card.innerHTML = `
+        <div class="conv-card-top">
+          <h4 class="conv-card-title" title="${escapeHtml(title)}">${escapeHtml(title)}</h4>
+          <button class="btn-conv-card-delete" title="Delete Conversation" data-id="${s.id}">✕</button>
+        </div>
+        <p class="conv-card-snippet">${escapeHtml(snippet)}</p>
+        <div class="conv-card-footer">
+          <div class="conv-card-meta">
+            <span class="conv-badge">${turns} ${turns === 1 ? 'turn' : 'turns'}</span>
+            <span>·</span>
+            <span>${escapeHtml(s.speaker || s.active_speaker || currentActiveSpeaker)}</span>
+          </div>
+          <span class="conv-card-date">${dateStr}</span>
+        </div>
+      `;
+
+      card.addEventListener('click', (e) => {
+        if (e.target.closest('.btn-conv-card-delete')) return;
+        loadSession(s.id);
+        setMainExperience('companion', true);
+      });
+
+      const delBtn = card.querySelector('.btn-conv-card-delete');
+      if (delBtn) {
+        delBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          deleteSession(s.id);
+        });
+      }
+
+      convHistoryGrid.appendChild(card);
+    });
+  }
+
+  if (convSearchInput) {
+    convSearchInput.addEventListener('input', () => {
+      filterAndRenderConversationHistory();
+    });
+  }
+
+  if (btnConvNewChat) {
+    btnConvNewChat.addEventListener('click', () => {
+      createNewSession();
+    });
+  }
+
   async function loadSession(sessionId) {
     if (!sessionId) return;
+    _isLoadingSession = true;
     try {
-      const res = await fetchWithTimeout(
-        apiUrl(`/api/transcripts/sessions/${sessionId}`),
-        {},
-        4000
-      );
-      if (!res || !res.ok) throw new Error(`Failed to fetch session ${sessionId}`);
-      const data = await res.json();
-      const session = data.session;
-      const turns = data.turns || [];
+      let session = null;
+      let turns = [];
+
+      // 1. Try fetching from server
+      try {
+        const res = await fetchWithTimeout(
+          apiUrl(`/api/transcripts/sessions/${sessionId}`),
+          {},
+          3500
+        );
+        if (res && res.ok) {
+          const data = await res.json();
+          session = data.session;
+          turns = data.turns || [];
+        }
+      } catch (err) {
+        console.warn(`Server fetch for session ${sessionId} failed, using local cache:`, err);
+      }
+
+      // 2. Fallback to local storage if server returned no turns
+      if (!session || turns.length === 0) {
+        const localList = getLocalSessions();
+        const found = localList.find((s) => s.id === sessionId);
+        if (found) session = session || found;
+        const localTurns = getLocalSessionTurns(sessionId);
+        if (localTurns && localTurns.length > 0) {
+          turns = localTurns;
+        }
+      }
+
+      if (!session) {
+        session = { id: sessionId, speaker: currentActiveSpeaker, model_id: currentActiveModel };
+      }
+
+      // Cache turns locally if received from backend
+      if (turns.length > 0) {
+        saveLocalSessionTurns(session.id, turns);
+      }
 
       // Stop any in-flight playback or generation
       player.stopAll();
@@ -2890,12 +3218,12 @@ executeTask();`,
       } catch (_) {}
       if (dbgSession) dbgSession.textContent = currentSessionId;
 
-      if (session.speaker) {
-        currentActiveSpeaker = session.speaker;
+      if (session.speaker || session.active_speaker) {
+        currentActiveSpeaker = session.speaker || session.active_speaker;
         if (infoVoice) infoVoice.textContent = currentActiveSpeaker;
       }
-      if (session.model_id) {
-        currentActiveModel = session.model_id;
+      if (session.model_id || session.active_model) {
+        currentActiveModel = session.model_id || session.active_model;
         if (infoModel) infoModel.textContent = currentActiveModel;
       }
       updateVoiceStudioSelection();
@@ -2918,11 +3246,12 @@ executeTask();`,
         const gen = t.generation || t.turn_index || 1;
         if (gen > maxGen) maxGen = gen;
 
-        if (t.user_text) {
-          addMessageCard('user', t.user_text, gen);
+        if (t.user_text || (t.role === 'user' && t.text)) {
+          const uText = t.user_text || t.text;
+          addMessageCard('user', uText, gen);
         }
-        if (t.assistant_text || t.spoken_text || t.visual_payload) {
-          const content = t.visual_payload?.content || t.assistant_text || t.spoken_text;
+        if (t.assistant_text || t.spoken_text || t.visual_payload || (t.role === 'assistant' && t.text)) {
+          const content = t.visual_payload?.content || t.assistant_text || t.spoken_text || t.text;
           const meta = {
             speaker: t.speaker || currentActiveSpeaker,
             model: t.model_id || currentActiveModel,
@@ -2944,104 +3273,135 @@ executeTask();`,
 
       updateTelemetryDisplay(null, {
         sessionId: session.id,
-        turnCount: session.turn_count,
-        totalTokens: session.total_tokens,
-        totalCostUsd: session.total_cost_usd,
+        turnCount: session.turn_count || turns.length,
+        totalTokens: session.total_tokens || 0,
+        totalCostUsd: session.total_cost_usd || 0,
         budgetCapUsd: 0.25,
       });
 
       updateWorkspaceState();
       await fetchAndRenderSessions();
 
-      if (turns.length > 0) {
-        setMainExperience('conversation');
-      } else {
-        setMainExperience('companion');
-      }
-
+      setMainExperience('companion', true);
       closeDrawer();
-
-      // Auto-close sidebar on mobile
-      if (window.innerWidth <= 900 && appRoot) {
-        appRoot.classList.remove('sidebar-open');
-        if (btnToggleSidebar) btnToggleSidebar.classList.remove('active');
-      }
+      closeMobileSidebar();
 
       log(`Loaded session ${session.id.slice(0, 8)} (${turns.length} turns)`);
     } catch (err) {
       console.error('Failed to load session:', err);
       log(`Error loading session ${sessionId}`);
-      throw err;
+    } finally {
+      _isLoadingSession = false;
     }
   }
 
   async function createNewSession() {
     try {
-      // Cleanly abort in-flight turn & audio playback
+      // 1. Auto-save current session before resetting if it has messages
+      if (transcript && transcript.length > 0 && currentSessionId) {
+        let firstUser = transcript.find((t) => t.role === 'user')?.text || 'Saved Conversation';
+        if (firstUser.length > 50) firstUser = firstUser.substring(0, 48) + '…';
+        const lastMsg = transcript[transcript.length - 1]?.text || '';
+        upsertLocalSession({
+          id: currentSessionId,
+          title: firstUser,
+          speaker: currentActiveSpeaker,
+          model_id: currentActiveModel,
+          turn_count: transcript.length,
+          last_snippet: lastMsg,
+          updated_at: new Date().toISOString(),
+        });
+      }
+
+      // 2. Cleanly abort in-flight turn & audio playback
       player.stopAll();
       setUiState('idle');
       sendWs({ type: 'interrupt', timestamp: Date.now() });
 
-      const res = await fetch(apiUrl('/api/sessions/new'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          speaker: currentActiveSpeaker,
-          modelId: currentActiveModel,
-        }),
-      });
-      if (res && res.ok) {
-        const data = await res.json();
-        const session = data.session;
-        currentSessionId = session.id;
-        try {
-          localStorage.setItem('aurora-session-id', currentSessionId);
-        } catch (_) {}
-        if (dbgSession) dbgSession.textContent = currentSessionId;
-
-        // Reset server-side WS session & history
-        sendWs({
-          type: 'switch_session',
-          sessionId: currentSessionId,
-        });
-
-        currentGen = 0;
-        if (dbgGen) dbgGen.textContent = `#${currentGen}`;
-
-        clearAllChat();
-        updateWorkspaceState();
-        setMainExperience('companion', true);
-
-        updateTelemetryDisplay(
-          {
-            llmMs: null,
-            ttsMs: null,
-            totalMs: null,
-            sttMs: 0,
-            bargeInMs: 0,
-            costUsd: 0,
-            totalTokens: 0,
-            degraded: false,
-          },
-          {
-            sessionId: session.id,
-            turnCount: 0,
-            totalTokens: 0,
-            totalCostUsd: 0,
-            budgetCapUsd: 0.25,
-          }
-        );
-        await fetchAndRenderSessions();
-
-        // Auto-close sidebar on mobile
-        if (window.innerWidth <= 900 && appRoot) {
-          appRoot.classList.remove('sidebar-open');
-          if (btnToggleSidebar) btnToggleSidebar.classList.remove('active');
+      // 3. Request new session from server (with client fallback)
+      let newSessionId = null;
+      try {
+        const res = await fetchWithTimeout(apiUrl('/api/sessions/new'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            speaker: currentActiveSpeaker,
+            modelId: currentActiveModel,
+          }),
+        }, 3000);
+        if (res && res.ok) {
+          const data = await res.json();
+          newSessionId = data.session?.id;
         }
-
-        if (typeInput) typeInput.focus();
-        log(`Created new session #${currentSessionId.slice(0, 8)}`);
+      } catch (err) {
+        console.warn('Backend new session request failed, using client ID', err);
       }
+
+      if (!newSessionId) {
+        newSessionId = 'sess_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 7);
+      }
+
+      currentSessionId = newSessionId;
+      try {
+        localStorage.setItem('aurora-session-id', currentSessionId);
+      } catch (_) {}
+      if (dbgSession) dbgSession.textContent = currentSessionId;
+
+      // Reset server-side WS session & history
+      sendWs({
+        type: 'switch_session',
+        sessionId: currentSessionId,
+      });
+
+      // 4. Reset active chat state
+      currentGen = 0;
+      if (dbgGen) dbgGen.textContent = `#${currentGen}`;
+
+      transcript = [];
+      if (chatArea) chatArea.innerHTML = '';
+      if (chatAreaConv) chatAreaConv.innerHTML = '';
+
+      if (appRoot) {
+        appRoot.classList.remove('in-conversation');
+      }
+      if (navConvBadge) {
+        navConvBadge.style.display = 'none';
+        navConvBadge.textContent = '0';
+      }
+
+      updateWorkspaceState();
+      setMainExperience('companion', true);
+
+      updateTelemetryDisplay(
+        {
+          llmMs: null,
+          ttsMs: null,
+          totalMs: null,
+          sttMs: 0,
+          bargeInMs: 0,
+          costUsd: 0,
+          totalTokens: 0,
+          degraded: false,
+        },
+        {
+          sessionId: currentSessionId,
+          turnCount: 0,
+          totalTokens: 0,
+          totalCostUsd: 0,
+          budgetCapUsd: 0.25,
+        }
+      );
+
+      await fetchAndRenderSessions();
+
+      // Auto-close sidebar on mobile
+      closeMobileSidebar();
+
+      if (typeInput) {
+        typeInput.value = '';
+        typeInput.focus();
+      }
+      log(`Started fresh session #${currentSessionId.slice(0, 8)}`);
     } catch (err) {
       console.error('Failed to create new session:', err);
     }
@@ -3050,17 +3410,22 @@ executeTask();`,
   async function deleteSession(sessionId) {
     if (!confirm('Are you sure you want to delete this chat history?')) return;
     try {
-      const res = await fetch(apiUrl(`/api/transcripts/sessions/${sessionId}`), {
-        method: 'DELETE',
-      });
-      if (res && res.ok) {
-        if (currentSessionId === sessionId) {
-          await createNewSession();
-        } else {
-          fetchAndRenderSessions();
-        }
-        log(`Deleted session ${sessionId.slice(0, 8)}`);
+      removeLocalSession(sessionId);
+
+      try {
+        await fetch(apiUrl(`/api/transcripts/sessions/${sessionId}`), {
+          method: 'DELETE',
+        });
+      } catch (err) {
+        console.warn('Backend delete session failed:', err);
       }
+
+      if (currentSessionId === sessionId) {
+        await createNewSession();
+      } else {
+        await fetchAndRenderSessions();
+      }
+      log(`Deleted session ${sessionId.slice(0, 8)}`);
     } catch (err) {
       console.error('Failed to delete session:', err);
     }
@@ -3072,8 +3437,12 @@ executeTask();`,
     _bootInitialized = true;
     try {
       const savedSessionId = currentSessionId || localStorage.getItem('aurora-session-id');
+      const localSessions = getLocalSessions();
+
       if (savedSessionId) {
         await loadSession(savedSessionId);
+      } else if (localSessions && localSessions.length > 0) {
+        await loadSession(localSessions[0].id);
       } else {
         const res = await fetchWithTimeout(apiUrl('/api/transcripts/sessions?limit=1'), {}, 3000);
         if (res && res.ok) {
