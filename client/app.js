@@ -171,6 +171,18 @@
       if (!wsReady && typeof connect === 'function') {
         connect();
       }
+      if (listeningMode && mic && (state === 'listening' || state === 'idle')) {
+        setTimeout(() => {
+          if (listeningMode && typeof mic.ensureListening === 'function') {
+            mic.ensureListening();
+          }
+        }, 150);
+      }
+    } else {
+      // Pause mic capture while in background to conserve mobile battery
+      if (mic && typeof mic.pauseForSpeaking === 'function') {
+        mic.pauseForSpeaking();
+      }
     }
   });
 
@@ -1518,8 +1530,10 @@
       }
       if (!text || !text.trim()) return;
       captionUser.textContent = text;
-      if (mic && mic.isMobile) {
-        listeningMode = false;
+      // On mobile devices, pause speech capture while AI is speaking so phone loudspeaker
+      // does not cause acoustic loopback into the microphone. Voice mode remains active.
+      if (mic && mic.isMobile && typeof mic.pauseForSpeaking === 'function') {
+        mic.pauseForSpeaking();
       }
       sendQuery(text);
     },
@@ -1634,10 +1648,23 @@
   }
 
   function afterSpeaking() {
-    if (mic && mic.isMobile) {
-      listeningMode = false;
+    if (listeningMode) {
+      setUiState('listening');
+      // On both desktop & mobile: ensure microphone is live and ready for next utterance
+      if (mic) {
+        setTimeout(() => {
+          if (listeningMode && (state === 'listening' || state === 'idle')) {
+            if (typeof mic.ensureListening === 'function') {
+              mic.ensureListening();
+            } else if (!mic.listening) {
+              Promise.resolve(mic.start()).catch(() => {});
+            }
+          }
+        }, 80);
+      }
+    } else {
+      setUiState('idle');
     }
-    setUiState(listeningMode ? 'listening' : 'idle');
   }
 
   // ---------- Multi-Lingual Speech & Language Helpers ----------

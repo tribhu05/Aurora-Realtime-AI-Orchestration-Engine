@@ -86,9 +86,8 @@ class AuroraMic {
     }
 
     this.recognition = new SR();
-    // Desktop Chrome supports continuous listening; Mobile (Android Chrome & iOS Safari)
-    // restricts or fails continuous recognition sessions. Use single-turn for mobile.
-    this.recognition.continuous = !this.isMobile;
+    // Continuous listening supported across desktop and modern mobile browsers
+    this.recognition.continuous = true;
     this.recognition.interimResults = true;
     this.recognition.maxAlternatives = 1;
 
@@ -198,10 +197,9 @@ class AuroraMic {
 
       this.onEnd();
 
-      // On desktop with continuous mode enabled, attempt resilient restart.
-      // On mobile, never auto-restart in background (requires direct user gesture).
-      if (!this.isMobile && this._wantListening) {
-        this._scheduleRestart();
+      // On desktop & mobile: attempt resilient auto-restart whenever voice mode is active
+      if (this._wantListening) {
+        this._scheduleRestart(80);
       }
     };
   }
@@ -216,21 +214,14 @@ class AuroraMic {
     this._interimText = '';
     this._heardThisTurn = false;
 
-    if (this.isMobile) {
-      // On mobile, completing the sentence concludes the turn so mic does not record during AI speech
-      this._wantListening = false;
-      try {
-        this.recognition.stop();
-      } catch (_) {}
-    }
-
+    // Note: Do not disable _wantListening here. In conversational mode,
+    // listening remains active across multiple turns until user explicitly toggles it off.
     if (fullText && fullText.length > 0) {
       this.onFinalResult(fullText);
     }
   }
 
-  _scheduleRestart(delay = 60) {
-    if (this.isMobile) return; // Never restart on mobile without direct gesture
+  _scheduleRestart(delay = 80) {
     if (this._restartTimer) {
       clearTimeout(this._restartTimer);
     }
@@ -257,13 +248,16 @@ class AuroraMic {
         this._isRunning = true;
         return;
       }
-      if (isDirectGesture) {
-        if (err && (err.name === 'NotAllowedError' || err.message?.includes('not-allowed'))) {
-          this._wantListening = false;
+      if (err && (err.name === 'NotAllowedError' || err.message?.includes('not-allowed'))) {
+        this._wantListening = false;
+        if (isDirectGesture) {
           this.onError('not-allowed');
         }
-      } else {
-        this._wantListening = false;
+        return;
+      }
+      // Transient busy/stopping state: schedule resilient retry instead of dropping listening
+      if (this._wantListening) {
+        this._scheduleRestart(150);
       }
     }
   }
@@ -370,6 +364,54 @@ class AuroraMic {
 
     // Direct synchronous start for immediate user responsiveness
     this._safeStart(true);
+  }
+
+  /**
+   * Seamlessly re-arms / ensures microphone is listening for the next user turn.
+   * Called when AI speech completes or when returning to voice mode.
+   */
+  ensureListening() {
+    if (!this.supported) return;
+    this._wantListening = true;
+    this._heardThisTurn = false;
+    this._accumulatedText = '';
+    this._interimText = '';
+
+    if (this._silenceTimer) {
+      clearTimeout(this._silenceTimer);
+      this._silenceTimer = null;
+    }
+    if (this._restartTimer) {
+      clearTimeout(this._restartTimer);
+      this._restartTimer = null;
+    }
+
+    if (!this._isRunning && !this._isStarting) {
+      this._safeStart(false);
+    }
+  }
+
+  /**
+   * Cleanly pauses audio capture while AI speaks to prevent speaker echo
+   * from bleeding into the microphone on mobile speakerphones.
+   */
+  pauseForSpeaking() {
+    if (!this.supported) return;
+    if (this._silenceTimer) {
+      clearTimeout(this._silenceTimer);
+      this._silenceTimer = null;
+    }
+    if (this._restartTimer) {
+      clearTimeout(this._restartTimer);
+      this._restartTimer = null;
+    }
+    if (this._isRunning || this._isStarting) {
+      try {
+        this.recognition.abort();
+      } catch (_) {}
+      this._isRunning = false;
+      this._isStarting = false;
+    }
   }
 
   get listening() {
