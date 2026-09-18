@@ -241,16 +241,7 @@ body {
 }
 
 .btn-new-chat-kbd {
-  font-size: 10.5px;
-  font-weight: 500;
-  font-family: var(--font-mono, monospace);
-  color: #94a3b8;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 4px;
-  padding: 1px 5px;
-  letter-spacing: 0.02em;
-  flex-shrink: 0;
+  display: none !important;
 }
 
 /* Navigation Groups */
