@@ -32,8 +32,15 @@ import {
   DEFAULT_LATENCY_THRESHOLDS,
   DEFAULT_SESSION_BUDGET_CAP_USD,
 } from './governance.js';
+import {
+  isResearchNeeded,
+  generateResearchQuery,
+  performLiveResearch,
+  formatResearchContextForLLM,
+} from './research.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const PORT = process.env.PORT || 3000;
 
@@ -49,7 +56,8 @@ export function sanitizeError(err) {
   return str
     .replace(/(Bearer\s+)[a-zA-Z0-9_.-]+([a-zA-Z0-9]{4})/gi, '$1***REDACTED***$2')
     .replace(/(key=)[a-zA-Z0-9_.-]+([a-zA-Z0-9]{4})/gi, '$1***REDACTED***$2')
-    .replace(/(api[_-]?key["':\s=]+)[a-zA-Z0-9_.-]+([a-zA-Z0-9]{4})/gi, '$1***REDACTED***$2');
+    .replace(/(api[_-]?key["':\s=]+)[a-zA-Z0-9_.-]+([a-zA-Z0-9]{4})/gi, '$1***REDACTED***$2')
+    .replace(/(serpapi[_-]?key["':\s=]+)[a-zA-Z0-9_.-]+([a-zA-Z0-9]{4})/gi, '$1***REDACTED***$2');
 }
 
 // Treat obvious template placeholders ("your_..._key_here") as unset so the
@@ -215,6 +223,16 @@ export function createAuroraServer(options = {}) {
     mock,
   };
 
+  const serpapiConfig = {
+    enabled:
+      options.serpapiEnabled !== undefined
+        ? Boolean(options.serpapiEnabled)
+        : process.env.SERPAPI_ENABLED === 'true',
+    apiKey: mock ? '' : realKey(options.serpapiKey || process.env.SERPAPI_KEY || ''),
+    timeoutMs: Number(options.serpapiTimeoutMs || process.env.SERPAPI_TIMEOUT_MS) || 4000,
+    mockResults: options.mockResearchResults || null,
+  };
+
   const app = express();
 
   // Normalize rewritten URLs from Vercel serverless functions
@@ -339,6 +357,10 @@ export function createAuroraServer(options = {}) {
         defaultSpeaker: rimeConfig.speaker,
         defaultModel: rimeConfig.modelId,
       },
+      serpapi: {
+        configured: Boolean(serpapiConfig.enabled && serpapiConfig.apiKey),
+        enabled: serpapiConfig.enabled,
+      },
       uptime: process.uptime(),
       timestamp: Date.now(),
     });
@@ -390,6 +412,8 @@ export function createAuroraServer(options = {}) {
       llmModel: currentLlm.model,
       audioFormat: rimeConfig.audioFormat,
       delayMs: artificialDelayMs,
+      serpapiConfigured: Boolean(serpapiConfig.enabled && serpapiConfig.apiKey),
+      serpapiEnabled: serpapiConfig.enabled,
     });
   });
 
@@ -453,6 +477,35 @@ export function createAuroraServer(options = {}) {
           : db.getSessionMessagesForContext(sessionId, 20);
       conversationHistory.push({ role: 'user', content: userText });
 
+      // Optional SerpApi live research
+      let researchData = null;
+      let researchContext = null;
+      if (serpapiConfig?.enabled && isResearchNeeded(userText)) {
+        const researchQuery = generateResearchQuery(userText);
+        const tRes0 = Date.now();
+        const researchResult = await performLiveResearch(researchQuery, {
+          apiKey: serpapiConfig.apiKey,
+          timeoutMs: serpapiConfig.timeoutMs,
+          mockResults: serpapiConfig.mockResults,
+        });
+        const researchDurationMs = Date.now() - tRes0;
+        if (researchResult.ok && researchResult.results.length > 0) {
+          researchData = researchResult;
+          researchContext = formatResearchContextForLLM(researchResult);
+          db.recordTelemetryEvent(sessionId, 'serpapi_research_success', {
+            query: researchQuery,
+            resultCount: researchResult.results.length,
+            durationMs: researchDurationMs,
+          });
+        } else {
+          db.recordTelemetryEvent(sessionId, 'serpapi_research_failed', {
+            query: researchQuery,
+            reason: sanitizeError(researchResult.error || 'unavailable'),
+            durationMs: researchDurationMs,
+          });
+        }
+      }
+
       // 1. Task request check
       if (isTaskRequest(userText)) {
         const isTs = /\b(typescript|ts)\b/i.test(userText);
@@ -460,7 +513,9 @@ export function createAuroraServer(options = {}) {
         const flavor = isTs ? 'TypeScript' : 'JavaScript';
         const targetSubject = isTodo ? 'Todo App' : 'REST API';
         const title = `Scaffold Express ${targetSubject} (${flavor})`;
-        const spoken = `Scaffolded the Express ${flavor} REST API in the workspace.`;
+        const spoken = researchContext
+          ? `Scaffolded the Express ${flavor} REST API using current best practices.`
+          : `Scaffolded the Express ${flavor} REST API in the workspace.`;
         const visualContent = `// Express ${flavor} ${targetSubject} Scaffolding Completed\n// Project structure, routes, controllers, and environment configuration generated.`;
         const visualResponse = {
           type: 'code',
@@ -515,6 +570,7 @@ export function createAuroraServer(options = {}) {
           format: rimeConfig.audioFormat,
           speaker: activeSpeaker,
           modelId: activeModel,
+          research: researchData || null,
           llmMs: 0,
           ttsMs,
           totalMs,
@@ -537,7 +593,7 @@ export function createAuroraServer(options = {}) {
           cost: session.total_cost_usd,
           cap: DEFAULT_SESSION_BUDGET_CAP_USD,
         });
-        replyObj = localFallbackReply(userText);
+        replyObj = localFallbackReply(userText, userOverride, researchContext);
         degraded = true;
       } else {
         try {
@@ -558,6 +614,7 @@ export function createAuroraServer(options = {}) {
               model: currentLlm.model,
               messages: conversationHistory,
               userOverride,
+              researchContext,
             }),
             new Promise((_, reject) =>
               setTimeout(
@@ -573,7 +630,7 @@ export function createAuroraServer(options = {}) {
           db.recordTelemetryEvent(sessionId, 'latency_fallback', {
             reason: llmErr.message || 'timeout',
           });
-          replyObj = localFallbackReply(userText);
+          replyObj = localFallbackReply(userText, userOverride, researchContext);
           degraded = true;
         }
       }
@@ -669,6 +726,7 @@ export function createAuroraServer(options = {}) {
         format: rimeConfig.audioFormat,
         speaker: activeSpeaker,
         modelId: activeModel,
+        research: researchData || null,
         llmMs,
         ttsMs,
         totalMs,
@@ -1028,6 +1086,7 @@ export function createAuroraServer(options = {}) {
           bargeInMs: typeof msg.bargeInMs === 'number' ? msg.bargeInMs : 0,
           rimeConfig,
           llmConfig,
+          serpapiConfig,
           db,
           getDelayMs: () => artificialDelayMs,
         }).catch((err) => {
@@ -1151,6 +1210,7 @@ async function handleTurn({
   bargeInMs = 0,
   rimeConfig,
   llmConfig,
+  serpapiConfig,
   db,
   getDelayMs,
 }) {
@@ -1185,6 +1245,65 @@ async function handleTurn({
     });
   }
 
+  // Optional SerpApi live research
+  let researchData = null;
+  let researchContext = null;
+
+  if (serpapiConfig?.enabled && isResearchNeeded(userText)) {
+    if (!isStale(state, myGen)) {
+      const researchQuery = generateResearchQuery(userText);
+      send(ws, {
+        type: 'research_started',
+        query: researchQuery,
+        generation: myGen,
+        timestamp: Date.now(),
+      });
+
+      const tRes0 = Date.now();
+      const researchResult = await performLiveResearch(researchQuery, {
+        apiKey: serpapiConfig.apiKey,
+        signal: controller.signal,
+        timeoutMs: serpapiConfig.timeoutMs,
+        mockResults: serpapiConfig.mockResults,
+      });
+      const researchDurationMs = Date.now() - tRes0;
+
+      if (isStale(state, myGen)) return;
+
+      if (researchResult.ok && researchResult.results.length > 0) {
+        researchData = researchResult;
+        researchContext = formatResearchContextForLLM(researchResult);
+        send(ws, {
+          type: 'research_result',
+          query: researchQuery,
+          results: researchResult.results,
+          generation: myGen,
+          timestamp: Date.now(),
+        });
+        db.recordTelemetryEvent(state.sessionId, 'serpapi_research_success', {
+          query: researchQuery,
+          resultCount: researchResult.results.length,
+          durationMs: researchDurationMs,
+        });
+      } else {
+        send(ws, {
+          type: 'research_failed',
+          query: researchQuery,
+          reason: 'Live research unavailable — continuing without web research.',
+          generation: myGen,
+          timestamp: Date.now(),
+        });
+        db.recordTelemetryEvent(state.sessionId, 'serpapi_research_failed', {
+          query: researchQuery,
+          reason: sanitizeError(researchResult.error || 'unavailable'),
+          durationMs: researchDurationMs,
+        });
+      }
+    }
+  }
+
+  if (isStale(state, myGen)) return;
+
   // 1. Task execution routing
   if (isTaskRequest(userText)) {
     try {
@@ -1201,6 +1320,8 @@ async function handleTurn({
           modelId: activeModel,
         },
         llmConfig,
+        researchContext,
+        researchData,
       });
 
       if (!isStale(state, myGen)) {
@@ -1285,7 +1406,7 @@ async function handleTurn({
   let degraded = false;
 
   if (forceLocal) {
-    replyObj = localFallbackReply(userText);
+    replyObj = localFallbackReply(userText, userOverride, researchContext);
     degraded = true;
   } else {
     try {
@@ -1303,6 +1424,7 @@ async function handleTurn({
         messages: state.history.slice(-10),
         signal: controller.signal,
         userOverride,
+        researchContext,
         onChunk: (fullText) => {
           if (isStale(state, myGen)) return;
           if (!hasSentAiTextStart) {
@@ -1443,7 +1565,7 @@ async function handleTurn({
         generation: myGen,
         reason: 'LLM latency threshold exceeded. Gracefully degraded to local inference.',
       });
-      replyObj = localFallbackReply(userText);
+      replyObj = localFallbackReply(userText, userOverride, researchContext);
       degraded = true;
     }
   }
@@ -1476,6 +1598,7 @@ async function handleTurn({
     responseMode: replyObj.responseMode || 'VOICE',
     spokenResponse: replyObj.spokenResponse || replyObj.spoken || '',
     visualResponse: visualPayload,
+    research: researchData || null,
     generation: myGen,
     llmMs,
     timestamp: Date.now(),

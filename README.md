@@ -6,6 +6,7 @@
 [![Node: v18+](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg)](https://nodejs.org)
 [![TTS: Rime.ai](https://img.shields.io/badge/TTS-Rime.ai-blueviolet.svg)](https://rime.ai)
 [![LLM: Gemini / Groq](https://img.shields.io/badge/LLM-Gemini%20%7C%20Groq-orange.svg)](https://deepmind.google/technologies/gemini/)
+[![Research: SerpApi](https://img.shields.io/badge/Research-SerpApi-ffaa00.svg)](https://serpapi.com)
 [![Barge--In: Sub--2ms](https://img.shields.io/badge/Barge--In-%3C%202ms%20Mute-emerald.svg)](#-sub-2ms-barge-in--generation-fencing)
 
 **A calm, full-duplex conversational voice-first AI workspace featuring sub-2ms hardware barge-in, dual-channel output, streaming project scaffolding, and a refined developer aesthetic inspired by Linear and Raycast.**
@@ -80,6 +81,14 @@ Aurora dynamically classifies every request into exactly one of three response m
 - **Groq & OpenAI**: Plug-and-play support for LLaMA 3.1 and GPT-4o.
 - **Offline Demo Fallback**: Functions out of the box with zero API keys required, providing offline conversational intelligence and local browser speech synthesis.
 
+### 7. 🔎 Autonomous Live Web Research (SerpApi)
+- **Context-Aware Intent Detection**: Intelligently identifies questions and developer workflows requiring live or time-sensitive data (e.g. *"latest Node.js 24 features"*, *"current best practices in 2026"*, *"recent updates to Astro"*).
+- **Grounded Dual-Channel Reasoning**: Extracts verified search results via official **SerpApi Google Search API** and feeds structured citations directly into the LLM context.
+- **Interactive Visual Source Cards**: Displays clickable, sanitized domain pills, titles, and snippets in the visual workspace.
+- **Voice-Clean Spoken Delivery**: Aurora's spoken channel summarizes findings conversationally without ever reading aloud ugly raw URLs or markdown syntax.
+- **Full Barge-in Fencing**: Research requests are bound to an `AbortController` and generation fence—interrupting during research immediately cancels the in-flight network request.
+- **Zero-Secret Client Security**: All SerpApi keys remain strictly server-side; API keys are automatically sanitized from logs, payloads, and error messages.
+
 ---
 
 ## 🏛️ System Architecture
@@ -89,22 +98,27 @@ graph TD
     subgraph Client ["Client (Browser)"]
         Mic["Microphone VAD"] -->|Live Audio| ClientApp["Client App Controller"]
         ClientApp -->|Instant GainNode Mute < 2ms| WebAudio["Web Audio Player"]
-        ClientApp -->|Render Cards & Code| DOM["Center Workspace Timeline"]
+        ClientApp -->|Render Cards, Code & Sources| DOM["Center Workspace Timeline"]
         Orb["Aurora 3D Reactive Orb"] <-->|Audio Energy| WebAudio
     end
 
     subgraph Server ["Server (Node.js + Express)"]
         WS["WebSocket Gateway"] <--> ClientApp
-        TurnManager["Turn & Generation Manager"] -->|AbortSignal| TaskEngine["Task Scaffolding Engine"]
+        TurnManager["Turn & Generation Manager"] -->|AbortSignal| ResearchEngine["SerpApi Research Engine"]
+        TurnManager -->|AbortSignal| TaskEngine["Task Scaffolding Engine"]
         TurnManager -->|AbortSignal| LLMGateway["Dual-Channel LLM Gateway"]
+        ResearchEngine -->|Structured Sources & Context| LLMGateway
+        ResearchEngine -->|Live Research Context| TaskEngine
         LLMGateway -->|Spoken Text| RimeGateway["Rime TTS Gateway"]
     end
 
-    subgraph External ["Cloud AI Providers"]
+    subgraph External ["Cloud AI & Data Providers"]
+        ResearchEngine -->|Google Search API| SerpApi["SerpApi"]
         LLMGateway -->|Chat Completion| Gemini["Google Gemini / Groq"]
         RimeGateway -->|Audio Synthesis| RimeAPI["Rime TTS API (mistv3)"]
     end
 
+    ResearchEngine -->|Live Source Cards| WS
     RimeGateway -->|Base64 Audio Chunks| WS
     TaskEngine -->|Streaming Task Events| WS
     LLMGateway -->|Visual JSON Payload| WS
@@ -126,7 +140,7 @@ npm install
 ```
 
 ### 2. Configure Environment (Optional)
-Aurora works **immediately out-of-the-box** using built-in offline intelligence. To enable live Gemini LLM and Rime TTS, create a `.env` file:
+Aurora works **immediately out-of-the-box** using built-in offline intelligence. To enable live Gemini LLM, Rime TTS, and SerpApi research, create a `.env` file:
 
 ```bash
 cp .env.example .env
@@ -146,6 +160,10 @@ RIME_AUDIO_FORMAT=mp3
 LLM_PROVIDER=gemini
 LLM_API_KEY=your_llm_api_key_here
 LLM_MODEL=gemini-2.0-flash
+
+# Autonomous Live Web Research (SerpApi)
+SERPAPI_ENABLED=true
+SERPAPI_KEY=your_serpapi_key_here
 ```
 
 ### 3. Start Aurora
@@ -162,11 +180,14 @@ Open your browser at **[http://localhost:3000](http://localhost:3000)**. Tap the
 Aurora includes an automated test suite verifying dual-channel output, mid-task barge-in, and generation fencing:
 
 ```bash
-# Run all test suites (routing, interruption, visual, workspace)
+# Run all test suites (routing, interruption, visual, workspace, research)
 npm run test:all
 
 # Test intelligent response routing (VOICE, TEXT, HYBRID, safety guardrails)
 npm run test:routing
+
+# Test autonomous live research (heuristics, query gen, mock API, abort, & safety)
+node --test tests/research.test.js
 
 # Test core barge-in latency and packet discarding
 npm test
@@ -212,12 +233,14 @@ aurora/
 │   └── vad-mic.js         # Browser SpeechRecognition & voice activity detection
 ├── server/
 │   ├── server.js          # Express & WebSocket gateway with turn management
+│   ├── research.js        # Autonomous SerpApi live research engine with AbortSignal
 │   ├── response-router.js # Intelligent Response Router (VOICE/TEXT/HYBRID & safety)
 │   ├── llm.js             # Dual-channel LLM gateway with structured routing contracts
 │   ├── rime.js            # Official Rime TTS client with streaming base64 synthesis
 │   └── tasks.js           # Multi-step project scaffolding engine with AbortSignal
 ├── tests/
 │   ├── unit/                      # Unit test suites (router, parser, guardrails)
+│   ├── research.test.js           # SerpApi research heuristics, API mocking & abort tests
 │   ├── routing-scenarios.test.js  # Intelligent routing, transitions & guardrail tests
 │   ├── interruption.test.js       # Core barge-in & generation fence test
 │   ├── visual-chat.test.js        # Visual code blocks, tables, & task barge-in test
@@ -242,7 +265,10 @@ All client-server communication occurs over a single full-duplex WebSocket conne
 - `{ type: 'handshake', generation: number, rimeConfigured: boolean, llmConfigured: boolean }`: Session initialization.
 - `{ type: 'user_text', text: string, generation: number }`: Echoes transcribed user input.
 - `{ type: 'thinking', generation: number }`: Indicates AI processing state.
-- `{ type: 'ai_text', text: string, spoken: string, visualType: 'code'|'table'|'markdown'|'text', language: string, title: string, generation: number }`: Dual-channel payload.
+- `{ type: 'research_started', query: string, generation: number }`: Signals live web search lookup via SerpApi.
+- `{ type: 'research_result', query: string, sources: Array, count: number, generation: number }`: Live verified search sources.
+- `{ type: 'research_failed', query: string, error: string, generation: number }`: Graceful research fallback notification.
+- `{ type: 'ai_text', text: string, spoken: string, visualType: 'code'|'table'|'markdown'|'text', language: string, title: string, research?: object, generation: number }`: Dual-channel payload.
 - `{ type: 'audio', data: string, format: 'mp3', generation: number }`: Base64 encoded Rime audio chunk.
 - `{ type: 'task_started' | 'task_progress' | 'task_complete' }`: Live multi-step task execution events.
 - `{ type: 'interrupted', oldGeneration: number, newGeneration: number }`: Interruption confirmation.

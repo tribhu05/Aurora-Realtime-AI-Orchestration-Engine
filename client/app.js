@@ -1099,6 +1099,26 @@
         break;
       }
 
+      case 'research_started': {
+        if (msg.generation && msg.generation < currentGen) return;
+        if (captionAi) captionAi.textContent = '“Researching live web sources via SerpApi…”';
+        setUiState('thinking');
+        break;
+      }
+
+      case 'research_result': {
+        if (msg.generation && msg.generation < currentGen) return;
+        if (captionAi)
+          captionAi.textContent = `“Analyzing ${msg.results?.length || 0} web sources…”`;
+        break;
+      }
+
+      case 'research_failed': {
+        if (msg.generation && msg.generation < currentGen) return;
+        console.warn('[SerpApi Research]', msg.reason || 'Web research unavailable');
+        break;
+      }
+
       case 'ai_text_start': {
         if (msg.generation < currentGen) return;
         currentGen = msg.generation;
@@ -1143,6 +1163,7 @@
             responseMode: msg.responseMode,
             spokenResponse: msg.spokenResponse,
             visualResponse: msg.visualResponse || msg.visual,
+            research: msg.research,
           });
           console.log('[DEBUG] normalized payload:', normalized);
 
@@ -1203,6 +1224,7 @@
                 <div class="task-card-title">${escapeHtml(msg.title)}</div>
                 <span class="task-status-badge running">⚡ Working on your task</span>
               </div>
+              ${renderLiveResearchHtml(msg.research)}
               <div class="task-steps-list">${stepsHtml}</div>
               <div class="task-footer" style="display:none"></div>
             </div>
@@ -1319,6 +1341,18 @@
             codeContainer.innerHTML = codeHtml;
             taskCard.appendChild(codeContainer);
             window.AuroraHighlighter.attachCopyHandlers(taskCard);
+          }
+
+          if (msg.research && !taskCard.querySelector('.live-research-card')) {
+            const resHtml = renderLiveResearchHtml(msg.research);
+            if (resHtml) {
+              const resContainer = document.createElement('div');
+              resContainer.innerHTML = resHtml;
+              const stepsList = taskCard.querySelector('.task-steps-list');
+              if (stepsList) {
+                taskCard.insertBefore(resContainer.firstElementChild, stepsList);
+              }
+            }
           }
         });
 
@@ -2516,6 +2550,7 @@ executeTask();`,
         language: visualPayload.language,
         title: visualPayload.title,
         visualResponse: visualPayload,
+        research: data.research || null,
       });
 
       captionAi.textContent = `“${normalized.spoken}”`;
@@ -2646,7 +2681,51 @@ executeTask();`,
   document.addEventListener('pointerdown', prewarmAudio, { once: true });
   document.addEventListener('keydown', prewarmAudio, { once: true });
 
-  // ---------- Assistant Message Normalization Safeguard ----------
+  // ---------- Live Web Research Rendering ----------
+  function renderLiveResearchHtml(research) {
+    if (!research || !Array.isArray(research.results) || !research.results.length) {
+      return '';
+    }
+    const query = escapeHtml(research.query || '');
+    const results = research.results;
+    return `
+      <div class="live-research-card">
+        <div class="research-card-header">
+          <div class="research-header-tag">
+            <svg class="research-badge-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+            <span>LIVE WEB RESEARCH</span>
+            <span class="research-source-tag">SerpApi</span>
+          </div>
+          <span class="research-status-complete">● ${results.length} sources verified</span>
+        </div>
+        ${query ? `<div class="research-query-row"><span class="research-query-label">Research Query:</span> <code class="research-query-val">${query}</code></div>` : ''}
+        <div class="research-sources-list">
+          ${results
+            .map((r, i) => {
+              const title = escapeHtml(r.title || 'Source');
+              const url = escapeHtml(r.url || '#');
+              const snippet = escapeHtml(r.snippet || '');
+              const domain = escapeHtml(r.source || 'web');
+              return `
+                <a class="research-source-link" href="${url}" target="_blank" rel="noopener noreferrer">
+                  <div class="source-item-header">
+                    <span class="source-item-domain">${domain}</span>
+                    <span class="source-item-index">#${i + 1} ↗</span>
+                  </div>
+                  <div class="source-item-title">${title}</div>
+                  ${snippet ? `<div class="source-item-snippet">${snippet}</div>` : ''}
+                </a>
+              `;
+            })
+            .join('')}
+        </div>
+      </div>
+    `;
+  }
+
   // ---------- Assistant Message Normalization Safeguard ----------
   function normalizeAssistantPayload(rawText, rawMeta = {}) {
     let text = typeof rawText === 'string' ? rawText : '';
@@ -2672,6 +2751,7 @@ executeTask();`,
         visualType: 'text',
         responseMode: 'TEXT',
         ...meta,
+        research: rawMeta.research || null,
       },
     };
   }
@@ -2701,11 +2781,13 @@ executeTask();`,
       contentHtml = `<p style="white-space: pre-wrap">${escapeHtml(cleanText)}</p>`;
     }
 
+    const researchHtml = renderLiveResearchHtml(cleanMeta.research);
+
     rows.forEach((row) => {
       row.classList.add('has-rich-content');
       row.dataset.spoken = norm.spoken;
       const contentDiv = row.querySelector('.msg-content');
-      if (contentDiv) contentDiv.innerHTML = contentHtml;
+      if (contentDiv) contentDiv.innerHTML = contentHtml + researchHtml;
 
       const metaDiv = row.querySelector('.assistant-meta') || row.querySelector('.bubble-meta');
       if (metaDiv && metaDiv.querySelector('.modality-pill')) {
@@ -2787,6 +2869,8 @@ executeTask();`,
         modeClass = 'modality-hybrid';
       }
 
+      const researchHtml = renderLiveResearchHtml(cleanMeta.research);
+
       row.innerHTML = `
         <div class="msg-card-assistant bubble">
           <div class="msg-head">
@@ -2805,6 +2889,7 @@ executeTask();`,
           </div>
           <div class="msg-content">
             ${contentHtml}
+            ${researchHtml}
           </div>
         </div>
       `;

@@ -69,28 +69,48 @@ export async function executeScaffoldTask({
   send,
   rimeConfig,
   llmConfig,
+  researchContext = null,
+  researchData = null,
 }) {
-  const isTs = /\b(typescript|ts)\b/i.test(userText);
-  const isTodo = /\b(todo|todos)\b/i.test(userText);
+  const isTs =
+    userText.toLowerCase().includes('typescript') || userText.toLowerCase().includes('ts');
+  const isTodo = userText.toLowerCase().includes('todo');
   const flavor = isTs ? 'TypeScript' : 'JavaScript';
-  const targetSubject = isTodo ? 'Todo App' : 'REST API';
-  const title = `Scaffold Express ${targetSubject} (${flavor})`;
+  const title = `Scaffold Express REST API (${flavor})`;
 
-  const stepNames = [
-    `Initialize ${flavor} project structure and package manifest`,
-    `Install dependencies (express, cors, dotenv${isTs ? ', typescript, ts-node, @types/express' : ''})`,
-    `Configure ${flavor === 'TypeScript' ? 'tsconfig.json and environment' : 'environment variables and middleware'}`,
-    `Implement modular ${isTodo ? 'Todo' : 'REST'} router and controller handlers`,
-    `Validate scaffolding and build entrypoint`,
-  ];
+  const stepNames = researchContext
+    ? [
+        `Research current ${flavor} best practices & library guidance via SerpApi`,
+        `Initialize ${flavor} project structure and package manifest`,
+        `Install dependencies (express, cors, dotenv${isTs ? ', typescript, ts-node, @types/express' : ''})`,
+        `Configure ${flavor === 'TypeScript' ? 'tsconfig.json and environment' : 'environment variables and middleware'}`,
+        `Implement modular ${isTodo ? 'Todo' : 'REST'} router and controller handlers`,
+        `Validate scaffolding and build entrypoint`,
+      ]
+    : [
+        `Initialize ${flavor} project structure and package manifest`,
+        `Install dependencies (express, cors, dotenv${isTs ? ', typescript, ts-node, @types/express' : ''})`,
+        `Configure ${flavor === 'TypeScript' ? 'tsconfig.json and environment' : 'environment variables and middleware'}`,
+        `Implement modular ${isTodo ? 'Todo' : 'REST'} router and controller handlers`,
+        `Validate scaffolding and build entrypoint`,
+      ];
 
-  const stepDetails = [
-    `Created package.json with standard ESM & ${flavor} scripts`,
-    `Installed dependencies with zero vulnerabilities`,
-    `Configured CORS, JSON parsing, logging, and ${flavor === 'TypeScript' ? 'strict TypeScript compiler settings' : 'security middleware'}`,
-    `Generated routes/${isTodo ? 'todos' : 'api'}.${isTs ? 'ts' : 'js'} with GET, POST, PUT, DELETE endpoints`,
-    `Scaffolding verified: server is ready for production development`,
-  ];
+  const stepDetails = researchContext
+    ? [
+        `Incorporated live documentation and modern recommended patterns from SerpApi`,
+        `Created package.json with standard ESM & ${flavor} scripts`,
+        `Installed dependencies with zero vulnerabilities`,
+        `Configured CORS, JSON parsing, logging, and ${flavor === 'TypeScript' ? 'strict TypeScript compiler settings' : 'security middleware'}`,
+        `Generated routes/${isTodo ? 'todos' : 'api'}.${isTs ? 'ts' : 'js'} with GET, POST, PUT, DELETE endpoints`,
+        `Scaffolding verified: server is ready for production development`,
+      ]
+    : [
+        `Created package.json with standard ESM & ${flavor} scripts`,
+        `Installed dependencies with zero vulnerabilities`,
+        `Configured CORS, JSON parsing, logging, and ${flavor === 'TypeScript' ? 'strict TypeScript compiler settings' : 'security middleware'}`,
+        `Generated routes/${isTodo ? 'todos' : 'api'}.${isTs ? 'ts' : 'js'} with GET, POST, PUT, DELETE endpoints`,
+        `Scaffolding verified: server is ready for production development`,
+      ];
 
   // 1. Emit task_started event
   send(ws, {
@@ -101,6 +121,7 @@ export async function executeScaffoldTask({
     flavor,
     responseMode: 'HYBRID',
     totalSteps: stepNames.length,
+    research: researchData || null,
     steps: stepNames.map((name, idx) => ({
       id: idx + 1,
       name,
@@ -110,7 +131,9 @@ export async function executeScaffoldTask({
   });
 
   // 2. Synthesize and send initial spoken voice announcement
-  const initialSpoken = `Starting the Express ${flavor} REST API scaffolding now.`;
+  const initialSpoken = researchContext
+    ? `Starting the Express ${flavor} REST API scaffolding using current best practices.`
+    : `Starting the Express ${flavor} REST API scaffolding now.`;
   send(ws, {
     type: 'ai_text',
     text: initialSpoken,
@@ -167,10 +190,12 @@ export async function executeScaffoldTask({
   }
 
   // 4. Generate primary code
-
-  // 4. Generate primary code
   let primaryCode;
   try {
+    const systemInstruction = researchContext
+      ? `You are an expert coder. Scaffold the requested code inside a markdown code block adhering to current best practices:\n${researchContext}\nReturn ONLY the code.`
+      : 'You are an expert coder. Scaffold the requested code inside a markdown code block. Return ONLY the code.';
+
     const replyObj = await getAssistantReply({
       provider: llmConfig.provider,
       apiKey: llmConfig.apiKey,
@@ -178,12 +203,12 @@ export async function executeScaffoldTask({
       messages: [
         {
           role: 'system',
-          content:
-            'You are an expert coder. Scaffold the requested code inside a markdown code block. Return ONLY the code.',
+          content: systemInstruction,
         },
         { role: 'user', content: userText },
       ],
       signal,
+      researchContext,
     });
 
     primaryCode =
@@ -247,6 +272,7 @@ export async function executeScaffoldTask({
       filename: isTs ? 'src/server.ts' : 'server.js',
       code: primaryCode,
     },
+    research: researchData || null,
     timestamp: Date.now(),
   });
 

@@ -61,6 +61,7 @@ export async function getAssistantReply({
   signal,
   userOverride,
   onChunk,
+  researchContext = null,
 }) {
   const userQuery =
     messages && messages.length > 0 ? messages[messages.length - 1]?.content || '' : '';
@@ -72,7 +73,7 @@ export async function getAssistantReply({
           .trim()
       : '';
   if (!cleanApiKey) {
-    const fallback = localFallbackReply(messages, userOverride);
+    const fallback = localFallbackReply(messages, userOverride, researchContext);
     if (typeof onChunk === 'function' && fallback && fallback.content) {
       onChunk(fallback.content);
     }
@@ -89,6 +90,10 @@ export async function getAssistantReply({
     effectiveModel = 'gemini-3.5-flash-lite';
   }
 
+  const effectiveSystemPrompt = researchContext
+    ? `${DUAL_CHANNEL_SYSTEM_PROMPT}\n\n${researchContext}`
+    : DUAL_CHANNEL_SYSTEM_PROMPT;
+
   const res = await fetch(url, {
     method: 'POST',
     headers: {
@@ -97,7 +102,7 @@ export async function getAssistantReply({
     },
     body: JSON.stringify({
       model: effectiveModel,
-      messages: [{ role: 'system', content: DUAL_CHANNEL_SYSTEM_PROMPT }, ...messages],
+      messages: [{ role: 'system', content: effectiveSystemPrompt }, ...messages],
       temperature: 0.2,
       max_tokens: 1500,
       stream: !!onChunk,
@@ -265,7 +270,7 @@ export function parseStructuredResponse(
 }
 
 // --- Local fallback so the app works seamlessly out of the box ---
-export function localFallbackReply(messagesOrQuery, userOverride = null) {
+export function localFallbackReply(messagesOrQuery, userOverride = null, researchContext = null) {
   const messages = Array.isArray(messagesOrQuery)
     ? messagesOrQuery
     : [{ role: 'user', content: String(messagesOrQuery || '') }];
@@ -893,6 +898,18 @@ print("Index of 23:", binary_search(nums, 23))  # 5`,
       visualResponse: {
         type: 'text',
         content: 'Why did the AI cross the road? To avoid the latency on the other side.',
+      },
+    });
+  }
+
+  if (researchContext) {
+    return finalize({
+      responseMode: 'HYBRID',
+      spokenResponse:
+        'I checked current web documentation and summarized the details in the workspace.',
+      visualResponse: {
+        type: 'markdown',
+        content: `### Live Web Research Findings\n\n${researchContext}`,
       },
     });
   }

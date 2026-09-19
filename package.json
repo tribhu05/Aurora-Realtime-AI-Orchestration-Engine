@@ -39,6 +39,7 @@
     "cors": "^2.8.5",
     "dotenv": "^16.6.1",
     "express": "^4.21.2",
+    "serpapi": "^2.2.1",
     "ws": "^8.18.0"
   },
   "devDependencies": {
