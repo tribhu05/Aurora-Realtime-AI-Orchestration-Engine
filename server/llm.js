@@ -4,8 +4,11 @@
 // 1. Spoken Channel: Natural conversational speech (strictly budgeted) for Rime TTS.
 // 2. Visual Channel: Rich formatted output (code blocks, tables, markdown) for the workspace.
 
-import { validateAndEnforceContract, safeParseOrExtract, detectLanguage } from './response-router.js';
-import { estimateTokens } from './governance.js';
+import {
+  validateAndEnforceContract,
+  safeParseOrExtract,
+  detectLanguage,
+} from './response-router.js';
 
 const ENDPOINTS = {
   groq: 'https://api.groq.com/openai/v1/chat/completions',
@@ -62,15 +65,27 @@ export async function getAssistantReply({
   const userQuery =
     messages && messages.length > 0 ? messages[messages.length - 1]?.content || '' : '';
   const cleanApiKey =
-    typeof apiKey === 'string' ? apiKey.trim().replace(/^["']|["']$/g, '').trim() : '';
+    typeof apiKey === 'string'
+      ? apiKey
+          .trim()
+          .replace(/^["']|["']$/g, '')
+          .trim()
+      : '';
   if (!cleanApiKey) {
-    return localFallbackReply(messages, userOverride);
+    const fallback = localFallbackReply(messages, userOverride);
+    if (typeof onChunk === 'function' && fallback && fallback.content) {
+      onChunk(fallback.content);
+    }
+    return fallback;
   }
 
   const url = ENDPOINTS[provider] || ENDPOINTS.gemini;
   const defaultModel = provider === 'gemini' ? 'gemini-3.5-flash-lite' : 'llama-3.1-8b-instant';
   let effectiveModel = model && model.trim() ? model.trim() : defaultModel;
-  if (provider === 'gemini' && (effectiveModel === 'gemini-2.0-flash' || effectiveModel === 'gemini-1.5-flash')) {
+  if (
+    provider === 'gemini' &&
+    (effectiveModel === 'gemini-2.0-flash' || effectiveModel === 'gemini-1.5-flash')
+  ) {
     effectiveModel = 'gemini-3.5-flash-lite';
   }
 
@@ -132,16 +147,26 @@ export async function getAssistantReply({
  * Robust response parser: extracts { responseMode, spokenResponse, visualResponse }
  * and passes through deterministic server-side validation & safety enforcement.
  */
-export function parseStructuredResponse(rawText, userQuery = '', history = [], userOverride = null) {
+export function parseStructuredResponse(
+  rawText,
+  userQuery = '',
+  history = [],
+  userOverride = null
+) {
   if (!rawText) {
-    return validateAndEnforceContract({
-      responseMode: 'VOICE',
-      spokenResponse: "I'm ready when you are. What would you like to explore?",
-      visualResponse: {
-        type: 'text',
-        content: "I'm ready when you are. What would you like to explore?",
+    return validateAndEnforceContract(
+      {
+        responseMode: 'VOICE',
+        spokenResponse: "I'm ready when you are. What would you like to explore?",
+        visualResponse: {
+          type: 'text',
+          content: "I'm ready when you are. What would you like to explore?",
+        },
       },
-    }, userQuery, history, userOverride);
+      userQuery,
+      history,
+      userOverride
+    );
   }
 
   // Attempt 1: Robust parser & extractor (handles standard JSON)
@@ -163,35 +188,45 @@ export function parseStructuredResponse(rawText, userQuery = '', history = [], u
     } else if (queryLang === 'hinglish') {
       spoken = `Maine workspace me ${lang.toUpperCase()} code taiyar kar diya hai.`;
     }
-    return validateAndEnforceContract({
-      responseMode: 'TEXT',
-      spokenResponse: spoken,
-      visualResponse: {
-        type: 'code',
-        language: lang,
-        title: `${lang.toUpperCase()} Implementation`,
-        content: code,
+    return validateAndEnforceContract(
+      {
+        responseMode: 'TEXT',
+        spokenResponse: spoken,
+        visualResponse: {
+          type: 'code',
+          language: lang,
+          title: `${lang.toUpperCase()} Implementation`,
+          content: code,
+        },
       },
-    }, userQuery, history, userOverride);
+      userQuery,
+      history,
+      userOverride
+    );
   }
 
   // Attempt 3: Markdown table detected
   if (rawText.includes('|') && rawText.includes('---')) {
-    let spoken = "Here is the comparison table in the workspace.";
+    let spoken = 'Here is the comparison table in the workspace.';
     if (queryLang === 'hi') {
-      spoken = "यहाँ वर्कस्पेस में तुलना तालिका दी गई है।";
+      spoken = 'यहाँ वर्कस्पेस में तुलना तालिका दी गई है।';
     } else if (queryLang === 'hinglish') {
-      spoken = "Yeh rahi comparison table aapke workspace me.";
+      spoken = 'Yeh rahi comparison table aapke workspace me.';
     }
-    return validateAndEnforceContract({
-      responseMode: 'TEXT',
-      spokenResponse: spoken,
-      visualResponse: {
-        type: 'table',
-        title: 'Comparison Table',
-        content: rawText,
+    return validateAndEnforceContract(
+      {
+        responseMode: 'TEXT',
+        spokenResponse: spoken,
+        visualResponse: {
+          type: 'table',
+          title: 'Comparison Table',
+          content: rawText,
+        },
       },
-    }, userQuery, history, userOverride);
+      userQuery,
+      history,
+      userOverride
+    );
   }
 
   // Attempt 4: General text
@@ -199,9 +234,12 @@ export function parseStructuredResponse(rawText, userQuery = '', history = [], u
   let cleanVisual = rawText;
 
   if (cleanSpoken.trim().startsWith('{')) {
-    cleanSpoken = queryLang === 'hi'
-      ? "लीजिए, मैंने वर्कस्पेस में जवाब तैयार कर दिया है।"
-      : (queryLang === 'hinglish' ? "Maine workspace me response ready kar diya hai." : "I've placed the response in the workspace.");
+    cleanSpoken =
+      queryLang === 'hi'
+        ? 'लीजिए, मैंने वर्कस्पेस में जवाब तैयार कर दिया है।'
+        : queryLang === 'hinglish'
+          ? 'Maine workspace me response ready kar diya hai.'
+          : "I've placed the response in the workspace.";
     cleanVisual = cleanVisual
       .replace(/^\s*\{[\s\S]*?"content"\s*:\s*"/i, '')
       .replace(/"\s*\}\s*$/i, '')
@@ -211,14 +249,19 @@ export function parseStructuredResponse(rawText, userQuery = '', history = [], u
     cleanSpoken = cleanSpoken.slice(0, 140) + '…';
   }
 
-  return validateAndEnforceContract({
-    responseMode: 'VOICE',
-    spokenResponse: cleanSpoken,
-    visualResponse: {
-      type: cleanVisual.includes('#') || cleanVisual.includes('*') ? 'markdown' : 'text',
-      content: cleanVisual,
+  return validateAndEnforceContract(
+    {
+      responseMode: 'VOICE',
+      spokenResponse: cleanSpoken,
+      visualResponse: {
+        type: cleanVisual.includes('#') || cleanVisual.includes('*') ? 'markdown' : 'text',
+        content: cleanVisual,
+      },
     },
-  }, userQuery, history, userOverride);
+    userQuery,
+    history,
+    userOverride
+  );
 }
 
 // --- Local fallback so the app works seamlessly out of the box ---
@@ -236,9 +279,12 @@ export function localFallbackReply(messagesOrQuery, userOverride = null) {
   const lang = detectLanguage(userQuery);
 
   if (!last) {
-    const emptySpoken = lang === 'hi'
-      ? "नमस्ते! मैं आपकी क्या मदद कर सकता हूँ?"
-      : (lang === 'hinglish' ? "Main taiyar hoon — boliye kya madad karoon?" : "I'm here — what's on your mind?");
+    const emptySpoken =
+      lang === 'hi'
+        ? 'नमस्ते! मैं आपकी क्या मदद कर सकता हूँ?'
+        : lang === 'hinglish'
+          ? 'Main taiyar hoon — boliye kya madad karoon?'
+          : "I'm here — what's on your mind?";
     return finalize({
       responseMode: 'VOICE',
       spokenResponse: emptySpoken,
@@ -257,7 +303,8 @@ export function localFallbackReply(messagesOrQuery, userOverride = null) {
         spokenResponse: 'नमस्ते! मैं ऑरोरा हूँ। मैं आपकी क्या सहायता कर सकता हूँ?',
         visualResponse: {
           type: 'text',
-          content: 'नमस्ते! मैं **ऑरोरा (Aurora)** हूँ, आपका रियल-टाइम वॉइस AI असिस्टेंट।\n\nमैं कोडिंग, सवालों के जवाब और मुश्किल कॉन्सेप्ट्स को समझाने में आपकी मदद कर सकता हूँ। बताइए, आज क्या सीखना या बनाना चाहते हैं?',
+          content:
+            'नमस्ते! मैं **ऑरोरा (Aurora)** हूँ, आपका रियल-टाइम वॉइस AI असिस्टेंट।\n\nमैं कोडिंग, सवालों के जवाब और मुश्किल कॉन्सेप्ट्स को समझाने में आपकी मदद कर सकता हूँ। बताइए, आज क्या सीखना या बनाना चाहते हैं?',
         },
       });
     }
@@ -267,7 +314,8 @@ export function localFallbackReply(messagesOrQuery, userOverride = null) {
         spokenResponse: 'मैं ऑरोरा हूँ, आपका रियल-टाइम वॉइस AI असिस्टेंट।',
         visualResponse: {
           type: 'text',
-          content: 'मैं **ऑरोरा (Aurora)** हूँ — एक हाई-परफॉर्मेंस AI असिस्टेंट जो रियल-टाइम वॉइस और इंटरेक्टिव वर्कस्पेस के साथ आपकी सहायता करता है।',
+          content:
+            'मैं **ऑरोरा (Aurora)** हूँ — एक हाई-परफॉर्मेंस AI असिस्टेंट जो रियल-टाइम वॉइस और इंटरेक्टिव वर्कस्पेस के साथ आपकी सहायता करता है।',
         },
       });
     }
@@ -277,7 +325,8 @@ export function localFallbackReply(messagesOrQuery, userOverride = null) {
         spokenResponse: 'मैं बिल्कुल ठीक हूँ, पूछने के लिए धन्यवाद! आप कैसे हैं?',
         visualResponse: {
           type: 'text',
-          content: 'मैं बिल्कुल बढ़िया और काम के लिए तैयार हूँ! आप बताइए, आज आपका दिन कैसा चल रहा है?',
+          content:
+            'मैं बिल्कुल बढ़िया और काम के लिए तैयार हूँ! आप बताइए, आज आपका दिन कैसा चल रहा है?',
         },
       });
     }
@@ -287,7 +336,8 @@ export function localFallbackReply(messagesOrQuery, userOverride = null) {
         spokenResponse: 'हाँ बिल्कुल! मैं हिंदी और हिंग्लिश दोनों में आसानी से बात कर सकता हूँ।',
         visualResponse: {
           type: 'text',
-          content: 'हाँ, मैं **हिंदी** और **हिंग्लिश** दोनों में पूरी तरह सक्षम हूँ। आप बेझिझक हिंदी में मुझसे सवाल पूछ सकते हैं या कोडिंग करवा सकते हैं।',
+          content:
+            'हाँ, मैं **हिंदी** और **हिंग्लिश** दोनों में पूरी तरह सक्षम हूँ। आप बेझिझक हिंदी में मुझसे सवाल पूछ सकते हैं या कोडिंग करवा सकते हैं।',
         },
       });
     }
@@ -295,13 +345,16 @@ export function localFallbackReply(messagesOrQuery, userOverride = null) {
 
   // --- Hinglish (Roman Hindi) conversational intelligence ---
   if (lang === 'hinglish') {
-    if (has('namaste', 'namaskar', 'pranam', 'kya haal', 'kaise ho', 'kaisa hai', 'kya chal raha')) {
+    if (
+      has('namaste', 'namaskar', 'pranam', 'kya haal', 'kaise ho', 'kaisa hai', 'kya chal raha')
+    ) {
       return finalize({
         responseMode: 'VOICE',
         spokenResponse: 'Main bilkul badhiya hoon! Aap bataiye, aaj kya madad karoon?',
         visualResponse: {
           type: 'text',
-          content: 'Namaste! Main **Aurora** hoon — aapka voice-first AI assistant.\n\nAaj hum kis topic par kaam karenge? Coding, doubt solving, ya naya project?',
+          content:
+            'Namaste! Main **Aurora** hoon — aapka voice-first AI assistant.\n\nAaj hum kis topic par kaam karenge? Coding, doubt solving, ya naya project?',
         },
       });
     }
@@ -311,7 +364,8 @@ export function localFallbackReply(messagesOrQuery, userOverride = null) {
         spokenResponse: 'Main Aurora hoon, aapka real-time conversational voice AI assistant.',
         visualResponse: {
           type: 'text',
-          content: 'Main **Aurora** hoon — ek real-time AI assistant jo voice conversation aur interactive visual workspace ke sath kaam karta hai.',
+          content:
+            'Main **Aurora** hoon — ek real-time AI assistant jo voice conversation aur interactive visual workspace ke sath kaam karta hai.',
         },
       });
     }
@@ -321,7 +375,8 @@ export function localFallbackReply(messagesOrQuery, userOverride = null) {
         spokenResponse: 'Haan bilkul! Main Hindi aur Hinglish dono me fluent baat kar sakta hoon.',
         visualResponse: {
           type: 'text',
-          content: 'Haan bilkul! Main **Hindi (हिन्दी)** aur **Hinglish** dono me bohot fluently aur naturally baat kar sakta hoon. Boliye, aaj kya code ya explain karna hai?',
+          content:
+            'Haan bilkul! Main **Hindi (हिन्दी)** aur **Hinglish** dono me bohot fluently aur naturally baat kar sakta hoon. Boliye, aaj kya code ya explain karna hai?',
         },
       });
     }
@@ -330,13 +385,16 @@ export function localFallbackReply(messagesOrQuery, userOverride = null) {
   // Code requests -> TEXT
   if (
     has('prime', 'prime number', 'is prime', 'is_prime', 'प्राइम', 'अभाज्य') &&
-    (has('python') || hasWord('check') || hasWord('number') || has('कोड', 'code', 'likho', 'likh do', 'batao', 'bana do'))
+    (has('python') ||
+      hasWord('check') ||
+      hasWord('number') ||
+      has('कोड', 'code', 'likho', 'likh do', 'batao', 'bana do'))
   ) {
     let spoken = "Sure — I've prepared the Python prime checker in the workspace.";
     if (lang === 'hi') {
-      spoken = "लीजिए, मैंने वर्कस्पेस में पायथन प्राइम नंबर चेकर तैयार कर दिया है।";
+      spoken = 'लीजिए, मैंने वर्कस्पेस में पायथन प्राइम नंबर चेकर तैयार कर दिया है।';
     } else if (lang === 'hinglish') {
-      spoken = "Maine workspace me Python prime checker ready kar diya hai.";
+      spoken = 'Maine workspace me Python prime checker ready kar diya hai.';
     }
     return finalize({
       responseMode: 'TEXT',
@@ -372,14 +430,27 @@ for num in numbers:
   }
 
   if (
-    has('odd and even', 'odd or even', 'even or odd', 'even and odd', 'odd', 'even', 'सम और विषम', 'सम या विषम') &&
-    (has('python') || has('program') || has('code') || has('number') || has('कोड', 'likho', 'likh do'))
+    has(
+      'odd and even',
+      'odd or even',
+      'even or odd',
+      'even and odd',
+      'odd',
+      'even',
+      'सम और विषम',
+      'सम या विषम'
+    ) &&
+    (has('python') ||
+      has('program') ||
+      has('code') ||
+      has('number') ||
+      has('कोड', 'likho', 'likh do'))
   ) {
     let spoken = "Done. I've placed the Python program for odd and even numbers in the workspace.";
     if (lang === 'hi') {
-      spoken = "लीजिए, सम और विषम संख्याओं का पायथन प्रोग्राम वर्कस्पेस में तैयार है।";
+      spoken = 'लीजिए, सम और विषम संख्याओं का पायथन प्रोग्राम वर्कस्पेस में तैयार है।';
     } else if (lang === 'hinglish') {
-      spoken = "Done! Maine odd aur even number ka Python code workspace me add kar diya hai.";
+      spoken = 'Done! Maine odd aur even number ka Python code workspace me add kar diya hai.';
     }
     return finalize({
       responseMode: 'TEXT',
@@ -407,16 +478,16 @@ for num in test_numbers:
   if (has('recursion', 'what is recursion', 'रिकर्शन', 'रिकर्सन')) {
     const isHybrid = has('code', 'program', 'example', 'implement', 'कोड', 'likho', 'likh do');
     let spoken = isHybrid
-      ? "Recursion breaks problems down by calling the function itself until reaching a base case. Here is an implementation."
-      : "Recursion is a technique where a function calls itself to break down complex problems into smaller subproblems.";
+      ? 'Recursion breaks problems down by calling the function itself until reaching a base case. Here is an implementation.'
+      : 'Recursion is a technique where a function calls itself to break down complex problems into smaller subproblems.';
     if (lang === 'hi') {
       spoken = isHybrid
-        ? "रिकर्शन में एक फ़ंक्शन खुद को तब तक कॉल करता है जब तक बेस केस न मिल जाए। पूरा कोड वर्कस्पेस में है।"
-        : "रिकर्शन कंप्यूटर साइंस की एक तकनीक है जहाँ कोई फ़ंक्शन किसी समस्या को छोटे हिस्सों में हल करने के लिए खुद को कॉल करता है।";
+        ? 'रिकर्शन में एक फ़ंक्शन खुद को तब तक कॉल करता है जब तक बेस केस न मिल जाए। पूरा कोड वर्कस्पेस में है।'
+        : 'रिकर्शन कंप्यूटर साइंस की एक तकनीक है जहाँ कोई फ़ंक्शन किसी समस्या को छोटे हिस्सों में हल करने के लिए खुद को कॉल करता है।';
     } else if (lang === 'hinglish') {
       spoken = isHybrid
-        ? "Recursion me function khud ko bar-bar call karta hai jab tak base case na mil jaye. Code workspace me taiyar hai."
-        : "Recursion ek technique hai jisme function khud ko hi call karke problem ko chhote parts me solve karta hai.";
+        ? 'Recursion me function khud ko bar-bar call karta hai jab tak base case na mil jaye. Code workspace me taiyar hai.'
+        : 'Recursion ek technique hai jisme function khud ko hi call karke problem ko chhote parts me solve karta hai.';
     }
     return finalize({
       responseMode: isHybrid ? 'HYBRID' : 'VOICE',
@@ -434,17 +505,20 @@ for num in test_numbers:
 
 # Example:
 print("Factorial of 5 is:", factorial(5))  # 120`
-          : (lang === 'hi'
-              ? "रिकर्शन एक प्रोग्रामिंग तकनीक है जिसमें कोई फ़ंक्शन किसी बड़ी समस्या को हल करने के लिए बार-बार खुद को छोटे इनपुट के साथ कॉल करता है। इसमें एक बेस केस (Base Case) होना ज़रूरी है जो कॉल को रोकता है।"
-              : (lang === 'hinglish'
-                  ? "Recursion ek programming technique hai jahan function khud ko call karta hai jab tak base case trigger na ho jaye. Yeh problems ko simple aur modular banata hai."
-                  : "Recursion is a method in computer science where the solution to a problem depends on solutions to smaller instances of the same problem. A recursive function solves a base case directly, and otherwise calls itself with modified input, progressing toward the base case.")),
+          : lang === 'hi'
+            ? 'रिकर्शन एक प्रोग्रामिंग तकनीक है जिसमें कोई फ़ंक्शन किसी बड़ी समस्या को हल करने के लिए बार-बार खुद को छोटे इनपुट के साथ कॉल करता है। इसमें एक बेस केस (Base Case) होना ज़रूरी है जो कॉल को रोकता है।'
+            : lang === 'hinglish'
+              ? 'Recursion ek programming technique hai jahan function khud ko call karta hai jab tak base case trigger na ho jaye. Yeh problems ko simple aur modular banata hai.'
+              : 'Recursion is a method in computer science where the solution to a problem depends on solutions to smaller instances of the same problem. A recursive function solves a base case directly, and otherwise calls itself with modified input, progressing toward the base case.',
       },
     });
   }
 
   // Follow-up: "Now write the Python code for it."
-  if ((has('code for it', 'now write', 'write the python code') && has('python')) || (has('for it') && has('code'))) {
+  if (
+    (has('code for it', 'now write', 'write the python code') && has('python')) ||
+    (has('for it') && has('code'))
+  ) {
     return finalize({
       responseMode: 'TEXT',
       spokenResponse: "Done. I've placed the recursive Python code in the workspace.",
@@ -467,12 +541,12 @@ print(factorial(5))`,
   if (has('binary search', 'बाइनरी सर्च')) {
     const isHybrid = has('explain', 'concept', 'why', 'how', 'samjhao', 'samjha do');
     let spoken = isHybrid
-      ? "Binary search repeatedly divides a sorted array in half to find a target in logarithmic time. Here is the C++ code."
+      ? 'Binary search repeatedly divides a sorted array in half to find a target in logarithmic time. Here is the C++ code.'
       : "Done. I've written the binary search algorithm in C++ in the workspace.";
     if (lang === 'hi') {
-      spoken = "लीजिए, मैंने वर्कस्पेस में बाइनरी सर्च का C++ कोड लिख दिया है।";
+      spoken = 'लीजिए, मैंने वर्कस्पेस में बाइनरी सर्च का C++ कोड लिख दिया है।';
     } else if (lang === 'hinglish') {
-      spoken = "Maine workspace me binary search ka C++ implementation place kar diya hai.";
+      spoken = 'Maine workspace me binary search ka C++ implementation place kar diya hai.';
     }
     return finalize({
       responseMode: isHybrid ? 'HYBRID' : 'TEXT',
@@ -538,7 +612,11 @@ print("Sorted:", quicksort(numbers))`,
   }
 
   // Sliding window algorithm & C++ follow-ups
-  if (has('sliding window') || (has('c++', 'cpp', 'in c++', 'in cpp') && (has('sliding') || has('window') || has('want it in c++') || has('want it in cpp')))) {
+  if (
+    has('sliding window') ||
+    (has('c++', 'cpp', 'in c++', 'in cpp') &&
+      (has('sliding') || has('window') || has('want it in c++') || has('want it in cpp')))
+  ) {
     return finalize({
       responseMode: 'TEXT',
       spokenResponse: "Done. I've written the sliding window algorithm in C++ in the workspace.",
@@ -581,8 +659,15 @@ int main() {
 
   // Follow-up context check: "I want it in C++" or "in C++"
   if (has('c++', 'cpp', 'in c++', 'in cpp', 'want it in c++', 'want it in cpp')) {
-    const prevHistory = (messages || []).map((m) => m.content || '').join(' ').toLowerCase();
-    if (prevHistory.includes('sliding window') || prevHistory.includes('window') || prevHistory.includes('algorithm')) {
+    const prevHistory = (messages || [])
+      .map((m) => m.content || '')
+      .join(' ')
+      .toLowerCase();
+    if (
+      prevHistory.includes('sliding window') ||
+      prevHistory.includes('window') ||
+      prevHistory.includes('algorithm')
+    ) {
       return finalize({
         responseMode: 'TEXT',
         spokenResponse: "Done. I've written the sliding window algorithm in C++ in the workspace.",
@@ -649,7 +734,7 @@ int main() {
   if (has('binary search')) {
     return finalize({
       responseMode: 'TEXT',
-      spokenResponse: "Here is the binary search implementation in the workspace.",
+      spokenResponse: 'Here is the binary search implementation in the workspace.',
       visualResponse: {
         type: 'code',
         language: 'python',
@@ -677,13 +762,13 @@ print("Index of 23:", binary_search(nums, 23))  # 5`,
   }
 
   // Table requests -> TEXT
-  if (has('compare', 'comparison') && (has('c++', 'python', 'java', 'rust', 'table'))) {
+  if (has('compare', 'comparison') && has('c++', 'python', 'java', 'rust', 'table')) {
     const isHybrid = has('recommend', 'better', 'choose');
     return finalize({
       responseMode: isHybrid ? 'HYBRID' : 'TEXT',
       spokenResponse: isHybrid
-        ? "C++ offers maximum speed, while Python provides fast development velocity. Here is the full comparison table."
-        : "Here is the language comparison table in the workspace.",
+        ? 'C++ offers maximum speed, while Python provides fast development velocity. Here is the full comparison table.'
+        : 'Here is the language comparison table in the workspace.',
       visualResponse: {
         type: 'table',
         title: 'Programming Language Comparison',
@@ -699,13 +784,17 @@ print("Index of 23:", binary_search(nums, 23))  # 5`,
   }
 
   // Standard conversational intents -> VOICE
-  if (has('solar system', 'planet', 'planets', 'sun', 'mars', 'earth', 'moon', 'jupiter', 'saturn')) {
+  if (
+    has('solar system', 'planet', 'planets', 'sun', 'mars', 'earth', 'moon', 'jupiter', 'saturn')
+  ) {
     return finalize({
       responseMode: 'VOICE',
-      spokenResponse: "Our solar system has eight planets orbiting the Sun, ranging from rocky inner worlds like Mars to gas giants like Jupiter.",
+      spokenResponse:
+        'Our solar system has eight planets orbiting the Sun, ranging from rocky inner worlds like Mars to gas giants like Jupiter.',
       visualResponse: {
         type: 'text',
-        content: "Our solar system has eight planets orbiting the Sun, ranging from rocky inner worlds like Earth and Mars to massive gas giants like Jupiter and Saturn.",
+        content:
+          'Our solar system has eight planets orbiting the Sun, ranging from rocky inner worlds like Earth and Mars to massive gas giants like Jupiter and Saturn.',
       },
     });
   }
@@ -713,10 +802,12 @@ print("Index of 23:", binary_search(nums, 23))  # 5`,
   if (has('artificial intelligence', 'what is ai')) {
     return finalize({
       responseMode: 'VOICE',
-      spokenResponse: "Artificial intelligence is the science of creating computer systems capable of reasoning, learning, and adapting to solve complex tasks.",
+      spokenResponse:
+        'Artificial intelligence is the science of creating computer systems capable of reasoning, learning, and adapting to solve complex tasks.',
       visualResponse: {
         type: 'text',
-        content: "Artificial intelligence is the science of creating computer systems capable of reasoning, learning, and adapting to solve complex tasks.",
+        content:
+          'Artificial intelligence is the science of creating computer systems capable of reasoning, learning, and adapting to solve complex tasks.',
       },
     });
   }
@@ -724,10 +815,12 @@ print("Index of 23:", binary_search(nums, 23))  # 5`,
   if (has('machine learning')) {
     return finalize({
       responseMode: 'VOICE',
-      spokenResponse: "Machine learning is a subset of AI that allows algorithms to learn patterns directly from data without explicit programming.",
+      spokenResponse:
+        'Machine learning is a subset of AI that allows algorithms to learn patterns directly from data without explicit programming.',
       visualResponse: {
         type: 'text',
-        content: "Machine learning is a subset of AI that allows algorithms to learn patterns directly from data without being explicitly programmed.",
+        content:
+          'Machine learning is a subset of AI that allows algorithms to learn patterns directly from data without being explicitly programmed.',
       },
     });
   }
@@ -735,10 +828,12 @@ print("Index of 23:", binary_search(nums, 23))  # 5`,
   if (has('space', 'universe', 'galaxy', 'star', 'stars')) {
     return finalize({
       responseMode: 'VOICE',
-      spokenResponse: "Space is completely silent, and there are more stars in the observable universe than grains of sand on Earth.",
+      spokenResponse:
+        'Space is completely silent, and there are more stars in the observable universe than grains of sand on Earth.',
       visualResponse: {
         type: 'text',
-        content: "Space is completely silent because there is no air to carry sound, and there are more stars in the observable universe than grains of sand on Earth.",
+        content:
+          'Space is completely silent because there is no air to carry sound, and there are more stars in the observable universe than grains of sand on Earth.',
       },
     });
   }
@@ -746,10 +841,12 @@ print("Index of 23:", binary_search(nums, 23))  # 5`,
   if (has('rime', 'tts')) {
     return finalize({
       responseMode: 'VOICE',
-      spokenResponse: "Rime TTS is an ultra-low-latency speech platform designed for lifelike conversational turn-taking.",
+      spokenResponse:
+        'Rime TTS is an ultra-low-latency speech platform designed for lifelike conversational turn-taking.',
       visualResponse: {
         type: 'text',
-        content: "Rime TTS is an ultra-low-latency, expressive speech synthesis platform designed for lifelike conversational turn-taking.",
+        content:
+          'Rime TTS is an ultra-low-latency, expressive speech synthesis platform designed for lifelike conversational turn-taking.',
       },
     });
   }
@@ -757,10 +854,12 @@ print("Index of 23:", binary_search(nums, 23))  # 5`,
   if (has('barge in', 'interrupt', 'fencing')) {
     return finalize({
       responseMode: 'VOICE',
-      spokenResponse: "Barge-in lets you talk over me anytime. I silence my audio in under two milliseconds and switch immediately to your new thought.",
+      spokenResponse:
+        'Barge-in lets you talk over me anytime. I silence my audio in under two milliseconds and switch immediately to your new thought.',
       visualResponse: {
         type: 'text',
-        content: "Barge-in lets you talk over me anytime. I silence my audio in under two milliseconds and switch immediately to what you just said.",
+        content:
+          'Barge-in lets you talk over me anytime. I silence my audio in under two milliseconds and switch immediately to what you just said.',
       },
     });
   }
@@ -790,10 +889,10 @@ print("Index of 23:", binary_search(nums, 23))  # 5`,
   if (hasWord('joke')) {
     return finalize({
       responseMode: 'VOICE',
-      spokenResponse: "Why did the AI cross the road? To avoid the latency on the other side.",
+      spokenResponse: 'Why did the AI cross the road? To avoid the latency on the other side.',
       visualResponse: {
         type: 'text',
-        content: "Why did the AI cross the road? To avoid the latency on the other side.",
+        content: 'Why did the AI cross the road? To avoid the latency on the other side.',
       },
     });
   }

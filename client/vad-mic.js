@@ -28,8 +28,7 @@ class AuroraMic {
 
     // Language preference: 'auto' (Hinglish / en-IN), 'hi-IN' (Hindi), 'en-IN' (Hinglish/Indian EN), 'en-US'
     const savedLang =
-      (typeof localStorage !== 'undefined' && localStorage.getItem('aurora-speech-lang')) ||
-      'auto';
+      (typeof localStorage !== 'undefined' && localStorage.getItem('aurora-speech-lang')) || 'auto';
     this.speechLang = savedLang;
 
     // Device detection: Android, iPhone/iPad, mobile viewport with touch
@@ -50,7 +49,11 @@ class AuroraMic {
 
     // 'auto' mode: check browser language
     if (typeof navigator !== 'undefined') {
-      const dev = (navigator.language || (navigator.languages && navigator.languages[0]) || '').toLowerCase();
+      const dev = (
+        navigator.language ||
+        (navigator.languages && navigator.languages[0]) ||
+        ''
+      ).toLowerCase();
       if (dev.startsWith('hi')) return 'hi-IN';
       if (dev.includes('in')) return 'en-IN';
     }
@@ -121,11 +124,14 @@ class AuroraMic {
       currentInterim = currentInterim.trim();
 
       if (currentFinal) {
-        this._accumulatedText = (this._accumulatedText ? this._accumulatedText + ' ' : '') + currentFinal;
+        this._accumulatedText =
+          (this._accumulatedText ? this._accumulatedText + ' ' : '') + currentFinal;
       }
       this._interimText = currentInterim;
 
-      const liveText = (this._accumulatedText + (this._interimText ? ' ' + this._interimText : '')).trim();
+      const liveText = (
+        this._accumulatedText + (this._interimText ? ' ' + this._interimText : '')
+      ).trim();
 
       if (!this._heardThisTurn && liveText) {
         this._heardThisTurn = true;
@@ -209,7 +215,9 @@ class AuroraMic {
       clearTimeout(this._silenceTimer);
       this._silenceTimer = null;
     }
-    const fullText = (this._accumulatedText + (this._interimText ? ' ' + this._interimText : '')).trim();
+    const fullText = (
+      this._accumulatedText + (this._interimText ? ' ' + this._interimText : '')
+    ).trim();
     this._accumulatedText = '';
     this._interimText = '';
     this._heardThisTurn = false;

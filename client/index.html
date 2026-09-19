@@ -66,7 +66,7 @@
                 id="btnSidebarNewChat"
                 aria-label="Start a new chat"
                 title="Start a new chat"
-                onclick="if(window.createNewSession) window.createNewSession();"
+                onclick="if (window.createNewSession) window.createNewSession();"
               >
                 <svg
                   class="btn-new-chat-icon"
@@ -205,7 +205,7 @@
                 id="btnTopbarNewChat"
                 aria-label="Start a new chat"
                 title="Start a new chat"
-                onclick="if(window.createNewSession) window.createNewSession();"
+                onclick="if (window.createNewSession) window.createNewSession();"
               >
                 <svg
                   width="14"
@@ -224,11 +224,27 @@
               </button>
 
               <!-- Language Selector Pill -->
-              <div class="lang-selector-pill" id="langSelectorPill" title="Speech &amp; Conversation Language">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <div
+                class="lang-selector-pill"
+                id="langSelectorPill"
+                title="Speech &amp; Conversation Language"
+              >
+                <svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
                   <circle cx="12" cy="12" r="10"></circle>
                   <line x1="2" y1="12" x2="22" y2="12"></line>
-                  <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+                  <path
+                    d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"
+                  ></path>
                 </svg>
                 <select id="voiceLangSelect" class="lang-select" aria-label="Speech Language">
                   <option value="auto">Auto · Hinglish</option>
@@ -269,22 +285,53 @@
           </div>
 
           <!-- Dedicated Conversation History View -->
-          <div class="conversation-history-view" id="conversationHistoryView" style="display: none;">
+          <div class="conversation-history-view" id="conversationHistoryView" style="display: none">
             <div class="conv-history-header">
               <div class="conv-history-title-group">
                 <h2 class="conv-history-title">Conversation History</h2>
-                <p class="conv-history-subtitle">Browse, search, and continue past conversations with Aurora</p>
+                <p class="conv-history-subtitle">
+                  Browse, search, and continue past conversations with Aurora
+                </p>
               </div>
               <div class="conv-history-actions">
                 <div class="conv-search-box">
-                  <svg class="conv-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <svg
+                    class="conv-search-icon"
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
                     <circle cx="11" cy="11" r="8"></circle>
                     <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                   </svg>
-                  <input type="text" id="convSearchInput" class="conv-search-input" placeholder="Search conversations…" autocomplete="off" />
+                  <input
+                    type="text"
+                    id="convSearchInput"
+                    class="conv-search-input"
+                    placeholder="Search conversations…"
+                    autocomplete="off"
+                  />
                 </div>
-                <button class="btn-conv-new-chat" id="btnConvNewChat" title="Start a fresh conversation">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <button
+                  class="btn-conv-new-chat"
+                  id="btnConvNewChat"
+                  title="Start a fresh conversation"
+                >
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
                     <line x1="12" y1="5" x2="12" y2="19"></line>
                     <line x1="5" y1="12" x2="19" y2="12"></line>
                   </svg>
@@ -354,13 +401,6 @@
                     <path d="M5 10a7 7 0 0 0 14 0M12 19v3M9 22h6"></path>
                   </svg>
                 </button>
-              </div>
-              <div class="composer-shortcuts" id="composerHint">
-                <span class="kbd-badge">Enter</span>
-                <span class="hint-label">to send</span>
-                <span class="hint-divider">|</span>
-                <span class="kbd-badge">Esc</span>
-                <span class="hint-label">to interrupt</span>
               </div>
             </form>
           </div>
@@ -616,7 +656,8 @@
               <span class="badge" id="settingsBadgeState">Unified</span>
             </div>
             <p class="drawer-desc">
-              Manage LLM intelligence providers, Rime TTS credentials, server connectivity, and local storage.
+              Manage LLM intelligence providers, Rime TTS credentials, server connectivity, and
+              local storage.
             </p>
 
             <!-- Pre-Configured Ready Banner -->
@@ -624,7 +665,10 @@
               <div class="banner-status-dot"></div>
               <div class="banner-content">
                 <strong>System Ready · Pre-Configured for All Users</strong>
-                <span>Google Gemini 3.5 Cloud Brain and Rime Neural Voice are pre-configured. No API key setup required — start chatting immediately.</span>
+                <span
+                  >Google Gemini 3.5 Cloud Brain and Rime Neural Voice are pre-configured. No API
+                  key setup required — start chatting immediately.</span
+                >
               </div>
             </div>
 
@@ -632,28 +676,37 @@
             <div class="config-field">
               <label for="settingsLangSelect">Speech &amp; Conversation Language</label>
               <p class="config-desc">
-                Select your preferred voice recognition and conversational fluency style (Hindi, Hinglish, or English).
+                Select your preferred voice recognition and conversational fluency style (Hindi,
+                Hinglish, or English).
               </p>
               <div class="input-action-row">
-                <select id="settingsLangSelect" class="settings-select" aria-label="Speech and Conversation Language">
-                  <option value="auto" selected>🌐 Auto (Hinglish &amp; Multi-lingual · Recommended)</option>
+                <select
+                  id="settingsLangSelect"
+                  class="settings-select"
+                  aria-label="Speech and Conversation Language"
+                >
+                  <option value="auto" selected>
+                    🌐 Auto (Hinglish &amp; Multi-lingual · Recommended)
+                  </option>
                   <option value="hi-IN">🇮🇳 हिन्दी (Hindi · Native Devanagari)</option>
                   <option value="en-IN">🇮🇳 Hinglish / Indian English (en-IN)</option>
                   <option value="en-US">🇺🇸 English (United States · en-US)</option>
                 </select>
               </div>
-              <div class="preview-status" id="langStatusMsg" style="color: #7ee3a8;">✓ Hindi &amp; Hinglish conversational fluency active.</div>
+              <div class="preview-status" id="langStatusMsg" style="color: #7ee3a8">
+                ✓ Hindi &amp; Hinglish conversational fluency active.
+              </div>
             </div>
 
             <!-- 1. LLM Brain & Provider -->
             <div class="config-field">
               <label for="llmProviderSelect">Language Model Brain</label>
-              <p class="config-desc">
-                Select your preferred cloud AI provider or local inference.
-              </p>
-              <div class="input-action-row" style="margin-bottom: 8px;">
+              <p class="config-desc">Select your preferred cloud AI provider or local inference.</p>
+              <div class="input-action-row" style="margin-bottom: 8px">
                 <select id="llmProviderSelect" class="settings-select" aria-label="LLM Provider">
-                  <option value="gemini" selected>Google Gemini (Gemini 3.5 Flash · Pre-configured)</option>
+                  <option value="gemini" selected>
+                    Google Gemini (Gemini 3.5 Flash · Pre-configured)
+                  </option>
                   <option value="groq">Groq (Ultra-fast Llama 3.3 / Mixtral)</option>
                   <option value="anthropic">Anthropic (Claude 3.5 Haiku / Sonnet)</option>
                   <option value="openai">OpenAI (GPT-4o mini / GPT-4o)</option>
@@ -666,9 +719,17 @@
                   placeholder="●●●●●●●● (Pre-configured · Active for all users)"
                   autocomplete="off"
                 />
-                <button id="btnSaveLlmKey" class="small-action-btn" title="Optional: Override with your own custom key">Override Key</button>
+                <button
+                  id="btnSaveLlmKey"
+                  class="small-action-btn"
+                  title="Optional: Override with your own custom key"
+                >
+                  Override Key
+                </button>
               </div>
-              <div class="preview-status" id="llmStatusMsg" style="color: #7ee3a8;">✓ Cloud Brain is active and ready for all users.</div>
+              <div class="preview-status" id="llmStatusMsg" style="color: #7ee3a8">
+                ✓ Cloud Brain is active and ready for all users.
+              </div>
             </div>
 
             <!-- 2. Rime Production TTS Key -->
@@ -684,9 +745,17 @@
                   placeholder="●●●●●●●● (Pre-configured · Active for all users)"
                   autocomplete="off"
                 />
-                <button id="btnSaveRimeApiKey" class="small-action-btn" title="Optional: Override with your own custom key">Override Key</button>
+                <button
+                  id="btnSaveRimeApiKey"
+                  class="small-action-btn"
+                  title="Optional: Override with your own custom key"
+                >
+                  Override Key
+                </button>
               </div>
-              <div class="preview-status" id="rimeKeyStatusMsg" style="color: #7ee3a8;">✓ Neural voice synthesis is active.</div>
+              <div class="preview-status" id="rimeKeyStatusMsg" style="color: #7ee3a8">
+                ✓ Neural voice synthesis is active.
+              </div>
             </div>
 
             <!-- 3. Real-Time Backend Host -->
@@ -708,12 +777,15 @@
             </div>
 
             <!-- 4. Session & Storage Preferences -->
-            <div class="config-field" style="border-top: 1px solid var(--glass-border); padding-top: 16px; margin-top: 18px;">
+            <div
+              class="config-field"
+              style="border-top: 1px solid var(--glass-border); padding-top: 16px; margin-top: 18px"
+            >
               <label>Session &amp; Local Storage</label>
               <p class="config-desc">
                 Reset local session cache or clear saved API keys from browser storage.
               </p>
-              <div class="drawer-actions-row" style="margin-top: 10px;">
+              <div class="drawer-actions-row" style="margin-top: 10px">
                 <button class="secondary-btn" id="btnResetActiveChat">Reset Active Chat</button>
                 <button class="danger-btn" id="btnClearAllData">Clear All Local Data</button>
               </div>
@@ -781,41 +853,63 @@
               </svg>
               <h3 id="androidMicTitle">Microphone Setup for Android</h3>
             </div>
-            <button class="aurora-modal-close" id="btnCloseAndroidMicModal" aria-label="Close dialog">✕</button>
+            <button
+              class="aurora-modal-close"
+              id="btnCloseAndroidMicModal"
+              aria-label="Close dialog"
+            >
+              ✕
+            </button>
           </div>
           <div class="aurora-modal-body">
             <p class="modal-lead">
-              Chrome on Android routes voice through Android's OS Speech Engine. If Chrome has permission but says blocked:
+              Chrome on Android routes voice through Android's OS Speech Engine. If Chrome has
+              permission but says blocked:
             </p>
             <div class="modal-steps">
               <div class="modal-step-item">
                 <span class="step-num">1</span>
                 <div>
                   <strong>Google Speech Services Permission</strong>
-                  <p>In phone <em>Settings &gt; Apps &gt; Google</em> (or <em>Speech Services by Google</em>) &gt; <em>Permissions</em> &gt; <em>Microphone</em> &rarr; Set to <strong>Allow only while using the app</strong>.</p>
+                  <p>
+                    In phone <em>Settings &gt; Apps &gt; Google</em> (or
+                    <em>Speech Services by Google</em>) &gt; <em>Permissions</em> &gt;
+                    <em>Microphone</em> &rarr; Set to
+                    <strong>Allow only while using the app</strong>.
+                  </p>
                 </div>
               </div>
               <div class="modal-step-item">
                 <span class="step-num">2</span>
                 <div>
                   <strong>Global Android Mic Access Toggle</strong>
-                  <p>Swipe down twice from top of phone screen. Ensure the green <strong>"Mic access"</strong> privacy tile is turned ON.</p>
+                  <p>
+                    Swipe down twice from top of phone screen. Ensure the green
+                    <strong>"Mic access"</strong> privacy tile is turned ON.
+                  </p>
                 </div>
               </div>
               <div class="modal-step-item">
                 <span class="step-num">3</span>
                 <div>
                   <strong>Chrome Site Setting &amp; HTTPS</strong>
-                  <p>Tap the 🔒 lock icon in Chrome's URL bar &gt; <em>Permissions</em> &gt; <em>Microphone</em> &rarr; <strong>Allowed</strong>. Ensure you are on the secure HTTPS live link.</p>
+                  <p>
+                    Tap the 🔒 lock icon in Chrome's URL bar &gt; <em>Permissions</em> &gt;
+                    <em>Microphone</em> &rarr; <strong>Allowed</strong>. Ensure you are on the
+                    secure HTTPS live link.
+                  </p>
                 </div>
               </div>
             </div>
             <div class="modal-tip-note">
-              💡 <strong>Instant Alternative:</strong> You can always type your question directly in the chat bar below!
+              💡 <strong>Instant Alternative:</strong> You can always type your question directly in
+              the chat bar below!
             </div>
           </div>
           <div class="aurora-modal-footer">
-            <button class="primary-btn" id="btnDismissAndroidMicModal" style="width: 100%">Got It</button>
+            <button class="primary-btn" id="btnDismissAndroidMicModal" style="width: 100%">
+              Got It
+            </button>
           </div>
         </div>
       </div>

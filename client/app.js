@@ -21,6 +21,7 @@
   // Header
   const connDot = $('connDot');
   const connText = $('connText');
+  const statusPill = $('statusPill');
 
   // Companion / Workspace View Elements
   const orbCanvas = $('orbCanvas');
@@ -139,17 +140,17 @@
   const navTranscripts = $('navTranscripts');
   const navTelemetry = $('navTelemetry');
   const navSettings = $('navSettings') || $('navConfig');
-  const navConfig = navSettings;
   const drawerSectionVoice = $('drawerSectionVoice');
   const drawerSectionTranscripts = $('drawerSectionTranscripts');
   const drawerSectionTelemetry = $('drawerSectionTelemetry');
   const drawerSectionSettings = $('drawerSectionSettings') || $('drawerSectionConfig');
-  const drawerSectionConfig = drawerSectionSettings;
   const drawerNavTabs = $('drawerNavTabs');
 
   // Core Audio & State
   const player = new window.AuroraAudioPlayer();
-  player.onQueueEmpty = () => { afterSpeaking(); };
+  player.onQueueEmpty = () => {
+    afterSpeaking();
+  };
   const orb = new window.AuroraOrb(orbCanvas, player);
 
   // Mobile & Desktop Web Audio Unlock on user interactions
@@ -376,13 +377,19 @@
     settingsButtons.forEach((btn) => {
       if (!btn) return;
       const t = btn.dataset.target;
-      const match = t === target || (target === 'settings' && t === 'config') || (target === 'config' && t === 'settings');
+      const match =
+        t === target ||
+        (target === 'settings' && t === 'config') ||
+        (target === 'config' && t === 'settings');
       btn.classList.toggle('active', Boolean(target) && match);
     });
     if (drawerNavTabs) {
       drawerNavTabs.querySelectorAll('.drawer-tab').forEach((tab) => {
         const t = tab.dataset.target;
-        const match = t === target || (target === 'settings' && t === 'config') || (target === 'config' && t === 'settings');
+        const match =
+          t === target ||
+          (target === 'settings' && t === 'config') ||
+          (target === 'config' && t === 'settings');
         tab.classList.toggle('active', Boolean(target) && match);
       });
     }
@@ -647,7 +654,6 @@
         return;
       }
       openDrawerTo(drawerSectionSettings, 'settings');
-      updateUnifiedSettingsDisplay();
     });
   }
 
@@ -899,7 +905,9 @@
         setConnStatus(false, 'Connecting…');
         dbgWs.textContent = 'Disconnected — reconnecting…';
       }
-      log(`WebSocket closed, using HTTP mode (reconnect in ${Math.round(wsReconnectDelay / 1000)}s)`);
+      log(
+        `WebSocket closed, using HTTP mode (reconnect in ${Math.round(wsReconnectDelay / 1000)}s)`
+      );
       setTimeout(connect, wsReconnectDelay);
       wsReconnectDelay = Math.min(wsReconnectDelay * 1.5, 30000);
     };
@@ -1076,7 +1084,6 @@
 
       case 'user_text': {
         if (msg.generation < currentGen) return;
-        const oldGen = currentGen;
         currentGen = msg.generation;
         dbgGen.textContent = `#${currentGen}`;
         captionUser.style.display = 'block';
@@ -1094,7 +1101,6 @@
 
       case 'ai_text_start': {
         if (msg.generation < currentGen) return;
-        const oldGen = currentGen;
         currentGen = msg.generation;
         if (dbgGen) dbgGen.textContent = `#${currentGen}`;
         if (captionAi) captionAi.textContent = '“Generating…”';
@@ -1374,7 +1380,10 @@
           const norm = normalizeAssistantPayload(speakText, {});
           speakText = norm.spoken;
         } else {
-          speakText = speakText.replace(/```[\s\S]*?(?:```|$)/g, '').replace(/[*_#`\[\]>]/g, '').trim();
+          speakText = speakText
+            .replace(/```[\s\S]*?(?:```|$)/g, '')
+            .replace(/[*_#`[\]>]/g, '')
+            .trim();
         }
         if (!speakText) speakText = "I've written the response in the chat.";
         if (captionAi) captionAi.textContent = `“${speakText}”`;
@@ -1447,11 +1456,18 @@
         const hasAudio =
           player.audioCache.has(msg.generation) ||
           player.isQueuePlaying ||
-          (player.sourceNode !== null);
+          player.sourceNode !== null;
         if (!hasAudio && msg.generation === currentGen) {
           const card = document.querySelector(`.msg-row.assistant[data-gen="${msg.generation}"]`);
-          let spokenText = (card && card.dataset.spoken) || (captionAi ? captionAi.textContent.replace(/[“”"]/g, '').trim() : '');
-          if (spokenText && !spokenText.includes('Generating') && !spokenText.includes('Thinking') && !spokenText.includes('Interrupted')) {
+          let spokenText =
+            (card && card.dataset.spoken) ||
+            (captionAi ? captionAi.textContent.replace(/[“”"]/g, '').trim() : '');
+          if (
+            spokenText &&
+            !spokenText.includes('Generating') &&
+            !spokenText.includes('Thinking') &&
+            !spokenText.includes('Interrupted')
+          ) {
             setUiState('speaking');
             speakWithBrowser(spokenText, () => {
               if (msg.generation === currentGen) afterSpeaking();
@@ -1496,8 +1512,10 @@
     }
   }
 
-  if (btnCloseAndroidMicModal) btnCloseAndroidMicModal.addEventListener('click', hideAndroidMicModal);
-  if (btnDismissAndroidMicModal) btnDismissAndroidMicModal.addEventListener('click', hideAndroidMicModal);
+  if (btnCloseAndroidMicModal)
+    btnCloseAndroidMicModal.addEventListener('click', hideAndroidMicModal);
+  if (btnDismissAndroidMicModal)
+    btnDismissAndroidMicModal.addEventListener('click', hideAndroidMicModal);
   if (androidMicModal) {
     androidMicModal.addEventListener('click', (e) => {
       if (e.target === androidMicModal) hideAndroidMicModal();
@@ -1551,12 +1569,17 @@
 
       if (err === 'insecure-context') {
         if (connText) connText.textContent = 'Mic requires HTTPS';
-        if (statusPill) statusPill.title = 'Web Speech API requires HTTPS or localhost on mobile browsers';
+        if (statusPill)
+          statusPill.title = 'Web Speech API requires HTTPS or localhost on mobile browsers';
         if (typeInput) {
           typeInput.placeholder = 'Mic requires HTTPS on mobile. Type here…';
           typeInput.focus();
         }
-      } else if (err === 'not-allowed' || err === 'service-not-allowed' || err === 'permission-denied') {
+      } else if (
+        err === 'not-allowed' ||
+        err === 'service-not-allowed' ||
+        err === 'permission-denied'
+      ) {
         if (connText) connText.textContent = 'Mic blocked';
         if (statusPill) {
           statusPill.title = isAndroid
@@ -1714,18 +1737,23 @@
   function getBestVoiceForText(text) {
     if (!cachedVoices || !cachedVoices.length) populateVoices();
     const lang = detectClientLanguage(text);
-    const activeSetting = (typeof localStorage !== 'undefined' && localStorage.getItem('aurora-speech-lang')) || 'auto';
+    const activeSetting =
+      (typeof localStorage !== 'undefined' && localStorage.getItem('aurora-speech-lang')) || 'auto';
 
     // 1. Hindi (Devanagari)
     if (lang === 'hi' || activeSetting === 'hi-IN') {
       const hiVoice = cachedVoices.find(
-        (v) => (v.lang && (v.lang === 'hi-IN' || v.lang.startsWith('hi'))) || /hindi|हिन्दी/i.test(v.name)
+        (v) =>
+          (v.lang && (v.lang === 'hi-IN' || v.lang.startsWith('hi'))) ||
+          /hindi|हिन्दी/i.test(v.name)
       );
       if (hiVoice) return { voice: hiVoice, lang: 'hi-IN' };
 
       // Fallback to Indian English voice
       const inVoice = cachedVoices.find(
-        (v) => (v.lang && (v.lang === 'en-IN' || v.lang.startsWith('en-IN'))) || /india|neerja|prabhat/i.test(v.name)
+        (v) =>
+          (v.lang && (v.lang === 'en-IN' || v.lang.startsWith('en-IN'))) ||
+          /india|neerja|prabhat/i.test(v.name)
       );
       if (inVoice) return { voice: inVoice, lang: 'en-IN' };
       return { voice: null, lang: 'hi-IN' };
@@ -1734,12 +1762,16 @@
     // 2. Hinglish (Roman Hindi)
     if (lang === 'hinglish' || activeSetting === 'en-IN') {
       const inVoice = cachedVoices.find(
-        (v) => (v.lang && (v.lang === 'en-IN' || v.lang.startsWith('en-IN'))) || /india|neerja|prabhat|veena|heera/i.test(v.name)
+        (v) =>
+          (v.lang && (v.lang === 'en-IN' || v.lang.startsWith('en-IN'))) ||
+          /india|neerja|prabhat|veena|heera/i.test(v.name)
       );
       if (inVoice) return { voice: inVoice, lang: 'en-IN' };
 
       const hiVoice = cachedVoices.find(
-        (v) => (v.lang && (v.lang === 'hi-IN' || v.lang.startsWith('hi'))) || /hindi|हिन्दी/i.test(v.name)
+        (v) =>
+          (v.lang && (v.lang === 'hi-IN' || v.lang.startsWith('hi'))) ||
+          /hindi|हिन्दी/i.test(v.name)
       );
       if (hiVoice) return { voice: hiVoice, lang: 'hi-IN' };
       return { voice: null, lang: 'en-IN' };
@@ -1824,7 +1856,13 @@
 
     // 0. Hindi (Devanagari) conversational intelligence
     if (lang === 'hi') {
-      if (lower.includes('नमस्ते') || lower.includes('नमस्कार') || lower.includes('प्रणाम') || lower.includes('हाय') || lower.includes('हेलो')) {
+      if (
+        lower.includes('नमस्ते') ||
+        lower.includes('नमस्कार') ||
+        lower.includes('प्रणाम') ||
+        lower.includes('हाय') ||
+        lower.includes('हेलो')
+      ) {
         return {
           responseMode: 'VOICE',
           spoken: 'नमस्ते! मैं ऑरोरा हूँ। मैं आपकी क्या मदद कर सकता हूँ?',
@@ -1833,7 +1871,12 @@
           title: 'नमस्ते!',
         };
       }
-      if (lower.includes('कौन हो') || lower.includes('कौन हैं') || lower.includes('तुम्हारा नाम') || lower.includes('आपका नाम')) {
+      if (
+        lower.includes('कौन हो') ||
+        lower.includes('कौन हैं') ||
+        lower.includes('तुम्हारा नाम') ||
+        lower.includes('आपका नाम')
+      ) {
         return {
           responseMode: 'VOICE',
           spoken: 'मैं ऑरोरा हूँ, आपका रियल-टाइम वॉइस AI असिस्टेंट।',
@@ -1851,7 +1894,12 @@
           title: 'हाल-चाल',
         };
       }
-      if (lower.includes('हिंदी बोल') || lower.includes('हिंदी आती') || lower.includes('हिंदी जानते') || lower.includes('हिंदी में बात')) {
+      if (
+        lower.includes('हिंदी बोल') ||
+        lower.includes('हिंदी आती') ||
+        lower.includes('हिंदी जानते') ||
+        lower.includes('हिंदी में बात')
+      ) {
         return {
           responseMode: 'VOICE',
           spoken: 'हाँ बिल्कुल! मैं हिंदी और हिंग्लिश दोनों में आसानी से बात कर सकता हूँ।',
@@ -1864,7 +1912,13 @@
 
     // 0. Hinglish (Roman Hindi) conversational intelligence
     if (lang === 'hinglish') {
-      if (lower.includes('namaste') || lower.includes('kya haal') || lower.includes('kaise ho') || lower.includes('kaisa hai') || lower.includes('kya chal raha')) {
+      if (
+        lower.includes('namaste') ||
+        lower.includes('kya haal') ||
+        lower.includes('kaise ho') ||
+        lower.includes('kaisa hai') ||
+        lower.includes('kya chal raha')
+      ) {
         return {
           responseMode: 'VOICE',
           spoken: 'Main bilkul badhiya hoon! Aap bataiye, aaj kya madad karoon?',
@@ -1873,7 +1927,12 @@
           title: 'Namaste!',
         };
       }
-      if (lower.includes('kaun ho') || lower.includes('kaun hai') || lower.includes('who are you') || lower.includes('naam kya hai')) {
+      if (
+        lower.includes('kaun ho') ||
+        lower.includes('kaun hai') ||
+        lower.includes('who are you') ||
+        lower.includes('naam kya hai')
+      ) {
         return {
           responseMode: 'VOICE',
           spoken: 'Main Aurora hoon, aapka real-time voice AI assistant.',
@@ -1882,7 +1941,12 @@
           title: 'Aurora Intro',
         };
       }
-      if (lower.includes('hindi बोल') || lower.includes('hindi aati') || lower.includes('hindi me baat') || lower.includes('can you speak hindi')) {
+      if (
+        lower.includes('hindi बोल') ||
+        lower.includes('hindi aati') ||
+        lower.includes('hindi me baat') ||
+        lower.includes('can you speak hindi')
+      ) {
         return {
           responseMode: 'VOICE',
           spoken: 'Haan bilkul! Main Hindi aur Hinglish dono me fluent baat kar sakta hoon.',
@@ -1933,8 +1997,10 @@
     if (isCode) {
       if (lower.includes('prime') || lower.includes('प्राइम') || lower.includes('अभाज्य')) {
         let primeSpoken = "I've written the prime number checker in Python for you.";
-        if (lang === 'hi') primeSpoken = "लीजिए, मैंने वर्कस्पेस में पायथन प्राइम नंबर चेकर तैयार कर दिया है।";
-        else if (lang === 'hinglish') primeSpoken = "Maine workspace me Python prime checker ready kar diya hai.";
+        if (lang === 'hi')
+          primeSpoken = 'लीजिए, मैंने वर्कस्पेस में पायथन प्राइम नंबर चेकर तैयार कर दिया है।';
+        else if (lang === 'hinglish')
+          primeSpoken = 'Maine workspace me Python prime checker ready kar diya hai.';
         return {
           responseMode: 'TEXT',
           spoken: primeSpoken,
@@ -1966,8 +2032,10 @@ if __name__ == '__main__':
 
       if (lower.includes('binary search') || lower.includes('बाइनरी सर्च')) {
         let bsSpoken = "I've written the binary search implementation in C++.";
-        if (lang === 'hi') bsSpoken = "लीजिए, मैंने वर्कस्पेस में बाइनरी सर्च का C++ कोड लिख दिया है।";
-        else if (lang === 'hinglish') bsSpoken = "Maine workspace me binary search ka C++ implementation place kar diya hai.";
+        if (lang === 'hi')
+          bsSpoken = 'लीजिए, मैंने वर्कस्पेस में बाइनरी सर्च का C++ कोड लिख दिया है।';
+        else if (lang === 'hinglish')
+          bsSpoken = 'Maine workspace me binary search ka C++ implementation place kar diya hai.';
         return {
           responseMode: 'TEXT',
           spoken: bsSpoken,
@@ -2155,14 +2223,8 @@ executeTask();`,
       }
     } catch (_) {}
 
-    // 2. Fallback if backend is completely unavailable
-    return {
-      responseMode: 'TEXT',
-      spoken: 'I am sorry, but the backend is currently unavailable.',
-      text: '?? **Backend Unavailable**\n\nI am sorry, but the backend service is currently unavailable. Please check your connection or start the server.',
-      visualType: 'text',
-      title: 'Error'
-    };
+    // 2. Resilient intelligent fallback when backend is unavailable
+    return generateClientFallbackReply(cleanText, history);
   }
 
   // ---------- Sending Queries ----------
@@ -2174,7 +2236,10 @@ executeTask();`,
     }
 
     // Conversational Stop/Cancel handling: if user simply commanded Aurora to stop
-    const isStopCommand = /^(stop|cancel|quiet|be quiet|shut up|pause|silence|halt|nevermind|never mind)[.!]?$/i.test(cleanText);
+    const isStopCommand =
+      /^(stop|cancel|quiet|be quiet|shut up|pause|silence|halt|nevermind|never mind)[.!]?$/i.test(
+        cleanText
+      );
     if (isStopCommand) {
       bargeIn(false);
       captionAi.textContent = '“Stopped — listening to your command…”';
@@ -2588,7 +2653,7 @@ executeTask();`,
     let meta = { ...rawMeta };
 
     let cleanSpoken = text.replace(/```[\s\S]*?(?:```|$)/g, '').replace(/`[^`]+(?:`|$)/g, '');
-    cleanSpoken = cleanSpoken.replace(/[*_#\[\]>]/g, '').trim();
+    cleanSpoken = cleanSpoken.replace(/[*_#[\]>]/g, '').trim();
 
     if (!cleanSpoken) {
       if (meta.title) {
@@ -2606,8 +2671,8 @@ executeTask();`,
       meta: {
         visualType: 'text',
         responseMode: 'TEXT',
-        ...meta
-      }
+        ...meta,
+      },
     };
   }
 
@@ -3022,7 +3087,8 @@ executeTask();`,
 
   function recordTurnLocally(role, text, gen, meta = {}) {
     if (!currentSessionId) {
-      currentSessionId = 'sess_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 7);
+      currentSessionId =
+        'sess_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 7);
       try {
         localStorage.setItem('aurora-session-id', currentSessionId);
       } catch (_) {}
@@ -3037,18 +3103,21 @@ executeTask();`,
       role,
       user_text: isAsst ? null : text,
       assistant_text: isAsst ? text : null,
-      spoken_text: isAsst ? (meta.spoken || text) : null,
-      visual_type: isAsst ? (meta.visualType || 'text') : null,
+      spoken_text: isAsst ? meta.spoken || text : null,
+      visual_type: isAsst ? meta.visualType || 'text' : null,
       visual_title: isAsst ? meta.title : null,
-      visual_payload: isAsst && meta.visualType && meta.visualType !== 'text' ? {
-        type: meta.visualType,
-        language: meta.language,
-        title: meta.title,
-        content: text,
-      } : null,
-      response_mode: isAsst ? (meta.responseMode || 'VOICE') : null,
-      speaker: isAsst ? (meta.speaker || currentActiveSpeaker) : null,
-      model_id: isAsst ? (meta.model || currentActiveModel) : null,
+      visual_payload:
+        isAsst && meta.visualType && meta.visualType !== 'text'
+          ? {
+              type: meta.visualType,
+              language: meta.language,
+              title: meta.title,
+              content: text,
+            }
+          : null,
+      response_mode: isAsst ? meta.responseMode || 'VOICE' : null,
+      speaker: isAsst ? meta.speaker || currentActiveSpeaker : null,
+      model_id: isAsst ? meta.model || currentActiveModel : null,
       created_at: Date.now(),
     };
 
@@ -3057,7 +3126,7 @@ executeTask();`,
     saveLocalSessionTurns(currentSessionId, existingTurns);
 
     const firstUserTurn = existingTurns.find((t) => t.user_text || (t.role === 'user' && t.text));
-    let title = firstUserTurn ? (firstUserTurn.user_text || firstUserTurn.text) : 'Conversation';
+    let title = firstUserTurn ? firstUserTurn.user_text || firstUserTurn.text : 'Conversation';
     if (title.length > 50) title = title.substring(0, 48) + '…';
     const lastSnippet = text;
 
@@ -3098,7 +3167,12 @@ executeTask();`,
           ...existing,
           ...s,
           title: s.title || existing.title || `Chat ${s.id.slice(0, 8)}`,
-          turn_count: s.turn_count != null ? s.turn_count : (s.total_turns != null ? s.total_turns : (existing.turn_count || 0)),
+          turn_count:
+            s.turn_count != null
+              ? s.turn_count
+              : s.total_turns != null
+                ? s.total_turns
+                : existing.turn_count || 0,
           last_snippet: existing.last_snippet || s.summary || '',
           updated_at: s.updated_at || existing.updated_at || s.created_at || existing.created_at,
         });
@@ -3152,7 +3226,10 @@ executeTask();`,
 
     // Include sessions that have recorded turns or are the current active session
     const displaySessions = (sessions || []).filter(
-      (s) => (s.turn_count && s.turn_count > 0) || (s.total_turns && s.total_turns > 0) || s.id === currentSessionId
+      (s) =>
+        (s.turn_count && s.turn_count > 0) ||
+        (s.total_turns && s.total_turns > 0) ||
+        s.id === currentSessionId
     );
 
     if (sidebarRecentCount) {
@@ -3171,8 +3248,11 @@ executeTask();`,
       item.dataset.sessionId = s.id;
 
       const title = s.title || `Chat ${s.id.slice(0, 8)}`;
-      const turns = s.turn_count != null ? s.turn_count : (s.total_turns || 0);
-      const turnsBadge = turns > 0 ? `<span class="sidebar-chat-turns" style="font-size: 11px; color: var(--ink-muted, #94a3b8); margin-right: 6px; font-weight: 500;">${turns}</span>` : '';
+      const turns = s.turn_count != null ? s.turn_count : s.total_turns || 0;
+      const turnsBadge =
+        turns > 0
+          ? `<span class="sidebar-chat-turns" style="font-size: 11px; color: var(--ink-muted, #94a3b8); margin-right: 6px; font-weight: 500;">${turns}</span>`
+          : '';
 
       item.innerHTML = `
         <svg class="sidebar-chat-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -3272,7 +3352,9 @@ executeTask();`,
 
   function filterAndRenderConversationHistory() {
     if (!convHistoryGrid) return;
-    const query = (convSearchInput && convSearchInput.value ? String(convSearchInput.value) : '').trim().toLowerCase();
+    const query = (convSearchInput && convSearchInput.value ? String(convSearchInput.value) : '')
+      .trim()
+      .toLowerCase();
 
     // Filter sessions by search query (matching title or snippet)
     const filtered = (_allConversationSessions || []).filter((s) => {
@@ -3305,8 +3387,9 @@ executeTask();`,
       card.dataset.sessionId = s.id;
 
       const title = s.title || `Conversation ${s.id.slice(0, 8)}`;
-      const turns = s.turn_count != null ? s.turn_count : (s.total_turns || 0);
-      const snippet = s.last_snippet || s.summary || 'Click to reopen and continue this conversation…';
+      const turns = s.turn_count != null ? s.turn_count : s.total_turns || 0;
+      const snippet =
+        s.last_snippet || s.summary || 'Click to reopen and continue this conversation…';
 
       let dateStr = 'Recent';
       if (s.updated_at || s.created_at) {
@@ -3454,7 +3537,12 @@ executeTask();`,
           const uText = t.user_text || t.text;
           addMessageCard('user', uText, gen);
         }
-        if (t.assistant_text || t.spoken_text || t.visual_payload || (t.role === 'assistant' && t.text)) {
+        if (
+          t.assistant_text ||
+          t.spoken_text ||
+          t.visual_payload ||
+          (t.role === 'assistant' && t.text)
+        ) {
           const content = t.visual_payload?.content || t.assistant_text || t.spoken_text || t.text;
           const meta = {
             speaker: t.speaker || currentActiveSpeaker,
@@ -3608,15 +3696,19 @@ executeTask();`,
       // 5. Asynchronously register with backend in background without blocking UI
       (async () => {
         try {
-          await fetchWithTimeout(apiUrl('/api/sessions/new'), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              speaker: currentActiveSpeaker,
-              modelId: currentActiveModel,
-              sessionId: currentSessionId,
-            }),
-          }, 2500);
+          await fetchWithTimeout(
+            apiUrl('/api/sessions/new'),
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                speaker: currentActiveSpeaker,
+                modelId: currentActiveModel,
+                sessionId: currentSessionId,
+              }),
+            },
+            2500
+          );
         } catch (_) {}
         try {
           await fetchAndRenderSessions();
@@ -4369,7 +4461,9 @@ executeTask();`,
         if (storageStatusMsg) {
           storageStatusMsg.style.color = '#7ee3a8';
           storageStatusMsg.textContent = '✓ Started a fresh conversation.';
-          setTimeout(() => { storageStatusMsg.textContent = ''; }, 3000);
+          setTimeout(() => {
+            storageStatusMsg.textContent = '';
+          }, 3000);
         }
       }
     });
@@ -4377,7 +4471,11 @@ executeTask();`,
 
   if (btnClearAllData) {
     btnClearAllData.addEventListener('click', () => {
-      if (confirm('Are you sure you want to clear all local storage, API keys, and session cache from this browser?')) {
+      if (
+        confirm(
+          'Are you sure you want to clear all local storage, API keys, and session cache from this browser?'
+        )
+      ) {
         try {
           localStorage.clear();
         } catch (_) {}

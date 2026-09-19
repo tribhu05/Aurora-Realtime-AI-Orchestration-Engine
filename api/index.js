@@ -29,7 +29,10 @@ export default function handler(req, res) {
   if (
     typeof req.url === 'string' &&
     !req.url.includes('index.js') &&
-    (req.url.startsWith('/api/') || req.url === '/health' || req.url === '/config' || req.url === '/turn')
+    (req.url.startsWith('/api/') ||
+      req.url === '/health' ||
+      req.url === '/config' ||
+      req.url === '/turn')
   ) {
     // Already cleanly normalized
   } else {

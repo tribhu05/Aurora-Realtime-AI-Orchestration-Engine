@@ -56,7 +56,10 @@ export function sanitizeError(err) {
 // app cleanly falls back to offline demo mode instead of failing API calls.
 export function realKey(v) {
   if (!v || typeof v !== 'string') return '';
-  const trimmed = v.trim().replace(/^["']|["']$/g, '').trim();
+  const trimmed = v
+    .trim()
+    .replace(/^["']|["']$/g, '')
+    .trim();
   if (!trimmed) return '';
   return /^your_.*_here$/i.test(trimmed) ? '' : trimmed;
 }
@@ -81,6 +84,14 @@ export const DEFAULT_RIME_KEY = Buffer.from(
  * @returns {{ provider: string, apiKey: string, model: string }}
  */
 export function resolveLlmConfig(options = {}) {
+  if (options.mock) {
+    return {
+      provider: options.provider || 'gemini',
+      apiKey: '',
+      model: options.model || 'gemini-3.5-flash-lite',
+      mock: true,
+    };
+  }
   let provider = (
     options.llmProvider ||
     options.provider ||
@@ -146,7 +157,10 @@ export function resolveLlmConfig(options = {}) {
     defaultModelForProvider;
 
   // Auto-upgrade deprecated Gemini models
-  if (provider === 'gemini' && (rawModel === 'gemini-2.0-flash' || rawModel === 'gemini-1.5-flash')) {
+  if (
+    provider === 'gemini' &&
+    (rawModel === 'gemini-2.0-flash' || rawModel === 'gemini-1.5-flash')
+  ) {
     rawModel = 'gemini-3.5-flash-lite';
   }
   const model = rawModel;
@@ -184,18 +198,21 @@ export function createAuroraServer(options = {}) {
   const db = options.db || getDb(options.dbPath || (mock ? ':memory:' : undefined));
 
   const rimeConfig = {
-    apiKey: mock ? '' : (options.rimeApiKey ?? (realKey(process.env.RIME_API_KEY) || DEFAULT_RIME_KEY)),
+    apiKey: mock
+      ? ''
+      : (options.rimeApiKey ?? (realKey(process.env.RIME_API_KEY) || DEFAULT_RIME_KEY)),
     modelId: options.rimeModelId || process.env.RIME_MODEL_ID || 'mistv3',
     speaker: options.rimeSpeaker || process.env.RIME_SPEAKER || 'astra',
     audioFormat: options.rimeAudioFormat || process.env.RIME_AUDIO_FORMAT || 'mp3',
     mockAudio: options.mockAudio ?? mock,
   };
 
-  const initialLlm = resolveLlmConfig(options);
+  const initialLlm = resolveLlmConfig({ ...options, mock });
   const llmConfig = {
     provider: initialLlm.provider,
     apiKey: mock ? '' : initialLlm.apiKey,
     model: initialLlm.model,
+    mock,
   };
 
   const app = express();
@@ -206,7 +223,10 @@ export function createAuroraServer(options = {}) {
     if (
       typeof req.url === 'string' &&
       !req.url.includes('index.js') &&
-      (req.url.startsWith('/api/') || req.url === '/health' || req.url === '/config' || req.url === '/turn')
+      (req.url.startsWith('/api/') ||
+        req.url === '/health' ||
+        req.url === '/config' ||
+        req.url === '/turn')
     ) {
       return next();
     }
@@ -524,7 +544,11 @@ export function createAuroraServer(options = {}) {
           const currentLlm = resolveLlmConfig({
             provider: req.headers['x-llm-provider'] || req.body?.llmProvider || llmConfig.provider,
             model: req.headers['x-llm-model'] || req.body?.llmModel || llmConfig.model,
-            apiKey: req.headers['x-llm-api-key'] || req.headers['x-gemini-api-key'] || req.body?.llmApiKey || llmConfig.apiKey,
+            apiKey:
+              req.headers['x-llm-api-key'] ||
+              req.headers['x-gemini-api-key'] ||
+              req.body?.llmApiKey ||
+              llmConfig.apiKey,
           });
           console.log(`[TURN] LLM request started: ${currentLlm.provider} (${currentLlm.model})`);
           replyObj = await Promise.race([
@@ -567,12 +591,15 @@ export function createAuroraServer(options = {}) {
       let cleanSpoken = (replyObj.spokenResponse || replyObj.spoken || replyObj.content || '')
         .replace(/```[\s\S]*?(?:```|$)/g, '')
         .replace(/`[^`]+(?:`|$)/g, '')
-        .replace(/[*_#\[\]>]/g, '')
+        .replace(/[*_#[\]>]/g, '')
         .trim();
       if (!cleanSpoken) {
-        cleanSpoken = visualPayload.type === 'code' || (replyObj.content && replyObj.content.includes('```'))
-          ? "I've written the code in the chat for you."
-          : (replyObj.content ? replyObj.content.slice(0, 150) : "Here is the response.");
+        cleanSpoken =
+          visualPayload.type === 'code' || (replyObj.content && replyObj.content.includes('```'))
+            ? "I've written the code in the chat for you."
+            : replyObj.content
+              ? replyObj.content.slice(0, 150)
+              : 'Here is the response.';
       }
       const spokenText = cleanSpoken;
 
@@ -759,6 +786,11 @@ export function createAuroraServer(options = {}) {
   });
 
   const httpServer = createServer(app);
+  const openSockets = new Set();
+  httpServer.on('connection', (socket) => {
+    openSockets.add(socket);
+    socket.once('close', () => openSockets.delete(socket));
+  });
   const wss = new WebSocketServer({ server: httpServer });
 
   wss.on('connection', (ws, req) => {
@@ -1054,7 +1086,19 @@ export function createAuroraServer(options = {}) {
             client.terminate();
           } catch (_) {}
         }
+        for (const socket of openSockets) {
+          try {
+            socket.destroy();
+          } catch (_) {}
+        }
+        openSockets.clear();
         wss.close(() => {
+          if (typeof httpServer.closeAllConnections === 'function') {
+            httpServer.closeAllConnections();
+          }
+          if (typeof httpServer.closeIdleConnections === 'function') {
+            httpServer.closeIdleConnections();
+          }
           httpServer.close((err) => (err ? reject(err) : resolve()));
         });
       });
@@ -1229,6 +1273,13 @@ async function handleTurn({
   state.ttsChain = Promise.resolve();
   let hasSentAiTextStart = false;
   send(ws, { type: 'thinking', generation: myGen, timestamp: Date.now() });
+  const delayMs = getDelayMs ? getDelayMs() : 0;
+  if (delayMs > 0) {
+    try {
+      await sleep(delayMs, controller.signal);
+    } catch (_) {}
+  }
+  if (isStale(state, myGen)) return;
   const t0 = Date.now();
   let replyObj;
   let degraded = false;
@@ -1242,11 +1293,12 @@ async function handleTurn({
         provider: llmConfig.provider,
         model: llmConfig.model,
         apiKey: llmConfig.apiKey,
+        mock: llmConfig.mock,
       });
       console.log(`[TURN] LLM request started: ${currentLlm.provider} (${currentLlm.model})`);
       const llmPromise = getAssistantReply({
         provider: currentLlm.provider,
-        apiKey: mock ? '' : currentLlm.apiKey,
+        apiKey: currentLlm.apiKey,
         model: currentLlm.model,
         messages: state.history.slice(-10),
         signal: controller.signal,
@@ -1258,10 +1310,15 @@ async function handleTurn({
             send(ws, { type: 'ai_text_start', generation: myGen, timestamp: Date.now() });
           }
 
-          send(ws, { type: 'ai_text_chunk', text: fullText, generation: myGen, visualType: 'text' });
+          send(ws, {
+            type: 'ai_text_chunk',
+            text: fullText,
+            generation: myGen,
+            visualType: 'text',
+          });
 
           const clean = fullText.replace(/```[\s\S]*?(?:```|$)/g, '').replace(/`[^`]+(?:`|$)/g, '');
-          
+
           while (true) {
             const remaining = clean.slice(state.ttsProcessedIndex);
             if (!remaining) break;
@@ -1272,7 +1329,7 @@ async function handleTurn({
             if (state.ttsSentCount === 0) {
               // Sub-second TTFA optimization: break early on clause boundary (,;:—\n) if >= 4 words,
               // or on first complete sentence
-              const clauseMatch = /[,;:\—\n]+(?:\s+|$)/.exec(remaining);
+              const clauseMatch = /[,;:—\n]+(?:\s+|$)/.exec(remaining);
               const sentMatch = /[.!?\n]+(?:\s+|$)/.exec(remaining);
 
               if (sentMatch && (!clauseMatch || sentMatch.index <= clauseMatch.index)) {
@@ -1301,9 +1358,9 @@ async function handleTurn({
             if (!match) break;
 
             const chunk = remaining.substring(0, match.index + matchLength).trim();
-            state.ttsProcessedIndex += (match.index + matchLength);
+            state.ttsProcessedIndex += match.index + matchLength;
 
-            const textToSpeak = chunk.replace(/[*_#\[\]>]/g, '').trim();
+            const textToSpeak = chunk.replace(/[*_#[\]>]/g, '').trim();
             if (textToSpeak.length > 1) {
               state.ttsSentCount++;
               const audioTurnStart = turnStartTime;
@@ -1319,13 +1376,16 @@ async function handleTurn({
                 try {
                   const buffer = await synthPromise;
                   if (buffer && !isStale(state, myGen)) {
+                    const base64Audio = buffer.toString('base64');
                     send(ws, {
                       type: 'audio',
                       generation: myGen,
                       speaker: activeSpeaker,
                       modelId: activeModel,
                       format: rimeConfig.audioFormat,
-                      chunk: buffer.toString('base64'),
+                      chunk: base64Audio,
+                      data: base64Audio,
+                      audio: base64Audio,
                       totalMs: Date.now() - audioTurnStart,
                     });
                   }
@@ -1421,14 +1481,8 @@ async function handleTurn({
     timestamp: Date.now(),
   });
 
-  const delayMs = getDelayMs ? getDelayMs() : 0;
-  if (delayMs > 0) {
-    await sleep(delayMs, controller.signal);
-  }
-  if (isStale(state, myGen)) return; 
-
   const totalMs = Date.now() - turnStartTime;
-  
+
   // Cost calculation
   const costBreakdown = calculateTurnCost({
     promptTokens: replyObj.promptTokens || 0,
@@ -1462,8 +1516,10 @@ async function handleTurn({
   });
 
   // Ensure verbal response is spoken if no audio chunks were sent during stream
-  let cleanSpoken = replyObj.content.replace(/```[\s\S]*?(?:```|$)/g, '').replace(/`[^`]+(?:`|$)/g, '');
-  cleanSpoken = cleanSpoken.replace(/[*_#\[\]>]/g, '').trim();
+  let cleanSpoken = replyObj.content
+    .replace(/```[\s\S]*?(?:```|$)/g, '')
+    .replace(/`[^`]+(?:`|$)/g, '');
+  cleanSpoken = cleanSpoken.replace(/[*_#[\]>]/g, '').trim();
   if (!cleanSpoken) {
     if (replyObj.content.includes('```')) {
       cleanSpoken = "I've written the implementation in the chat for you.";
@@ -1473,7 +1529,7 @@ async function handleTurn({
   }
 
   if (state.ttsSentCount === 0) {
-    if (rimeConfig.apiKey && cleanSpoken) {
+    if ((rimeConfig.apiKey || rimeConfig.mockAudio) && cleanSpoken) {
       state.ttsChain = state.ttsChain.then(async () => {
         if (isStale(state, myGen)) return null;
         try {
@@ -1483,13 +1539,16 @@ async function handleTurn({
             controller.signal
           );
           if (buf && !isStale(state, myGen)) {
+            const base64Audio = buf.toString('base64');
             send(ws, {
               type: 'audio',
               generation: myGen,
               speaker: activeSpeaker,
               modelId: activeModel,
               format: rimeConfig.audioFormat,
-              chunk: buf.toString('base64'),
+              chunk: base64Audio,
+              data: base64Audio,
+              audio: base64Audio,
               totalMs: Date.now() - turnStartTime,
             });
             return;
@@ -1516,8 +1575,13 @@ async function handleTurn({
     }
   } else {
     // If some chunks were already spoken, check for any unvoiced tail in clean
-    const cleanFull = replyObj.content.replace(/```[\s\S]*?(?:```|$)/g, '').replace(/`[^`]+(?:`|$)/g, '');
-    const tail = cleanFull.slice(state.ttsProcessedIndex).replace(/[*_#\[\]>]/g, '').trim();
+    const cleanFull = replyObj.content
+      .replace(/```[\s\S]*?(?:```|$)/g, '')
+      .replace(/`[^`]+(?:`|$)/g, '');
+    const tail = cleanFull
+      .slice(state.ttsProcessedIndex)
+      .replace(/[*_#[\]>]/g, '')
+      .trim();
     if (tail.length > 1) {
       const audioTurnStart = turnStartTime;
       const tailSynthPromise = synthesizeSpeech(
@@ -1530,13 +1594,16 @@ async function handleTurn({
         try {
           const buf = await tailSynthPromise;
           if (buf && !isStale(state, myGen)) {
+            const base64Audio = buf.toString('base64');
             send(ws, {
               type: 'audio',
               generation: myGen,
               speaker: activeSpeaker,
               modelId: activeModel,
               format: rimeConfig.audioFormat,
-              chunk: buf.toString('base64'),
+              chunk: base64Audio,
+              data: base64Audio,
+              audio: base64Audio,
               totalMs: Date.now() - audioTurnStart,
             });
             return;
