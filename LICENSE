@@ -1,21 +1,153 @@
-﻿MIT License
+Aurora Source-Available License
+Version 1.0 (2026)
 
-Copyright (c) 2026 Rime Hackathon Team
+Copyright (c) 2026 Tanuj. All rights reserved.
+Original Project: Aurora — Interruptible Voice AI Assistant
+Original Repository: https://github.com/tribhu05/Aurora-Realtime-AI-Orchestration-Engine
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+================================================================================
+PREAMBLE
+================================================================================
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+This license is a custom, source-available license created by Tanuj for the
+Aurora project. It is crafted to encourage open learning, inspection,
+experimentation, and community contribution while safeguarding the original
+creator's attribution, moral rights, and brand identity.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+Please review these terms carefully before using, copying, modifying, or
+redistributing the Software.
+
+================================================================================
+TERMS AND CONDITIONS
+================================================================================
+
+1. DEFINITIONS
+
+   - "Author" or "Original Creator" refers to Tanuj, the individual creator and
+     copyright holder of the Aurora project.
+   - "Software" refers to the computer software, source code, documentation,
+     scripts, configuration files, and related assets comprising the Aurora
+     Interruptible Voice AI Assistant as released by the Author.
+   - "Modification" or "Derivative Work" refers to any work based upon, derived
+     from, or incorporating substantial portions of the Software, including
+     translations, adaptations, feature enhancements, or architectural rewrites.
+   - "Independent Contribution" refers to original code, documentation, or assets
+     authored by third parties that do not incorporate or copy substantial
+     expressive elements of the Software.
+   - "Commercial Use" refers to any use, reproduction, distribution, or hosted
+     deployment of the Software or its Derivative Works for monetary gain,
+     direct commercial advantage, paid software-as-a-service (SaaS), paid API
+     access, enterprise deployment, or incorporation into closed-source commercial
+     products.
+
+2. PERMITTED USES & GRANT OF LICENSE
+
+   Subject to the conditions and restrictions set forth in this License, the Author
+   hereby grants you a worldwide, non-exclusive, royalty-free copyright license to:
+
+   a. View and Study: You may freely view, inspect, audit, and study the source
+      code and architecture of the Software.
+   b. Personal and Educational Use: You may run, execute, test, and demonstrate
+      the Software for non-commercial personal, academic, classroom, research,
+      and hobbyist purposes.
+   c. Modification: You may modify, adapt, extend, and create Derivative Works of
+      the Software for personal, educational, and non-commercial research use,
+      provided you comply with the attribution and modification requirements in
+      Section 3.
+
+3. ATTRIBUTION & MODIFICATION REQUIREMENTS
+
+   Any distribution, public hosting, public repository fork, or demonstration of
+   the Software or any Derivative Work must strictly adhere to the following:
+
+   a. Copyright Retention: The original copyright notice:
+        "Copyright (c) 2026 Tanuj. Original Project: Aurora — Interruptible Voice AI Assistant"
+      must be retained intact in the LICENSE file, in all source file headers where
+      present, and in prominent documentation (such as README.md).
+   b. Original Creator Credit: You must clearly and conspicuously acknowledge Tanuj
+      as the original creator of Aurora. You must not remove, obscure, or alter any
+      acknowledgments or authorship metadata.
+   c. Repository Link: When redistributing or publishing substantial portions of
+      the Software or Derivative Works, you must provide a conspicuous and functional
+      hyperlink to the original repository:
+        https://github.com/tribhu05/Aurora-Realtime-AI-Orchestration-Engine
+   d. Mandatory Derivative Notice: If you modify the Software, you must include a
+      prominent notice in documentation and in modified source files stating:
+        "Based on Aurora, originally created by Tanuj.
+         This version has been modified by [Name/Organization]."
+   e. Identification of Changes: Modified versions must document substantial
+      changes, additions, or deletions made relative to the original Software
+      (for example, via a CHANGELOG.md file, commit history, or inline comments).
+   f. Separation of Credit: This License distinguishes between:
+      (i)   The underlying Aurora codebase (authored by Tanuj);
+      (ii)  Derivative modifications (jointly subject to this License); and
+      (iii) Independent Contributions authored by third parties.
+      Developers of modified versions are entitled to accurately claim authorial
+      credit for their own original contributions, provided they do not claim
+      authorship of the underlying Aurora foundation.
+   g. Prohibition on False Claims: You shall not falsely claim, imply, or suggest
+      that you or any entity other than Tanuj is the original creator or primary
+      architect of Aurora.
+
+4. COMMERCIAL USE RESTRICTIONS
+
+   a. Non-Commercial Baseline: Except as expressly permitted in Section 2,
+      Commercial Use of the Software, in whole or in substantial part, is NOT
+      permitted under this License.
+   b. Licensing Inquiries: If you wish to use, integrate, distribute, or host the
+      Software or its Derivative Works for commercial purposes (including
+      commercial SaaS, enterprise licenses, or paid customer-facing products),
+      you must obtain separate prior written permission or an enterprise commercial
+      license agreement directly from Tanuj.
+   c. Independent Implementations: Re-implementing public algorithmic ideas,
+      unpatented general concepts (such as generic Web Audio mute or LLM tool
+      calling), without copying the Software's expressive code or architecture,
+      does not constitute a Derivative Work under copyright law.
+
+5. BRANDING, TRADEMARKS & IDENTITY
+
+   a. No Trademark Grant: This License does not grant any right, title, license,
+      or permission to use the "Aurora" name, logo, audio badges, visual avatars,
+      or distinctive trade dress for trade, advertising, or promotional purposes.
+   b. Forks and Derivative Names: Public forks and modified projects must use a
+      substantively distinct name that prevents consumer confusion. See
+      BRANDING.md for comprehensive naming and identity rules.
+   c. No Implied Endorsement: Neither the name "Aurora" nor the name of Tanuj may
+      be used to endorse, sponsor, or promote any derivative project or commercial
+      offering without specific prior written consent.
+
+6. RETENTION OF OWNERSHIP
+
+   The Author retains all right, title, copyright, and intellectual property
+   rights in and to the original Software. No title, ownership, or transfer of
+   copyright is conveyed under this License.
+
+7. TERMINATION
+
+   Any violation of the terms, conditions, attribution requirements, or commercial
+   restrictions set forth in this License shall automatically and immediately
+   terminate your rights hereunder. Upon termination, you must cease all use,
+   reproduction, distribution, and display of the Software and all copies thereof.
+
+8. DISCLAIMER OF WARRANTIES
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT. IN NO EVENT SHALL THE
+   AUTHOR OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER
+   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM,
+   OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+   THE SOFTWARE.
+
+9. LEGAL LIMITATIONS & REVIEW NOTICE
+
+   - Legal Nature: This custom source-available license represents a hybrid of
+     copyright permission grants and contractual covenants under applicable law.
+   - Enforcement Scope: A custom license provides legal terms for authorized use
+     and conditions of redistribution; however, it does not guarantee automatic
+     technical prevention against bad-faith infringement, digital piracy, or
+     cross-jurisdictional misrepresentation.
+   - Advisory: This document is provided for governance of the Aurora repository.
+     Entities intending to license or commercialize derivative technologies are
+     advised to seek qualified legal counsel regarding contract enforcement and
+     intellectual property rights in their respective jurisdictions.

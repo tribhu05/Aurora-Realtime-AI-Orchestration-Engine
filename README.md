@@ -2,7 +2,8 @@
 
 <div align="center">
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License: Source-Available](https://img.shields.io/badge/License-Source--Available-amber.svg)](LICENSE)
+[![Creator: Tanuj](https://img.shields.io/badge/Creator-Tanuj-blue.svg)](https://github.com/tribhu05/Aurora-Realtime-AI-Orchestration-Engine)
 [![Node: v18+](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg)](https://nodejs.org)
 [![TTS: Rime.ai](https://img.shields.io/badge/TTS-Rime.ai-blueviolet.svg)](https://rime.ai)
 [![LLM: Gemini / Groq](https://img.shields.io/badge/LLM-Gemini%20%7C%20Groq-orange.svg)](https://deepmind.google/technologies/gemini/)
@@ -11,7 +12,9 @@
 
 **A calm, full-duplex conversational voice-first AI workspace featuring sub-2ms hardware barge-in, dual-channel output, streaming project scaffolding, and a refined developer aesthetic inspired by Linear and Raycast.**
 
-[Quick Start](#-quick-start) • [Architecture](#-dual-channel-architecture) • [Features](#-key-features) • [Testing](#-verification--testing) • [Deployment](#-deployment)
+**Original Creator:** Tanuj (2026) • [GitHub Repository](https://github.com/tribhu05/Aurora-Realtime-AI-Orchestration-Engine)
+
+[Quick Start](#-quick-start) • [Architecture](#-dual-channel-architecture) • [Features](#-key-features) • [Testing](#-verification--testing) • [License & Branding](#-license--attribution)
 
 </div>
 
@@ -277,6 +280,43 @@ All client-server communication occurs over a single full-duplex WebSocket conne
 
 ---
 
-## 📄 License
+## 📄 License & Attribution
 
-This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
+### Original Creator
+**Aurora — Interruptible Voice AI Assistant** was created in 2026 by **Tanuj**.  
+Official Repository: [https://github.com/tribhu05/Aurora-Realtime-AI-Orchestration-Engine](https://github.com/tribhu05/Aurora-Realtime-AI-Orchestration-Engine)
+
+Copyright (c) 2026 Tanuj. All rights reserved.
+
+---
+
+### License Summary
+This project is licensed under the custom **Aurora Source-Available License (Version 1.0)** — see the full [LICENSE](LICENSE) file for exact legal terms.
+
+#### ✅ What You May Do
+- **View & Study**: You are free to inspect, audit, and study the complete source code and system architecture.
+- **Personal & Educational Use**: You may run, test, and adapt Aurora locally for non-commercial personal, educational, research, and classroom purposes without fee.
+- **Modify & Experiment**: You may create derivative works and modifications for personal or non-commercial research use.
+
+#### ⚠️ Requirements When Sharing or Forking
+If you redistribute, publish, or publicly host substantial portions of Aurora or its derivatives:
+1. **Preserve Copyright**: You must retain the original copyright notice:  
+   `Copyright (c) 2026 Tanuj. Original Project: Aurora — Interruptible Voice AI Assistant`
+2. **Original Repository Link**: You must provide a clear, conspicuous hyperlink to the original repository:  
+   [https://github.com/tribhu05/Aurora-Realtime-AI-Orchestration-Engine](https://github.com/tribhu05/Aurora-Realtime-AI-Orchestration-Engine)
+3. **Modified Version Notice**: If you modify the codebase, you must prominently include this notice in your project documentation:
+   > *"Based on Aurora, originally created by Tanuj. This version has been modified by [Name/Organization]."*
+4. **Disclose Changes**: You must clearly state substantial modifications made to the original codebase.
+5. **Honor Authorship**: You are entitled to claim credit for your own original modifications, but you may not falsely claim or imply that you are the original creator of Aurora.
+
+#### 🚫 Commercial Use Restrictions
+- Commercial use, paid hosted SaaS deployments, commercial sublicensing, or integration into proprietary revenue-generating products is **not permitted** under the standard license.
+- For commercial licensing or enterprise inquiries, please contact **Tanuj** via the official repository.
+
+---
+
+### 🎨 Branding & Naming
+- The name **"Aurora"**, official logos, and visual trade dress are protected separately from the source code.
+- Software rights granted in the license do **not** grant trademark or branding rights.
+- Forks and derivative projects must choose distinct names (e.g. `[YourProject] (powered by Aurora voice core)`) to prevent consumer confusion and avoid implying official endorsement.
+- Detailed naming and visual guidelines are provided in [BRANDING.md](BRANDING.md).
