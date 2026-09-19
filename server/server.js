@@ -26,7 +26,7 @@ import { getAssistantReply, localFallbackReply } from './llm.js';
 import { synthesizeSpeech, RIME_SPEAKERS, RIME_MODELS } from './rime.js';
 import { isTaskRequest, executeScaffoldTask } from './tasks.js';
 import { getDb } from './db.js';
-import { detectLanguage } from './response-router.js';
+import { analyzeLanguage } from './response-router.js';
 import {
   calculateTurnCost,
   checkSessionBudget,
@@ -670,14 +670,15 @@ export function createAuroraServer(options = {}) {
 
       const t1 = Date.now();
       let audioBase64 = null;
-      const requestLang = detectLanguage(userText, conversationHistory);
+      const langAnalysis = analyzeLanguage(userText, conversationHistory);
+      const requestLang = langAnalysis.responseLanguage;
       try {
         const buf = await synthesizeSpeech(spokenText, {
           ...rimeConfig,
           apiKey: requestRimeApiKey,
           speaker: activeSpeaker,
           modelId: activeModel,
-          lang: requestLang === 'hi' ? 'hi' : 'en',
+          lang: requestLang === 'hi' || requestLang === 'hinglish' ? 'hi' : 'en',
         });
         if (buf) {
           audioBase64 = buf.toString('base64');
@@ -723,7 +724,10 @@ export function createAuroraServer(options = {}) {
         ok: true,
         sessionId,
         responseMode: replyObj.responseMode || 'VOICE',
-        detectedLanguage: replyObj.detectedLanguage || requestLang,
+        detectedLanguage: replyObj.detectedLanguage || langAnalysis.detectedLanguage,
+        detectedScript: replyObj.detectedScript || langAnalysis.detectedScript,
+        responseLanguage: replyObj.responseLanguage || langAnalysis.responseLanguage,
+        confidence: replyObj.confidence ?? langAnalysis.confidence,
         spokenResponse: spokenText,
         visualResponse: visualPayload,
         audio: audioBase64,
@@ -877,6 +881,47 @@ export function createAuroraServer(options = {}) {
       speaker: session.speaker || rimeConfig.speaker,
       modelId: session.model_id || rimeConfig.modelId,
       history: db.getSessionMessagesForContext(sessionId, 20),
+      languagePreference: {
+        detectedLanguage: 'en',
+        detectedScript: 'Latin',
+        responseLanguage: 'en',
+        confidence: 1.0,
+      },
+      currentTurn: null,
+      echoGuard: {
+        recentPhrases: [],
+        record(text) {
+          if (!text || typeof text !== 'string') return;
+          const clean = text
+            .toLowerCase()
+            .replace(/[-*_#`[\]>!?,.:;()]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+          if (clean.length < 4) return;
+          this.recentPhrases.push({ raw: clean, time: Date.now() });
+          const cutoff = Date.now() - 15000;
+          this.recentPhrases = this.recentPhrases.filter((p) => p.time >= cutoff).slice(-30);
+        },
+        isEcho(text) {
+          if (!text || typeof text !== 'string') return false;
+          const clean = text
+            .toLowerCase()
+            .replace(/[-*_#`[\]>!?,.:;()]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+          if (clean.length < 4) return false;
+          const cutoff = Date.now() - 15000;
+          this.recentPhrases = this.recentPhrases.filter((p) => p.time >= cutoff);
+          const words = clean.split(' ').filter((w) => w.length > 1);
+          for (const p of this.recentPhrases) {
+            if (clean.length >= 8 && p.raw.includes(clean)) return true;
+            if (p.raw.length >= 8 && clean.includes(p.raw)) return true;
+            if (clean === p.raw) return true;
+            if (words.length >= 2 && p.raw.includes(words.join(' '))) return true;
+          }
+          return false;
+        },
+      },
     };
 
     send(ws, {
@@ -991,6 +1036,20 @@ export function createAuroraServer(options = {}) {
           state.activeController.abort();
           state.activeController = null;
         }
+        if (state.history.length > 0) {
+          const lastMsg = state.history[state.history.length - 1];
+          if (lastMsg && lastMsg.role === 'user') {
+            const partialText = state.currentTurn?.partialText || '';
+            state.history.push({
+              role: 'assistant',
+              content: partialText
+                ? `${partialText.slice(0, 120)} [Interrupted]`
+                : '[Turn cancelled by user interruption]',
+            });
+          }
+        }
+        state.currentTurn = null;
+
         state.generation += 1;
         state.ttsChain = Promise.resolve();
         state.ttsSentCount = 0;
@@ -1043,6 +1102,10 @@ export function createAuroraServer(options = {}) {
           return;
         }
         const userText = msg.text.trim().slice(0, 4096);
+        if (state.echoGuard && state.echoGuard.isEcho(userText)) {
+          console.warn(`[ECHO GUARD] Server dropped echoed assistant speech: "${userText}"`);
+          return;
+        }
         const mode =
           typeof msg.mode === 'string' &&
           ['VOICE', 'TEXT', 'HYBRID'].includes(msg.mode.toUpperCase())
@@ -1062,6 +1125,19 @@ export function createAuroraServer(options = {}) {
         if (state.activeController) {
           state.activeController.abort();
           state.activeController = null;
+          if (state.history.length > 0) {
+            const lastMsg = state.history[state.history.length - 1];
+            if (lastMsg && lastMsg.role === 'user') {
+              const partialText = state.currentTurn?.partialText || '';
+              state.history.push({
+                role: 'assistant',
+                content: partialText
+                  ? `${partialText.slice(0, 120)} [Interrupted]`
+                  : '[Turn cancelled by user interruption]',
+              });
+            }
+          }
+          state.currentTurn = null;
         }
         state.generation += 1;
         const myGen = state.generation;
@@ -1392,8 +1468,7 @@ async function handleTurn({
     return;
   }
 
-  // 2. Standard dual-channel LLM turn with Intelligent Response Routing
-  state.ttsSentCount = 0;
+  // 2. Standard turn processing
   state.ttsProcessedIndex = 0;
   state.ttsChain = Promise.resolve();
   let hasSentAiTextStart = false;
@@ -1405,7 +1480,12 @@ async function handleTurn({
     } catch (_) {}
   }
   if (isStale(state, myGen)) return;
-  const turnLang = detectLanguage(userText, state.history);
+  const turnLangAnalysis = analyzeLanguage(userText, {
+    previousLang: state.languagePreference?.responseLanguage,
+    messages: state.history,
+  });
+  state.languagePreference = turnLangAnalysis;
+  const turnLang = turnLangAnalysis.responseLanguage;
   const t0 = Date.now();
   let replyObj;
   let degraded = false;
@@ -1432,6 +1512,9 @@ async function handleTurn({
         researchContext,
         onChunk: (fullText) => {
           if (isStale(state, myGen)) return;
+          if (state.currentTurn && state.currentTurn.generation === myGen) {
+            state.currentTurn.partialText = fullText;
+          }
           if (!hasSentAiTextStart) {
             hasSentAiTextStart = true;
             send(ws, { type: 'ai_text_start', generation: myGen, timestamp: Date.now() });
@@ -1498,7 +1581,7 @@ async function handleTurn({
                   ...rimeConfig,
                   speaker: activeSpeaker,
                   modelId: activeModel,
-                  lang: turnLang === 'hi' ? 'hi' : 'en',
+                  lang: turnLang === 'hi' || turnLang === 'hinglish' ? 'hi' : 'en',
                 },
                 controller.signal
               );
@@ -1518,6 +1601,13 @@ async function handleTurn({
                       chunk: base64Audio,
                       data: base64Audio,
                       audio: base64Audio,
+                      totalMs: Date.now() - audioTurnStart,
+                    });
+                  } else if (!buffer && !isStale(state, myGen)) {
+                    send(ws, {
+                      type: 'speak_local',
+                      text: textToSpeak,
+                      generation: myGen,
                       totalMs: Date.now() - audioTurnStart,
                     });
                   }
@@ -1587,6 +1677,9 @@ async function handleTurn({
   console.log(`[TURN] LLM response received in ${llmMs}ms`);
   console.log(`[TURN] response normalized: mode=${replyObj.responseMode || 'VOICE'}`);
   state.history.push({ role: 'assistant', content: replyObj.content });
+  if (state.echoGuard) {
+    state.echoGuard.record(replyObj.spokenResponse || replyObj.content);
+  }
   if (state.history.length > 20) {
     state.history = state.history.slice(-20);
   }
@@ -1604,7 +1697,10 @@ async function handleTurn({
     visual: visualPayload,
     visualType: visualPayload.type || replyObj.visualType || replyObj.type || 'text',
     language: visualPayload.language || replyObj.language || null,
-    detectedLanguage: replyObj.detectedLanguage || turnLang,
+    detectedLanguage: replyObj.detectedLanguage || turnLangAnalysis.detectedLanguage,
+    detectedScript: replyObj.detectedScript || turnLangAnalysis.detectedScript,
+    responseLanguage: replyObj.responseLanguage || turnLangAnalysis.responseLanguage,
+    confidence: replyObj.confidence ?? turnLangAnalysis.confidence,
     title: visualPayload.title || replyObj.title || null,
     responseMode: replyObj.responseMode || 'VOICE',
     spokenResponse: replyObj.spokenResponse || replyObj.spoken || '',

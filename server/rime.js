@@ -7,11 +7,52 @@ const RIME_ENDPOINT = 'https://users.rime.ai/v1/rime-tts';
 
 export const RIME_SPEAKERS = [
   {
+    id: 'taru',
+    name: 'Taru (Hindi & Hinglish)',
+    style: 'Native Hindi male, natural Indian cadence & bilingual code-switching',
+    gender: 'Male',
+    models: ['coda'],
+    nativeLang: 'hi',
+  },
+  {
+    id: 'nadi',
+    name: 'Nadi (Hindi & Hinglish)',
+    style: 'Native Hindi female, balanced, expressive & natural prosody',
+    gender: 'Female',
+    models: ['coda'],
+    nativeLang: 'hi',
+  },
+  {
+    id: 'hawa',
+    name: 'Hawa (Indian English)',
+    style: 'Indian English, comfortable with code-switching & technical terms',
+    gender: 'Female',
+    models: ['coda'],
+    nativeLang: 'en',
+  },
+  {
+    id: 'hawk',
+    name: 'Hawk (Indian English)',
+    style: 'Friendly Indian male voice, warm, approachable (<400ms)',
+    gender: 'Male',
+    models: ['mistv3'],
+    nativeLang: 'en',
+  },
+  {
+    id: 'ironwood',
+    name: 'Ironwood (Indian English)',
+    style: 'Professional Indian male voice, polished and steady',
+    gender: 'Male',
+    models: ['mistv3'],
+    nativeLang: 'en',
+  },
+  {
     id: 'astra',
     name: 'Astra',
     style: 'Crisp, articulate, fast (Sub-100ms)',
     gender: 'Female',
     models: ['mistv3', 'coda'],
+    nativeLang: 'en',
   },
   {
     id: 'luna',
@@ -19,6 +60,7 @@ export const RIME_SPEAKERS = [
     style: 'Warm, natural, conversational',
     gender: 'Female',
     models: ['mistv3', 'coda'],
+    nativeLang: 'en',
   },
   {
     id: 'celeste',
@@ -26,6 +68,7 @@ export const RIME_SPEAKERS = [
     style: 'Expressive, friendly, melodic',
     gender: 'Female',
     models: ['coda'],
+    nativeLang: 'en',
   },
   {
     id: 'cove',
@@ -33,6 +76,7 @@ export const RIME_SPEAKERS = [
     style: 'Youthful, calm, smooth conversational',
     gender: 'Female',
     models: ['mistv3'],
+    nativeLang: 'en',
   },
   {
     id: 'blaze',
@@ -40,6 +84,7 @@ export const RIME_SPEAKERS = [
     style: 'Energetic, dynamic, engaging',
     gender: 'Male',
     models: ['mistv3'],
+    nativeLang: 'en',
   },
   {
     id: 'breeze',
@@ -47,6 +92,7 @@ export const RIME_SPEAKERS = [
     style: 'Calm, clear, natural pace',
     gender: 'Male',
     models: ['mistv3'],
+    nativeLang: 'en',
   },
 ];
 
@@ -61,7 +107,7 @@ export const RIME_MODELS = [
     id: 'coda',
     name: 'Coda',
     latency: '~ 250ms',
-    description: 'Expressive and highly nuanced prosody',
+    description: 'Expressive and highly nuanced prosody, supports Hindi & multilingual',
   },
 ];
 
@@ -90,10 +136,19 @@ export async function synthesizeSpeech(text, config, signal) {
     mockAudio = false,
   } = config || {};
 
-  // If text contains Devanagari characters (Hindi), Rime TTS (English acoustic model)
-  // cannot synthesize it. Returning null allows the client to smoothly synthesize
-  // using the browser's native Hindi voice (hi-IN).
-  if (typeof text === 'string' && /[\u0900-\u097F]/.test(text)) {
+  // Model adaptation: Coda models vs Mist v3 models
+  let effectiveModel = modelId;
+  if (['celeste', 'taru', 'nadi', 'hawa'].includes(speaker)) {
+    effectiveModel = 'coda';
+  } else if (['cove', 'blaze', 'breeze', 'hawk', 'ironwood'].includes(speaker)) {
+    effectiveModel = 'mistv3';
+  }
+
+  const hasDevanagari = typeof text === 'string' && /[\u0900-\u097F]/.test(text);
+  const isHindiCapableVoice = ['taru', 'nadi'].includes(speaker) || effectiveModel === 'coda';
+
+  // If text contains Devanagari and voice is not Hindi-capable, fall back to browser speech
+  if (hasDevanagari && !isHindiCapableVoice) {
     return null;
   }
 
@@ -107,12 +162,13 @@ export async function synthesizeSpeech(text, config, signal) {
     return null;
   }
 
-  // Model adaptation: Celeste is on Coda; Cove, Blaze, Breeze are on Mist v3
-  let effectiveModel = modelId;
-  if (speaker === 'celeste') {
-    effectiveModel = 'coda';
-  } else if (['cove', 'blaze', 'breeze'].includes(speaker)) {
-    effectiveModel = 'mistv3';
+  // Effective language code: use 'hi' for Hindi-capable voices on Hindi/Hinglish content
+  let effectiveLang = lang;
+  if (
+    hasDevanagari ||
+    (['taru', 'nadi'].includes(speaker) && (lang === 'hi' || lang === 'hinglish'))
+  ) {
+    effectiveLang = 'hi';
   }
 
   const timeoutMs = 3500;
@@ -131,7 +187,7 @@ export async function synthesizeSpeech(text, config, signal) {
         text,
         speaker,
         modelId: effectiveModel,
-        lang,
+        lang: effectiveLang,
         audioFormat,
       }),
       signal: combinedSignal,

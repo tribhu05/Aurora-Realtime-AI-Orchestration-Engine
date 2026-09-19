@@ -360,7 +360,9 @@ class AuroraAudioPlayer {
   }
 
   get isPlaying() {
-    return Boolean(this.sourceNode || (this.htmlAudio && !this.htmlAudio.paused));
+    return Boolean(
+      this.sourceNode || this.isQueuePlaying || (this.htmlAudio && !this.htmlAudio.paused)
+    );
   }
 }
 

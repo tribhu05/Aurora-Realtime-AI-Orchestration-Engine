@@ -53,78 +53,187 @@ export function containsStructuredContent(text) {
 }
 
 /**
- * Detects whether the given text is Hindi (Devanagari script),
- * Hinglish (Hindi written in Roman/Latin script), or English.
+ * Analyzes the user query and returns a structured multilingual analysis object.
  *
- * Supports conversational context inheritance for short follow-ups
- * (e.g. "haan", "okay", "why?") and explicit language directives
- * (e.g. "Now explain in English").
+ * Supported modes:
+ * - English
+ * - Hindi (Devanagari script)
+ * - Hinglish (Hindi written in Latin/Roman script)
+ * - Mixed Hindi-English (e.g. Hindi with technical English terms)
+ *
+ * Tracks:
+ * - detectedLanguage: 'en' | 'hi' | 'hinglish' | 'mixed_hi_en'
+ * - detectedScript: 'Latin' | 'Devanagari'
+ * - responseLanguage: 'en' | 'hi' | 'hinglish'
+ * - confidence: 0.0 - 1.0
+ * - isMixed: boolean
+ * - hasTechnicalTerms: boolean
+ * - isExplicit: boolean
  *
  * @param {string} text - Input user text.
- * @param {Array<{role: string, content: string}>|object} [context] - Previous messages or context state.
- * @returns {'hi'|'hinglish'|'en'}
+ * @param {Array<{role: string, content: string}>|object|string} [context] - Previous messages or context state.
+ * @returns {{
+ *   detectedLanguage: 'en'|'hi'|'hinglish',
+ *   detectedScript: 'Latin'|'Devanagari',
+ *   responseLanguage: 'en'|'hi'|'hinglish',
+ *   confidence: number,
+ *   isMixed: boolean,
+ *   hasTechnicalTerms: boolean,
+ *   isExplicit: boolean
+ * }}
  */
-export function detectLanguage(text, context = null) {
+export function analyzeLanguage(text, context = null) {
   if (!text || typeof text !== 'string') {
-    return resolvePreviousLang(context) || 'en';
+    const prev = resolvePreviousLang(context) || 'en';
+    const script = prev === 'hi' ? 'Devanagari' : 'Latin';
+    return {
+      detectedLanguage: prev,
+      detectedScript: script,
+      responseLanguage: prev,
+      confidence: 0.5,
+      isMixed: false,
+      hasTechnicalTerms: false,
+      isExplicit: false,
+    };
   }
 
   const trimmed = text.trim();
+  const hasDevanagari = /[\u0900-\u097F]/.test(trimmed);
 
-  // 1. Devanagari script detection (Hindi)
-  if (/[\u0900-\u097F]/.test(trimmed)) {
-    return 'hi';
-  }
+  // 1. Explicit Language Switch Directives (overrides previous context)
+  // Check English explicit directive:
+  // e.g. "Ab English mein explain kar", "Reply in English", "Explain in English", "Switch to English", "English please", "English me batao"
+  const isExplicitEnglish =
+    /\b(in english|explain in english|speak in english|switch to english|english please|reply in english|answer in english|tell me in english)\b/i.test(
+      trimmed
+    ) ||
+    /\b(ab|abb|now)?\s*(in\s+)?english\s*(mein|me|mai)?\s*(explain|batao|bata|bolo|karo|kar|likho|speak|reply)?\b/i.test(
+      trimmed
+    ) ||
+    /\b(reply|answer|respond|speak)\s+(in\s+)?english\b/i.test(trimmed) ||
+    /\bcan you (explain|speak|reply)\s+(in\s+)?english\b/i.test(trimmed);
 
-  // 2. Explicit Language Switch Directives (overrides previous context)
-  if (
-    /\b(in english|explain in english|speak in english|switch to english|english please|reply in english|answer in english)\b/i.test(
-      trimmed
-    )
-  ) {
-    return 'en';
-  }
-  if (
-    /\b(in hindi|explain in hindi|hindi me batao|hindi mein|hindi please|reply in hindi)\b/i.test(
-      trimmed
-    )
-  ) {
-    return 'hi';
-  }
-  if (
-    /\b(in hinglish|explain in hinglish|hinglish me|hinglish mein|hinglish please|reply in hinglish)\b/i.test(
-      trimmed
-    )
-  ) {
-    return 'hinglish';
+  if (isExplicitEnglish) {
+    return {
+      detectedLanguage: 'en',
+      detectedScript: 'Latin',
+      responseLanguage: 'en',
+      confidence: 0.99,
+      isMixed: false,
+      hasTechnicalTerms: false,
+      isExplicit: true,
+    };
   }
 
-  // 3. Short Conversational Continuation / Follow-up Handling
-  // If the query is very short, preserve conversational continuity from history
+  // Check Hindi explicit directive:
+  // e.g. "Ab Hindi mein batao", "Reply in Hindi", "Explain in Hindi", "Hindi please"
+  const isExplicitHindi =
+    /\b(in hindi|explain in hindi|speak in hindi|switch to hindi|hindi please|reply in hindi|answer in hindi|tell me in hindi)\b/i.test(
+      trimmed
+    ) ||
+    /\b(ab|abb|now)?\s*(in\s+)?hindi\s*(mein|me|mai)?\s*(explain|batao|bata|bolo|karo|kar|likho|speak|reply)?\b/i.test(
+      trimmed
+    ) ||
+    /\b(reply|answer|respond|speak)\s+(in\s+)?hindi\b/i.test(trimmed) ||
+    /\bcan you (explain|speak|reply)\s+(in\s+)?hindi\b/i.test(trimmed);
+
+  if (isExplicitHindi) {
+    return {
+      detectedLanguage: 'hi',
+      detectedScript: 'Devanagari',
+      responseLanguage: 'hi',
+      confidence: 0.99,
+      isMixed: false,
+      hasTechnicalTerms: false,
+      isExplicit: true,
+    };
+  }
+
+  // Check Hinglish explicit directive:
+  const isExplicitHinglish =
+    /\b(in hinglish|explain in hinglish|speak in hinglish|switch to hinglish|hinglish please|reply in hinglish|answer in hinglish|tell me in hinglish)\b/i.test(
+      trimmed
+    ) ||
+    /\b(ab|abb|now)?\s*(in\s+)?hinglish\s*(mein|me|mai)?\s*(explain|batao|bata|bolo|karo|kar|likho|speak|reply)?\b/i.test(
+      trimmed
+    ) ||
+    /\b(reply|answer|respond|speak)\s+(in\s+)?hinglish\b/i.test(trimmed) ||
+    /\bcan you (explain|speak|reply)\s+(in\s+)?hinglish\b/i.test(trimmed);
+
+  if (isExplicitHinglish) {
+    return {
+      detectedLanguage: 'hinglish',
+      detectedScript: 'Latin',
+      responseLanguage: 'hinglish',
+      confidence: 0.99,
+      isMixed: false,
+      hasTechnicalTerms: false,
+      isExplicit: true,
+    };
+  }
+
+  // 2. Devanagari script detection (Hindi or Mixed Hindi-English)
+  if (hasDevanagari) {
+    const hasEnglishWords = /[a-zA-Z]{2,}/.test(trimmed);
+    return {
+      detectedLanguage: 'hi',
+      detectedScript: 'Devanagari',
+      responseLanguage: 'hi',
+      confidence: 0.98,
+      isMixed: hasEnglishWords,
+      hasTechnicalTerms: hasEnglishWords,
+      isExplicit: false,
+    };
+  }
+
+  // 3. Short Conversational Continuation / Follow-up Handling (<= 3 words)
   const words = trimmed.split(/\s+/).filter(Boolean);
   const previousLang = resolvePreviousLang(context);
 
-  if (words.length <= 3 && previousLang) {
-    // Check if it is an explicit Hinglish affirmation or continuation marker
+  if (words.length <= 3) {
+    // Distinctive Hindi/Hinglish affirmation or follow-up words: "haan", "theek hai", "kyu?", "achha", "sahi", etc.
     if (
-      /\b(haan|ha|ji|accha|achha|acha|theek|thik|sahi|bilkul|aur batao|thoda aur|aur|kyu|kyun)\b/i.test(
+      /^(haan|ha|ji|accha|achha|acha|theek|thik|theek hai|thik hai|sahi|bilkul|aur batao|thoda aur|aur|kyu|kyun|kyu\?|kyun\?)$/i.test(
         trimmed
       )
     ) {
-      return 'hinglish';
+      const inheritedLang = previousLang === 'hi' ? 'hi' : 'hinglish';
+      return {
+        detectedLanguage: inheritedLang,
+        detectedScript: inheritedLang === 'hi' ? 'Devanagari' : 'Latin',
+        responseLanguage: inheritedLang,
+        confidence: 0.92,
+        isMixed: false,
+        hasTechnicalTerms: false,
+        isExplicit: false,
+      };
     }
-    // Neutral continuations like "yes", "okay", "continue", "why?", "go on", "more"
+
+    // Neutral continuations: "yes", "okay", "ok", "sure", "continue", "go on", "why", "why?", "more", "next"
     if (
       /\b(yes|yeah|yep|yup|okay|ok|sure|continue|go on|why|why\?|more|next|explain more|details)\b/i.test(
         trimmed
       )
     ) {
-      return previousLang;
+      const inheritedLang = previousLang || 'en';
+      return {
+        detectedLanguage: inheritedLang,
+        detectedScript: inheritedLang === 'hi' ? 'Devanagari' : 'Latin',
+        responseLanguage: inheritedLang,
+        confidence: 0.85,
+        isMixed: false,
+        hasTechnicalTerms: false,
+        isExplicit: false,
+      };
     }
   }
 
-  // 4. High-Confidence Hinglish / Roman Hindi Multi-word Patterns
+  // 4. High-Confidence Hinglish / Roman Hindi Patterns
   const highConfidencePhrases = [
+    /\b(bhai|bro|yaar|dost)?\s*(mujhe|hume)?\s*([a-zA-Z0-9_.-]+\s+)?(samjha|bata|bana|likh)\s*(de|do|dijiye|na|karo)\b/i,
+    /\b(aap|tum)?\s*kaise\s*(ho|hai|hain)\b/i,
+    /\b(aaj\s+)?kya\s*(kar|chal)\s*(rahe|raha)\s*(ho|hai)\b/i,
+    /\b(mujhe|hume|humko)\s*(samajh|samjh)\s*(nahi|nahin)\s*(aa\s+raha|aaya)\b/i,
     /\bkya (hoti|hota|hote|hai|hain|tha|thi|the)\b/i,
     /\bkaise (kaam|work|work karta|work karti|karta|karti|karte|hoga|hogi)\b/i,
     /\b(kaise|kaha|kidhar|kab|kyu|kyun) (karu|karun|kare|karein|karega|karegi|karenge|banaye|fix karu|fix kare)\b/i,
@@ -134,14 +243,22 @@ export function detectLanguage(text, context = null) {
     /\b(bata|samjha) (sakte|sakti|sakoge) ho\b/i,
     /\b(mujhe|hume|humko) (batao|samjhao|chahiye|madad|help chahiye)\b/i,
     /\b(mere|hamare|apne) (liye|code me|project me)\b/i,
-    /\b(bata|samjha|likh|kar|bana) (do|dijiye|na)\b/i,
     /\b(kya chal raha|kaise ho|kya haal|kya kar rahe|theek hai|sahi hai|pata hai)\b/i,
     /\b(namaste|namaskar|shukriya|dhanyawad)\b/i,
   ];
 
   for (const phraseRegex of highConfidencePhrases) {
     if (phraseRegex.test(trimmed)) {
-      return 'hinglish';
+      const hasEnglishWords = /[a-zA-Z]{3,}/.test(trimmed);
+      return {
+        detectedLanguage: 'hinglish',
+        detectedScript: 'Latin',
+        responseLanguage: 'hinglish',
+        confidence: 0.96,
+        isMixed: hasEnglishWords,
+        hasTechnicalTerms: hasEnglishWords,
+        isExplicit: false,
+      };
     }
   }
 
@@ -152,36 +269,76 @@ export function detectLanguage(text, context = null) {
     // Auxiliary & state verbs
     /\b(hai|hain|ho|hoon|hun|tha|thi|the|hoga|hogi|honge|raha|rahi|rahe|hota|hoti|hote|hua|hui|hue)\b/i,
     // Action verbs
-    /\b(karna|karne|karta|karti|karte|karo|karu|karun|kare|karen|karega|karegi|karenge|kiya|kiye)\b/i,
+    /\b(karna|karne|karta|karti|karte|kar|karo|karu|karun|kare|karen|karega|karegi|karenge|kiya|kiye)\b/i,
     /\b(batao|bataiye|batana|bata|bataao|samjhao|samjha|samjhi|samjhe|samajh)\b/i,
     /\b(bana|banao|banaye|banado|banana|chal|chalo|chalate|chalata|chalti)\b/i,
+    /\b(de|do|dena|dijiye|diya|diye|le|lo|lena|lijiye|liya|liye|dekh|dekho|dekhna|suno|bol|bolo|bolna|likh|likho|likhna|likhe|bhejo)\b/i,
     /\b(aana|aata|aati|aate|aao|aaye|aaya|aayi|jaana|jaata|jaati|jaate|jaa|jao|gaya|gayi|gaye)\b/i,
-    /\b(dena|dijiye|diya|diye|lena|lijiye|liya|liye|dekh|dekho|dekhna|suno|bol|bolo|bolna|likh|likho|likhna|likhe|bhejo)\b/i,
     // Modals & necessity
     /\b(sakta|sakti|sakte|sakenge|chahiye|padega|padegi|padenge|mangta)\b/i,
     // Pronouns & possessives
-    /\b(mujhe|mera|meri|mere|tumhe|tumhara|tumhari|tumhare|tera|teri|tere|tujhe|aapko|aapka|aapki|aapke)\b/i,
-    /\b(hum|hume|humara|humari|humare|uska|uski|uske|usko|iska|iski|iske|isko|unka|unki|unke|inka|inki|inke|apna|apni|apne)\b/i,
+    /\b(mujhe|mera|meri|mere|main|mai|hum|hume|humara|humari|humare|tum|tumhe|tumhara|tumhari|tumhare|tera|teri|tere|tujhe|aap|aapko|aapka|aapki|aapke)\b/i,
+    /\b(uska|uski|uske|usko|use|iska|iski|iske|isko|ise|unka|unki|unke|inka|inki|inke|yeh|ye|woh|wo|apna|apni|apne)\b/i,
     // Negative, conjunctions, adverbs & particles
-    /\b(nahi|nahin|mat|bhi|toh|lekin|magar|bohot|bahut|thoda|thodi|zyada|jyada|theek|thik|accha|achha|acha)\b/i,
-    /\b(bhai|yaar|dost|shukriya|dhanyawad|bilkul|zaroor|zarur|aasan|mushkil|kaam|baat|sawal|jawab|jawaab)\b/i,
+    /\b(nahi|nahin|mat|bhi|hi|toh|to|aur|lekin|magar|par|bohot|bahut|thoda|thodi|zyada|jyada|theek|thik|accha|achha|acha)\b/i,
+    /\b(bhai|bro|yaar|dost|shukriya|dhanyawad|bilkul|zaroor|zarur|aasan|mushkil|kaam|baat|sawal|jawab|jawaab|mein|me|mai|se|ko|ka|ke|ki)\b/i,
   ];
 
   let matches = 0;
   for (const tokenRegex of hinglishTokens) {
     if (tokenRegex.test(trimmed)) {
       matches++;
-      if (matches >= 2) return 'hinglish';
+      if (matches >= 2) {
+        return {
+          detectedLanguage: 'hinglish',
+          detectedScript: 'Latin',
+          responseLanguage: 'hinglish',
+          confidence: 0.94,
+          isMixed: true,
+          hasTechnicalTerms: false,
+          isExplicit: false,
+        };
+      }
     }
   }
 
-  // Single distinctive Hindi token in a short message (< 6 words) is also Hinglish
+  // Single distinctive Hindi token in a short message (< 6 words)
   if (matches >= 1 && words.length <= 5) {
-    // If a short query contains a clear marker like "kaise", "kya", "batao", "mujhe", "karna"
-    return 'hinglish';
+    return {
+      detectedLanguage: 'hinglish',
+      detectedScript: 'Latin',
+      responseLanguage: 'hinglish',
+      confidence: 0.88,
+      isMixed: true,
+      hasTechnicalTerms: false,
+      isExplicit: false,
+    };
   }
 
-  return 'en';
+  // Default: English
+  return {
+    detectedLanguage: 'en',
+    detectedScript: 'Latin',
+    responseLanguage: 'en',
+    confidence: 0.95,
+    isMixed: false,
+    hasTechnicalTerms: false,
+    isExplicit: false,
+  };
+}
+
+/**
+ * Detects whether the given text is Hindi (Devanagari script),
+ * Hinglish (Hindi written in Roman/Latin script), or English.
+ *
+ * Maintained for backward compatibility; delegates to analyzeLanguage.
+ *
+ * @param {string} text - Input user text.
+ * @param {Array<{role: string, content: string}>|object|string} [context] - Previous messages or context state.
+ * @returns {'hi'|'hinglish'|'en'}
+ */
+export function detectLanguage(text, context = null) {
+  return analyzeLanguage(text, context).responseLanguage;
 }
 
 /**
@@ -190,17 +347,22 @@ export function detectLanguage(text, context = null) {
  */
 function resolvePreviousLang(context) {
   if (!context) return null;
-  if (typeof context === 'object' && context.previousLang) {
-    return context.previousLang;
+  if (typeof context === 'string') return context;
+  if (typeof context === 'object') {
+    if (context.responseLanguage) return context.responseLanguage;
+    if (context.detectedLanguage) return context.detectedLanguage;
+    if (context.previousLang) return context.previousLang;
+    if (context.languagePreference?.responseLanguage) {
+      return context.languagePreference.responseLanguage;
+    }
   }
   if (Array.isArray(context) && context.length > 0) {
     for (let i = context.length - 1; i >= 0; i--) {
       const msg = context[i];
       if (msg?.role === 'user' && msg.content) {
-        // Quick detect without recursion
         if (/[\u0900-\u097F]/.test(msg.content)) return 'hi';
         if (
-          /\b(kya|kaise|mujhe|mera|hai|hain|nahi|batao|samjhao|karna|karu|hoga|raha|chahiye|bhai)\b/i.test(
+          /\b(kya|kaise|mujhe|mera|hai|hain|nahi|batao|samjhao|karna|karu|hoga|raha|chahiye|bhai|bro|yaar|de|do)\b/i.test(
             msg.content
           )
         ) {
@@ -668,16 +830,13 @@ export function validateAndEnforceContract(
   }
 
   // 5. Deterministic Safety Corrections:
-  // Rule A1: If visual content is a rich artifact (code block, table, extensive list),
-  // but the model incorrectly classified it as VOICE -> Force TEXT or HYBRID!
-  const hasRichVisualContent =
-    visualType === 'code' ||
-    visualType === 'table' ||
-    visualType === 'task' ||
-    containsStructuredContent(visualContent) ||
-    visualContent.length > 350;
-
-  if (mode === RESPONSE_MODES.VOICE && hasRichVisualContent) {
+  // Rule A1: If visual content is code, table, or task, and model classified as VOICE:
+  // - If user asked for an explanation/concept -> HYBRID (speak explanation + show artifact)
+  // - If user asked for code/table only -> TEXT (brief acknowledgment + show artifact)
+  if (
+    mode === RESPONSE_MODES.VOICE &&
+    (visualType === 'code' || visualType === 'table' || visualType === 'task')
+  ) {
     const wantsExplanation =
       /\b(explain|how|why|describe|walkthrough|what|kya|kaise|kaisa|kaisi|kyun|kyu|samjhao|samjha|batao|bata)\b/i.test(
         userText
@@ -686,17 +845,13 @@ export function validateAndEnforceContract(
   }
 
   // Rule A2: If the model classified as TEXT, but there is NO rich visual content
-  // (no code, no table, no structured list, short plain text) and user did not override -> Correct to VOICE!
+  // (no code, no table, no task, plain text) and user did not override -> Correct to VOICE!
   const explicitlyWantsText =
     /\b(in (the )?workspace|written|show me code|write code|table|json|yaml|schema)\b/i.test(
       userText
     );
-  if (
-    mode === RESPONSE_MODES.TEXT &&
-    !hasRichVisualContent &&
-    !userOverride &&
-    !explicitlyWantsText
-  ) {
+  const isPureArtifact = visualType === 'code' || visualType === 'table' || visualType === 'task';
+  if (mode === RESPONSE_MODES.TEXT && !isPureArtifact && !userOverride && !explicitlyWantsText) {
     mode = RESPONSE_MODES.VOICE;
     if (
       !spoken ||
@@ -707,12 +862,14 @@ export function validateAndEnforceContract(
     }
   }
 
-  const userLang = detectLanguage(userText, history);
+  const langAnalysis = analyzeLanguage(userText, history);
+  const userLang = langAnalysis.responseLanguage;
   const contentLang = detectLanguage(visualContent || spoken);
   const effectiveLang = userLang !== 'en' ? userLang : contentLang;
+  const effectiveScript = effectiveLang === 'hi' ? 'Devanagari' : 'Latin';
 
   // Rule B: If spoken response contains raw code, table pipes, JSON braces, or markdown syntax,
-  // sanitize it immediately so Rime never speaks raw syntax!
+  // sanitize it cleanly so Rime speaks natural prose rather than discarding it!
   if (containsStructuredContent(spoken) || spoken.trim().startsWith('{')) {
     if (mode === RESPONSE_MODES.TEXT) {
       if (effectiveLang === 'hi') {
@@ -725,56 +882,44 @@ export function validateAndEnforceContract(
       } else {
         const itemDesc =
           visualType === 'code'
-            ? visualTitle || 'code'
+            ? 'code implementation'
             : visualType === 'table'
-              ? 'comparison table'
+              ? 'table'
               : 'response';
         spoken = `Done. I've placed the ${itemDesc} in the workspace.`;
       }
-    } else if (mode === RESPONSE_MODES.HYBRID) {
-      if (effectiveLang === 'hi') {
-        spoken = 'मैंने मुख्य विचार समझा दिया है, और पूरा समाधान वर्कस्पेस में लिख दिया है।';
-      } else if (effectiveLang === 'hinglish') {
-        spoken =
-          'Maine concept explain kar diya hai, aur full implementation workspace me daal diya hai.';
-      } else {
-        spoken =
-          "I've summarized the key concept, and placed the full implementation in the workspace.";
-      }
     } else {
-      // In voice mode with code syntax, move the code into visualResponse and make spoken clean
-      if (!visualContent) {
-        visualContent = spoken;
-        visualType = 'code';
-      }
-      mode = RESPONSE_MODES.TEXT;
-      if (effectiveLang === 'hi') {
-        spoken = 'मैंने वर्कस्पेस में कोड तैयार कर दिया है।';
-      } else if (effectiveLang === 'hinglish') {
-        spoken = 'Maine workspace me code taiyar kar diya hai.';
+      const naturalSpeech = spoken
+        .replace(/```[\s\S]*?```/g, '')
+        .replace(/\|[^\n]+\|/g, '')
+        .replace(/^[#*-]\s+/gm, '')
+        .replace(/`([^`]+)`/g, '$1')
+        .replace(/[*_#`[\]>|]/g, '')
+        .trim();
+
+      if (naturalSpeech && !containsStructuredContent(naturalSpeech) && naturalSpeech.length > 10) {
+        spoken = naturalSpeech;
       } else {
-        spoken = "I've placed the code implementation in the workspace.";
+        const fallbackProse = (visualContent || '')
+          .replace(/```[\s\S]*?```/g, '')
+          .replace(/\|[^\n]+\|/g, '')
+          .replace(/^[#*-]\s+/gm, '')
+          .replace(/`([^`]+)`/g, '$1')
+          .replace(/[*_#`[\]>|]/g, '')
+          .trim();
+        spoken =
+          fallbackProse && !containsStructuredContent(fallbackProse)
+            ? fallbackProse
+            : effectiveLang === 'hinglish'
+              ? 'Maine response workspace me taiyar kar diya hai.'
+              : "I've placed the response in the workspace.";
       }
     }
   }
 
-  // Rule C: In TEXT mode, Rime should receive ONLY a short acknowledgement.
+  // Rule C: In TEXT mode, ensure spoken confirmation is clean and within budget.
   if (mode === RESPONSE_MODES.TEXT) {
-    const isHindiOk =
-      effectiveLang === 'hi' &&
-      (spoken.includes('वर्कस्पेस') ||
-        spoken.includes('कोड') ||
-        spoken.includes('तालिका') ||
-        /[\u0900-\u097F]/.test(spoken));
-    const isHinglishOk =
-      effectiveLang === 'hinglish' &&
-      (spoken.toLowerCase().includes('workspace') ||
-        spoken.toLowerCase().includes('taiyar') ||
-        spoken.toLowerCase().includes('code'));
-    const isEnglishOk =
-      spoken.toLowerCase().includes('workspace') || spoken.toLowerCase().includes('chat');
-
-    if (!spoken || spoken.length > 140 || (!isHindiOk && !isHinglishOk && !isEnglishOk)) {
+    if (!spoken || spoken.length > 140) {
       if (effectiveLang === 'hi') {
         const itemDesc = visualType === 'code' ? 'कोड' : visualType === 'table' ? 'तालिका' : 'जवाब';
         spoken = `लीजिए, मैंने वर्कस्पेस में ${itemDesc} तैयार कर दिया है।`;
@@ -800,7 +945,7 @@ export function validateAndEnforceContract(
       visualContent = spoken;
       visualType = 'markdown';
     }
-    if (!spoken || spoken.length > 200) {
+    if (!spoken) {
       if (effectiveLang === 'hi') {
         spoken =
           'मैंने मुख्य विचार संक्षेप में समझा दिया है, और पूरा विवरण वर्कस्पेस में जोड़ दिया है।';
@@ -838,6 +983,9 @@ export function validateAndEnforceContract(
     visualResponse: finalVisualResponse,
     visual: finalVisualResponse,
     detectedLanguage: effectiveLang,
+    detectedScript: effectiveScript,
+    responseLanguage: effectiveLang,
+    confidence: langAnalysis.confidence,
 
     // Backward compatibility properties for existing clients & test harnesses
     text: finalVisualResponse.content,

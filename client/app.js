@@ -310,6 +310,41 @@
 
   const DEFAULT_SPEAKERS = [
     {
+      id: 'taru',
+      name: 'Taru (Hindi & Hinglish)',
+      style: 'Native Hindi male, natural Indian cadence & bilingual code-switching',
+      gender: 'Male',
+      models: ['coda'],
+    },
+    {
+      id: 'nadi',
+      name: 'Nadi (Hindi & Hinglish)',
+      style: 'Native Hindi female, balanced, expressive & natural prosody',
+      gender: 'Female',
+      models: ['coda'],
+    },
+    {
+      id: 'hawa',
+      name: 'Hawa (Indian English)',
+      style: 'Indian English, comfortable with code-switching & technical terms',
+      gender: 'Female',
+      models: ['coda'],
+    },
+    {
+      id: 'hawk',
+      name: 'Hawk (Indian English)',
+      style: 'Friendly Indian male voice, warm, approachable (<400ms)',
+      gender: 'Male',
+      models: ['mistv3'],
+    },
+    {
+      id: 'ironwood',
+      name: 'Ironwood (Indian English)',
+      style: 'Professional Indian male voice, polished and steady',
+      gender: 'Male',
+      models: ['mistv3'],
+    },
+    {
       id: 'astra',
       name: 'Astra',
       style: 'Crisp, articulate, fast (Sub-100ms)',
@@ -1130,6 +1165,9 @@
 
       case 'ai_text_chunk': {
         if (msg.generation < currentGen) return;
+        if (msg.spoken && typeof echoGuard !== 'undefined')
+          echoGuard.recordAssistantSpeech(msg.spoken);
+        if (msg.text && typeof echoGuard !== 'undefined') echoGuard.recordAssistantSpeech(msg.text);
         if (captionAi && msg.spoken) captionAi.textContent = `“${msg.spoken}”`;
         scheduleChunkUpdate(msg);
         break;
@@ -1166,6 +1204,13 @@
             research: msg.research,
           });
           console.log('[DEBUG] normalized payload:', normalized);
+
+          if (normalized.spoken && typeof echoGuard !== 'undefined') {
+            echoGuard.recordAssistantSpeech(normalized.spoken);
+          }
+          if (normalized.text && typeof echoGuard !== 'undefined') {
+            echoGuard.recordAssistantSpeech(normalized.text);
+          }
 
           captionAi.textContent = `“${normalized.spoken}”`;
 
@@ -1419,7 +1464,19 @@
             .replace(/[*_#`[\]>]/g, '')
             .trim();
         }
-        if (!speakText) speakText = "I've written the response in the chat.";
+        if (!speakText) {
+          const detectedLang = detectClientLanguage(msg.text || '');
+          if (detectedLang === 'hi') {
+            speakText = 'मैंने वर्कस्पेस में जवाब तैयार कर दिया है।';
+          } else if (detectedLang === 'hinglish') {
+            speakText = 'Maine workspace me response taiyar kar diya hai.';
+          } else {
+            speakText = "I've written the response in the chat.";
+          }
+        }
+        if (speakText && typeof echoGuard !== 'undefined') {
+          echoGuard.recordAssistantSpeech(speakText);
+        }
         if (captionAi) captionAi.textContent = `“${speakText}”`;
         speakWithBrowser(speakText, () => {
           if (msg.generation === currentGen) afterSpeaking();
@@ -1556,6 +1613,61 @@
     });
   }
 
+  // ---------- EchoGuard: Anti-Feedback Audio Ring Buffer ----------
+  class EchoGuard {
+    constructor(ttlMs = 15000) {
+      this.ttlMs = ttlMs;
+      this.history = [];
+    }
+
+    recordAssistantSpeech(text) {
+      if (!text || typeof text !== 'string') return;
+      const clean = text
+        .toLowerCase()
+        .replace(/[-*_#`[\]>!?,.:;()]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (clean.length < 4) return;
+      this.history.push({ text: clean, time: Date.now() });
+      this.cleanup();
+    }
+
+    cleanup() {
+      const cutoff = Date.now() - this.ttlMs;
+      this.history = this.history.filter((h) => h.time >= cutoff);
+      if (this.history.length > 50) this.history = this.history.slice(-50);
+    }
+
+    isEcho(candidate) {
+      if (!candidate || typeof candidate !== 'string') return false;
+      this.cleanup();
+      if (this.history.length === 0) return false;
+      const clean = candidate
+        .toLowerCase()
+        .replace(/[-*_#`[\]>!?,.:;()]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (clean.length < 4) return false;
+
+      const words = clean.split(' ').filter((w) => w.length > 1);
+      if (words.length === 0) return false;
+
+      for (const entry of this.history) {
+        if (clean.length >= 8 && entry.text.includes(clean)) return true;
+        if (entry.text.length >= 8 && clean.includes(entry.text)) return true;
+        if (clean === entry.text) return true;
+
+        if (words.length >= 2) {
+          const phrase = words.join(' ');
+          if (entry.text.includes(phrase)) return true;
+        }
+      }
+      return false;
+    }
+  }
+
+  const echoGuard = new EchoGuard();
+
   // ---------- Mic & VAD Handler ----------
   const mic = new window.AuroraMic({
     onSpeechStart: () => {
@@ -1581,6 +1693,10 @@
         typeInput.placeholder = 'Ask anything…';
       }
       if (!text || !text.trim()) return;
+      if (echoGuard.isEcho(text)) {
+        console.warn('[EchoGuard] Filtered speaker audio echo:', text);
+        return;
+      }
       captionUser.textContent = text;
       // On mobile devices, pause speech capture while AI is speaking so phone loudspeaker
       // does not cause acoustic loopback into the microphone. Voice mode remains active.
@@ -1660,7 +1776,7 @@
   let activeHttpAbortController = null;
 
   /** Instant barge-in: silences audio synchronously in < 1ms before network roundtrip */
-  function bargeIn(fromVoiceVad = false) {
+  function bargeIn(_fromVoiceVad = false) {
     flushChunkUpdate();
     player.stop();
     if (window.speechSynthesis) window.speechSynthesis.cancel();
@@ -1696,8 +1812,8 @@
     flashCancelPill();
     captionAi.textContent = '“Interrupted — listening to your new command…”';
 
-    // If interrupted via UI click or shortcut, cleanly reset speech recognition for next command
-    if (!fromVoiceVad && mic && typeof mic.resetForNewCommand === 'function') {
+    // Cleanly reset speech recognition for next command on all interruptions to flush audio buffer
+    if (mic && typeof mic.resetForNewCommand === 'function') {
       mic.resetForNewCommand();
     }
 
@@ -2208,9 +2324,15 @@ for n in [1, 2, 7, 14, 21, 28]:
         };
       }
 
+      let implSpoken = "I've written the implementation in the workspace.";
+      if (lang === 'hi') {
+        implSpoken = 'लीजिए, मैंने वर्कस्पेस में कोड तैयार कर दिया है।';
+      } else if (lang === 'hinglish') {
+        implSpoken = 'Maine workspace me implementation taiyar kar diya hai.';
+      }
       return {
         responseMode: 'TEXT',
-        spoken: "I've written the implementation in the workspace.",
+        spoken: implSpoken,
         text: `// Implementation for: ${query}
 function executeTask() {
   console.log("Task executed successfully: ${query}");
@@ -2226,9 +2348,15 @@ executeTask();`,
 
     // 3. Comparison / Table requests
     if (lower.includes('table') || lower.includes('compare') || lower.includes(' vs ')) {
+      let tableSpoken = "I've placed the comparison table in the workspace.";
+      if (lang === 'hi') {
+        tableSpoken = 'यहाँ वर्कस्पेस में तुलना तालिका दी गई है।';
+      } else if (lang === 'hinglish') {
+        tableSpoken = 'Maine workspace me comparison table daal di hai.';
+      }
       return {
         responseMode: 'TEXT',
-        spoken: "I've placed the comparison table in the workspace.",
+        spoken: tableSpoken,
         text: `### Comparison Overview: ${query}
 
 | Feature / Criteria | Aspect A | Aspect B |
@@ -2253,10 +2381,19 @@ executeTask();`,
     }
 
     // 5. Default informative conversational reply
+    let defaultSpoken = `Here is a helpful summary regarding ${query.slice(0, 35)}.`;
+    let defaultText = `### Overview: ${query}\n\nThank you for asking! Here are the key insights regarding **${query}**:\n\n- **Core Concept**: Represents an important topic in modern practice and conceptual development.\n- **Application**: Useful across multiple disciplines with diverse practical implementations.\n\n*Feel free to ask a follow-up question or request code, comparisons, or detailed breakdowns.*`;
+    if (lang === 'hi') {
+      defaultSpoken = `यहाँ ${query.slice(0, 35)} के बारे में मुख्य जानकारी दी गई है।`;
+      defaultText = `### विवरण: ${query}\n\nयहाँ **${query}** से जुड़ी मुख्य बातें दी गई हैं:\n\n- **मुख्य विचार**: यह एक महत्वपूर्ण तकनीकी या व्यावहारिक विषय है।\n- **उपयोग**: इसका उपयोग कई क्षेत्रों में विभिन्न रूपों में किया जाता है।`;
+    } else if (lang === 'hinglish') {
+      defaultSpoken = `Yeh rahi ${query.slice(0, 35)} ke baare me main jaankari.`;
+      defaultText = `### Overview: ${query}\n\n**${query}** ke baare me main points yeh hain:\n\n- **Core Concept**: Yeh ek important concept hai jo commonly use hota hai.\n- **Application**: Iska use software development aur system architecture me widely kiya jata hai.\n\nAap isse related code, details ya comparison bhi pooch sakte hain.`;
+    }
     return {
       responseMode: 'VOICE',
-      spoken: `Here is a helpful summary regarding ${query.slice(0, 35)}.`,
-      text: `### Overview: ${query}\n\nThank you for asking! Here are the key insights regarding **${query}**:\n\n- **Core Concept**: Represents an important topic in modern practice and conceptual development.\n- **Application**: Useful across multiple disciplines with diverse practical implementations.\n\n*Feel free to ask a follow-up question or request code, comparisons, or detailed breakdowns.*`,
+      spoken: defaultSpoken,
+      text: defaultText,
       visualType: 'markdown',
       title: 'Aurora Knowledge Assistant',
     };
@@ -2307,11 +2444,26 @@ executeTask();`,
           const content = data.choices?.[0]?.message?.content || '';
           if (content) {
             const isCode = content.includes('```');
-            const spoken = isCode
-              ? "I've written the implementation in the workspace."
-              : content.split('\n')[0].replace(/[*#]/g, '').slice(0, 120);
+            let spoken = '';
+            if (isCode) {
+              const textBeforeCode = content
+                .split('```')[0]
+                .replace(/[*_#`[\]>|]/g, '')
+                .trim();
+              if (textBeforeCode && textBeforeCode.length > 15) {
+                spoken = textBeforeCode;
+              } else if (detectedLang === 'hi') {
+                spoken = 'लीजिए, मैंने वर्कस्पेस में कोड तैयार कर दिया है।';
+              } else if (detectedLang === 'hinglish') {
+                spoken = 'Maine workspace me code taiyar kar diya hai.';
+              } else {
+                spoken = "I've written the implementation in the workspace.";
+              }
+            } else {
+              spoken = content.replace(/[*_#`[\]>|]/g, '').trim();
+            }
             return {
-              responseMode: isCode ? 'TEXT' : 'VOICE',
+              responseMode: isCode ? (spoken.includes('workspace') ? 'TEXT' : 'HYBRID') : 'VOICE',
               spoken,
               text: content,
               visualType: isCode ? 'code' : 'markdown',
@@ -2330,6 +2482,10 @@ executeTask();`,
   function sendQuery(text, mode = null) {
     if (!text || !text.trim()) return;
     const cleanText = text.trim();
+    if (typeof echoGuard !== 'undefined' && echoGuard.isEcho(cleanText)) {
+      console.warn('[EchoGuard] Suppressed query matching recent assistant speech:', cleanText);
+      return;
+    }
     if (player && typeof player._ensureContext === 'function') {
       player._ensureContext();
     }
@@ -2796,25 +2952,47 @@ executeTask();`,
     let text = typeof rawText === 'string' ? rawText : '';
     let meta = { ...rawMeta };
 
-    let cleanSpoken = text.replace(/```[\s\S]*?(?:```|$)/g, '').replace(/`[^`]+(?:`|$)/g, '');
-    cleanSpoken = cleanSpoken.replace(/[*_#[\]>]/g, '').trim();
+    let candidateSpoken = meta.spokenResponse || meta.spoken || '';
+    let cleanSpoken = candidateSpoken
+      ? candidateSpoken
+          .replace(/```[\s\S]*?(?:```|$)/g, '')
+          .replace(/`[^`]+(?:`|$)/g, '')
+          .replace(/[*_#[\]>|]/g, '')
+          .trim()
+      : text
+          .replace(/```[\s\S]*?(?:```|$)/g, '')
+          .replace(/`[^`]+(?:`|$)/g, '')
+          .replace(/[*_#[\]>|]/g, '')
+          .trim();
 
     if (!cleanSpoken) {
-      if (meta.title) {
-        cleanSpoken = `Here is the ${meta.title} in the chat.`;
-      } else if (text.includes('```')) {
-        cleanSpoken = "I've written the implementation in the chat.";
+      const clientLang = detectClientLanguage(text);
+      if (clientLang === 'hinglish') {
+        cleanSpoken = text.includes('```')
+          ? 'Maine code workspace me taiyar kar diya hai.'
+          : 'Maine response workspace me add kar diya hai.';
+      } else if (clientLang === 'hi') {
+        cleanSpoken = text.includes('```')
+          ? 'मैंने कोड वर्कस्पेस में तैयार कर दिया है।'
+          : 'मैंने जवाब वर्कस्पेस में जोड़ दिया है।';
       } else {
-        cleanSpoken = text.slice(0, 150);
+        if (meta.title) {
+          cleanSpoken = `Here is the ${meta.title} in the chat.`;
+        } else if (text.includes('```')) {
+          cleanSpoken = "I've written the implementation in the chat.";
+        } else {
+          cleanSpoken = text.slice(0, 150);
+        }
       }
     }
 
+    const defaultMode = text.includes('```') ? 'HYBRID' : 'VOICE';
     return {
       text: text,
       spoken: cleanSpoken,
       meta: {
-        visualType: 'text',
-        responseMode: 'TEXT',
+        visualType: meta.visualType || (text.includes('```') ? 'code' : 'text'),
+        responseMode: meta.responseMode || defaultMode,
         ...meta,
         research: rawMeta.research || null,
       },
@@ -3047,6 +3225,21 @@ executeTask();`,
         }
       }
     });
+
+    // 3. Mark in-flight assistant items in client transcript
+    if (Array.isArray(transcript)) {
+      for (let i = transcript.length - 1; i >= 0; i--) {
+        if (transcript[i].generation === gen && transcript[i].role === 'assistant') {
+          if (!transcript[i].interrupted) {
+            transcript[i].interrupted = true;
+            transcript[i].text = transcript[i].text
+              ? `${transcript[i].text} [Interrupted]`
+              : '[Interrupted]';
+          }
+          break;
+        }
+      }
+    }
   }
 
   function updateCardAudioState(gen, hasAudio) {
