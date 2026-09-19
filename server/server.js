@@ -579,6 +579,9 @@ export function createAuroraServer(options = {}) {
       let researchContext = null;
       if (!ghUrl && effectiveSerpapiEnabled && isResearchNeeded(userText)) {
         const researchQuery = generateResearchQuery(userText);
+        console.log(
+          `[SERPAPI_PREFETCH_TRIGGERED] UserText: "${userText.slice(0, 60)}" | Query: "${researchQuery}"`
+        );
         const tRes0 = Date.now();
         const researchResult = await performLiveResearch(researchQuery, {
           apiKey: incomingSerpApiKey,
@@ -1528,6 +1531,9 @@ async function handleTurn({
   if (!ghUrl && serpapiConfig?.enabled && isResearchNeeded(userText)) {
     if (!isStale(state, myGen)) {
       const researchQuery = generateResearchQuery(userText);
+      console.log(
+        `[SERPAPI_PREFETCH_TRIGGERED] UserText: "${userText.slice(0, 60)}" | Query: "${researchQuery}"`
+      );
       send(ws, {
         type: 'research_started',
         query: researchQuery,

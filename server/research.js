@@ -287,7 +287,12 @@ export async function performLiveResearch(query, options = {}) {
 
   // 1. Check for mock results (for offline testing & test suite)
   if (mockResults) {
+    console.log(`[SERPAPI_REQUEST_STARTED] Query: "${query}" (engine: ${engine}, mock: true)`);
     const normalized = normalizeSearchResults(mockResults, query);
+    console.log(`[SERPAPI_RESPONSE_RECEIVED] Status: 200 (mock)`);
+    console.log(
+      `[SERPAPI_RESULT_COUNT] Count: ${normalized.results.length} | Query: "${query}" (mock)`
+    );
     return {
       ok: true,
       query,
@@ -298,6 +303,9 @@ export async function performLiveResearch(query, options = {}) {
 
   const cleanApiKey = typeof apiKey === 'string' ? apiKey.trim() : '';
   if (!cleanApiKey || /^your_.*_here$/i.test(cleanApiKey)) {
+    console.warn(
+      `[SERPAPI_REQUEST_FAILED] Category: MISSING_API_KEY | Reason: SERPAPI_KEY is not configured or placeholder.`
+    );
     return {
       ok: false,
       query,
@@ -328,6 +336,8 @@ export async function performLiveResearch(query, options = {}) {
     url.searchParams.set('q', query);
     url.searchParams.set('api_key', cleanApiKey);
 
+    console.log(`[SERPAPI_REQUEST_STARTED] Query: "${query}" | Engine: ${engine}`);
+
     const response = await fetchFn(url.toString(), {
       method: 'GET',
       headers: {
@@ -336,18 +346,31 @@ export async function performLiveResearch(query, options = {}) {
       signal: internalController.signal,
     });
 
+    console.log(`[SERPAPI_RESPONSE_RECEIVED] Status: ${response.status}`);
+
     if (!response.ok) {
+      let errorCategory = 'API_ERROR';
+      if (response.status === 401 || response.status === 403) {
+        errorCategory = 'AUTHENTICATION_FAILED';
+      } else if (response.status === 429) {
+        errorCategory = 'RATE_LIMITED';
+      } else if (response.status >= 500) {
+        errorCategory = 'SERPAPI_SERVER_ERROR';
+      }
       const statusText = response.statusText || String(response.status);
+      const safeErr = `SerpApi HTTP error ${response.status}: ${statusText}`;
+      console.error(`[SERPAPI_REQUEST_FAILED] Category: ${errorCategory} | Error: ${safeErr}`);
       return {
         ok: false,
         query,
         results: [],
-        error: `SerpApi HTTP error ${response.status}: ${statusText}`,
+        error: safeErr,
       };
     }
 
     const data = await response.json();
     const normalized = normalizeSearchResults(data, query);
+    console.log(`[SERPAPI_RESULT_COUNT] Count: ${normalized.results.length} | Query: "${query}"`);
 
     return {
       ok: true,
@@ -357,16 +380,21 @@ export async function performLiveResearch(query, options = {}) {
     };
   } catch (err) {
     if (signal?.aborted || err?.name === 'AbortError') {
+      const reason = timedOut ? 'timeout' : 'aborted';
+      console.warn(
+        `[SERPAPI_REQUEST_FAILED] Category: ${timedOut ? 'TIMEOUT' : 'ABORTED'} | Reason: ${reason}`
+      );
       return {
         ok: false,
         query,
         results: [],
-        error: timedOut ? 'timeout' : 'aborted',
+        error: reason,
       };
     }
 
     // Mask any accidental keys in error message
     const safeError = (err.message || String(err)).replace(cleanApiKey, '***REDACTED***');
+    console.error(`[SERPAPI_REQUEST_FAILED] Category: NETWORK_ERROR | Error: ${safeError}`);
     return {
       ok: false,
       query,

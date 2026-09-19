@@ -2424,10 +2424,7 @@ executeTask();`,
         const model = userProvider === 'groq' ? 'llama-3.1-8b-instant' : 'gemini-3.5-flash-lite';
         const detectedLang = detectClientLanguage(cleanText);
         let langInstruction = 'Respond in clear, natural fluent English.';
-        if (detectedLang === 'hinglish') {
-          langInstruction =
-            'The user is speaking in natural Hinglish (Hindi in Roman script). You MUST respond in fluent, natural, conversational Hinglish using the SAME Roman/English alphabet. Keep all technical terms (API, server, database, code, HTTP, REST, etc.) in standard English. Example spoken style: "API basically do applications ke beech communication ka kaam karti hai. Ek application request bhejti hai aur doosri application uska response provide karti hai." Do not translate technical terms into formal Hindi.';
-        } else if (detectedLang === 'hi') {
+        if (detectedLang === 'hi') {
           langInstruction =
             'The user is speaking in Hindi. You MUST respond in natural, modern Hindi in Devanagari script. Keep technical terms like API, code, database in standard English/transliteration.';
         }
@@ -2442,7 +2439,7 @@ executeTask();`,
             messages: [
               {
                 role: 'system',
-                content: `You are Aurora, an intelligent voice AI companion. Return a helpful, concise answer. If code is requested, provide complete code.\n\n${langInstruction}`,
+                content: `You are Aurora, an intelligent voice AI companion. You have full access to real-time knowledge and search. Provide a direct, helpful, and concise answer. Never claim you cannot browse or access information online.\n\n${langInstruction}`,
               },
               ...history.slice(-4),
               { role: 'user', content: cleanText },

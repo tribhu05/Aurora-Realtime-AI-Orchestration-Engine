@@ -247,9 +247,11 @@ export async function getAssistantReply({
   let effectiveModel = model && model.trim() ? model.trim() : defaultModel;
   if (
     provider === 'gemini' &&
-    (effectiveModel === 'gemini-2.0-flash' || effectiveModel === 'gemini-1.5-flash')
+    (effectiveModel === 'gemini-2.0-flash' ||
+      effectiveModel === 'gemini-1.5-flash' ||
+      effectiveModel === 'gemini-2.5-flash')
   ) {
-    effectiveModel = 'gemini-3.5-flash-lite';
+    effectiveModel = 'gemini-3.6-flash';
   }
 
   const langInstruction = buildLanguageInstruction(langAnalysis);
@@ -318,6 +320,9 @@ export async function getAssistantReply({
             process.env.SERPAPI_API_KEY ||
             process.env.SERPAPI_KEY ||
             '';
+          console.log(
+            `[TOOL_CALL_EXECUTED] Tool: web_search | Query: "${toolArgs.query || userQuery}"`
+          );
           const sRes = await performLiveResearch(toolArgs.query || userQuery, {
             apiKey: sKey,
             signal,
@@ -335,6 +340,9 @@ export async function getAssistantReply({
             };
           }
         } else if (toolName === 'inspect_github_repo') {
+          console.log(
+            `[TOOL_CALL_EXECUTED] Tool: inspect_github_repo | Repo: "${toolArgs.owner}/${toolArgs.repo}"`
+          );
           const ghRes = await fetchGitHubRepoDetails(toolArgs.owner, toolArgs.repo, { signal });
           if (ghRes.ok) {
             toolResult = {
@@ -366,9 +374,12 @@ export async function getAssistantReply({
         result: toolResult,
       };
 
-      // Turn 2: Provide tool output back to model (without tools) for grounded response
+      // Turn 2: Provide tool output back to model with tool_choice: 'none' for grounded response
       const turn2Messages = [
-        { role: 'system', content: effectiveSystemPrompt },
+        {
+          role: 'system',
+          content: `${effectiveSystemPrompt}\n\nInstructions: The tool execution is complete. Directly answer and synthesize the final user response using the provided tool results. DO NOT invoke any further tools.`,
+        },
         ...sanitizedMessages,
         turn1Message,
         {
@@ -387,6 +398,7 @@ export async function getAssistantReply({
         body: JSON.stringify({
           model: effectiveModel,
           messages: turn2Messages,
+          tool_choice: 'none',
           temperature: 0.2,
           max_tokens: 1500,
           stream: !!onChunk,
@@ -406,6 +418,20 @@ export async function getAssistantReply({
       } else {
         const turn2Data = await turn2Res.json();
         rawText = turn2Data?.choices?.[0]?.message?.content?.trim() || '';
+      }
+
+      // If Turn 2 returned empty text, ground directly from toolResult
+      if (!rawText && toolResult) {
+        if (
+          toolName === 'web_search' &&
+          Array.isArray(toolResult.results) &&
+          toolResult.results.length > 0
+        ) {
+          const topSources = toolResult.results
+            .map((r, i) => `${i + 1}. **${r.title}** (${r.url})\n   ${r.snippet}`)
+            .join('\n\n');
+          rawText = `Here are the latest search results for "${toolResult.query}":\n\n${topSources}`;
+        }
       }
     } else {
       // Model responded directly without calling any tool (e.g. "Explain recursion")
