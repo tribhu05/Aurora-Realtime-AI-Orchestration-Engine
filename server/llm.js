@@ -42,6 +42,43 @@ For general knowledge questions, explain clearly and conversationally in natural
 Respond in standard markdown. Do not wrap your response in JSON.`;
 
 /**
+ * Generates dynamic, request-specific language requirements for the LLM.
+ *
+ * @param {'en'|'hi'|'hinglish'} detectedLang - The detected language of the user's turn.
+ * @returns {string} Dynamic prompt instruction block.
+ */
+export function buildLanguageInstruction(detectedLang) {
+  if (detectedLang === 'hinglish') {
+    return `[LANGUAGE REQUIREMENT: HINGLISH]
+- The user is conversing in natural everyday Hinglish (Hindi written in Roman/Latin script, e.g. "API kaise kaam karti hai?", "ye code kaise work kar raha hai?", "mujhe ye samjha do").
+- You MUST respond in authentic, fluent, conversational everyday Hinglish using the SAME Roman/Latin alphabet.
+- Spoken style guideline: Speak naturally as modern Indian tech professionals converse.
+  Example spoken response: "API basically do applications ke beech communication aur data exchange ka kaam karti hai. Ek application request bhejti hai aur doosri application uska response provide karti hai."
+- Spoken response MUST be fluent, conversational, and direct.
+- Retain all technical terms, programming languages, libraries, APIs, protocols, frameworks, databases, and code strictly in standard English (e.g., API, HTTP, REST, database, server, function, loop, JSON, Express, React, endpoint, query, bug, fix).
+- Do NOT translate technical terms into formal Hindi.
+- Do NOT produce overly formal, archaic, or stiff Sanskritized Hindi.
+- Do NOT output unnatural word-for-word translation.
+- All code blocks, terminal commands, or syntax must remain 100% valid code in standard English syntax.`;
+  }
+
+  if (detectedLang === 'hi') {
+    return `[LANGUAGE REQUIREMENT: HINDI]
+- The user is conversing in Hindi (Devanagari script: हिन्दी).
+- You MUST respond in natural, fluent, modern everyday Hindi in Devanagari script.
+- Retain common technical terms in English or standard transliteration (जैसे: API, सर्वर, डेटाबेस, कोड, लूप, फ़ंक्शन) where natural.
+- Avoid overly archaic or obscure Sanskritized words. Use natural spoken Hindi.
+- All code blocks, terminal commands, or syntax must remain 100% valid code in standard English syntax.`;
+  }
+
+  return `[LANGUAGE REQUIREMENT: ENGLISH]
+- The user is conversing in English.
+- You MUST respond in clear, crisp, natural fluent English.
+- Do NOT insert Hindi or Hinglish phrases unless explicitly requested by the user.
+- All code blocks, terminal commands, or syntax must remain 100% valid code in standard English syntax.`;
+}
+
+/**
  * Dispatches a user turn to the configured LLM provider and formats the response.
  *
  * @param {object} params - LLM inference parameters.
@@ -65,6 +102,9 @@ export async function getAssistantReply({
 }) {
   const userQuery =
     messages && messages.length > 0 ? messages[messages.length - 1]?.content || '' : '';
+  const historyMessages = messages ? messages.slice(0, -1) : [];
+  const queryLang = detectLanguage(userQuery, historyMessages);
+
   const cleanApiKey =
     typeof apiKey === 'string'
       ? apiKey
@@ -90,9 +130,11 @@ export async function getAssistantReply({
     effectiveModel = 'gemini-3.5-flash-lite';
   }
 
-  const effectiveSystemPrompt = researchContext
-    ? `${DUAL_CHANNEL_SYSTEM_PROMPT}\n\n${researchContext}`
-    : DUAL_CHANNEL_SYSTEM_PROMPT;
+  const langInstruction = buildLanguageInstruction(queryLang);
+  let effectiveSystemPrompt = `${DUAL_CHANNEL_SYSTEM_PROMPT}\n\n${langInstruction}`;
+  if (researchContext) {
+    effectiveSystemPrompt += `\n\n${researchContext}`;
+  }
 
   const res = await fetch(url, {
     method: 'POST',
@@ -281,7 +323,7 @@ export function localFallbackReply(messagesOrQuery, userOverride = null, researc
 
   const has = (...phrases) => phrases.some((p) => last.includes(p));
   const hasWord = (...words) => words.some((w) => new RegExp(`\\b${w}\\b`, 'i').test(last));
-  const lang = detectLanguage(userQuery);
+  const lang = detectLanguage(userQuery, messages);
 
   if (!last) {
     const emptySpoken =
@@ -296,6 +338,112 @@ export function localFallbackReply(messagesOrQuery, userOverride = null, researc
       visualResponse: {
         type: 'text',
         content: emptySpoken,
+      },
+    });
+  }
+
+  // --- API & Architecture Concept Handling ---
+  if (
+    has(
+      'api work',
+      'explain api',
+      'what is an api',
+      'how api works',
+      'how apis work',
+      'api kya',
+      'api kaise',
+      'api request',
+      'api ke bare',
+      'api kya hoti'
+    )
+  ) {
+    let spoken =
+      'An API allows two applications to communicate and exchange data with structured requests and responses.';
+    let visual =
+      'An **API (Application Programming Interface)** enables software systems to communicate securely.\n\n- **Client**: Sends requests (e.g. GET, POST, PUT, DELETE)\n- **Server**: Processes business logic and returns structured responses (JSON/XML)\n- **Common Protocols**: REST, GraphQL, WebSocket';
+
+    if (lang === 'hi') {
+      spoken = 'एपीआई दो सॉफ्टवेयर सिस्टम्स के बीच डेटा और संचार का सुरक्षित माध्यम बनती है।';
+      visual =
+        '**एपीआई (API - Application Programming Interface)** दो अलग-अलग एप्लिकेशन के बीच डेटा और संचार की सुविधा प्रदान करती है।';
+    } else if (lang === 'hinglish') {
+      spoken =
+        'API basically do applications ke beech communication ka kaam karti hai. Ek application request bhejti hai aur doosri application uska response provide karti hai.';
+      visual =
+        '**API (Application Programming Interface)** do applications ke beech data exchange aur structured communication enable karti hai.\n\n- **Client**: Request bhejta hai (GET, POST, PUT, DELETE)\n- **Server**: Request process karta hai aur response return karta hai (JSON/XML)\n- **Protocols**: REST, GraphQL, WebSocket';
+    }
+
+    return finalize({
+      responseMode: 'VOICE',
+      spokenResponse: spoken,
+      visualResponse: {
+        type: 'text',
+        content: visual,
+        title: 'API Architecture & Workings',
+      },
+    });
+  }
+
+  // --- Database Concept Handling ---
+  if (has('database kya', 'database explain', 'what is a database', 'database connect')) {
+    let spoken =
+      'A database is an organized system to store, manage, and query structured data securely.';
+    let visual =
+      'A **Database** organizes and persists application state and business records efficiently (e.g. PostgreSQL, SQLite, MongoDB).';
+
+    if (lang === 'hi') {
+      spoken =
+        'डेटाबेस डेटा को सुरक्षित रूप से संग्रहीत, प्रबंधित और खोजने की एक संगठित प्रणाली है।';
+    } else if (lang === 'hinglish') {
+      spoken =
+        'Database ek organized system hai jahan application ka data securely store, update aur query hota hai.';
+      visual =
+        '**Database** ek structured system hai jismein application ka data safely persist aur query kiya jata hai (jaise PostgreSQL, SQLite, MongoDB).';
+    }
+
+    return finalize({
+      responseMode: 'VOICE',
+      spokenResponse: spoken,
+      visualResponse: {
+        type: 'text',
+        content: visual,
+        title: 'Database Architecture',
+      },
+    });
+  }
+
+  // --- Server Startup & Crash Troubleshooting ---
+  if (
+    has(
+      'server start nahi',
+      'server crash',
+      'server not starting',
+      'server is crashing',
+      'isko kaise fix karu',
+      'kaise fix karu'
+    )
+  ) {
+    let spoken =
+      'Check your terminal logs for port conflicts or missing environment variables to resolve the issue.';
+    let visual =
+      '### Node.js Server Troubleshooting Steps:\n1. Inspect the terminal error stack trace.\n2. Ensure the configured port (e.g. 3000) is free.\n3. Verify your `.env` configuration.\n4. Run `npm install` to ensure all packages exist.';
+
+    if (lang === 'hi') {
+      spoken = 'टर्मिनल लॉग्स में पोर्ट टकराव या अनुपलब्ध पर्यावरण चर की जांच करें।';
+    } else if (lang === 'hinglish') {
+      spoken =
+        'Server logs check karke error trace dekhiye, usually port conflict ya missing environment variables ki wajah se server crash hota hai.';
+      visual =
+        '### Server Troubleshooting Checklist:\n1. Terminal logs aur stack trace inspect karein\n2. Port conflict verify karein (e.g. `kill -9` or change `PORT`)\n3. `.env` file aur environment variables verify karein\n4. `npm install` run karke dependencies update karein';
+    }
+
+    return finalize({
+      responseMode: 'VOICE',
+      spokenResponse: spoken,
+      visualResponse: {
+        type: 'text',
+        content: visual,
+        title: 'Server Troubleshooting',
       },
     });
   }

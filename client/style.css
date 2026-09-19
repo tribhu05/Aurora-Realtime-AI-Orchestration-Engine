@@ -637,48 +637,6 @@ body {
   transform: scale(0.97);
 }
 
-/* Language Selector Pill in Topbar */
-.lang-selector-pill {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--glass-border);
-  padding: 5px 10px;
-  border-radius: 9999px;
-  backdrop-filter: blur(12px);
-  color: var(--ink-secondary);
-  transition: all 0.2s ease;
-}
-
-.lang-selector-pill:hover {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.2);
-  color: var(--ink-primary);
-}
-
-.lang-selector-pill svg {
-  flex-shrink: 0;
-  color: var(--accent-cyan);
-}
-
-.lang-select {
-  background: transparent;
-  border: none;
-  color: var(--ink-primary);
-  font-size: 12px;
-  font-weight: 500;
-  font-family: inherit;
-  outline: none;
-  cursor: pointer;
-  padding: 0;
-}
-
-.lang-select option {
-  background: #0f172a;
-  color: #f8fafc;
-}
-
 /* Status Pill (Rounded-full, dark green background, pulsing dot) */
 .status {
   display: flex;
@@ -2631,17 +2589,6 @@ button {
     touch-action: manipulation;
   }
 
-  .lang-selector-pill {
-    padding: 4px 7px;
-    font-size: 11px;
-    gap: 4px;
-  }
-
-  .lang-select {
-    font-size: 11px;
-    max-width: 86px;
-  }
-
   .status {
     padding: 5px 10px;
     font-size: 11px;
@@ -2948,17 +2895,6 @@ button {
 
   .btn-topbar-new-chat svg {
     margin: 0;
-  }
-
-  .lang-selector-pill {
-    padding: 3px 5px;
-    font-size: 10px;
-    gap: 3px;
-  }
-
-  .lang-select {
-    font-size: 10px;
-    max-width: 72px;
   }
 
   .status {

@@ -5,6 +5,7 @@
 
 import { synthesizeSpeech } from './rime.js';
 import { getAssistantReply } from './llm.js';
+import { detectLanguage } from './response-router.js';
 
 export function isTaskRequest(text) {
   if (!text || typeof text !== 'string') return false;
@@ -24,6 +25,12 @@ export function isTaskRequest(text) {
     'create a rest api',
     'scaffold a rest api',
     'create rest api',
+    'api bana do',
+    'api banao',
+    'project bana do',
+    'project banao',
+    'express api bana',
+    'rest api bana',
   ];
   return taskKeywords.some((k) => t.includes(k));
 }
@@ -62,21 +69,23 @@ function delay(ms, signal) {
  */
 export async function executeScaffoldTask({
   ws,
-  state,
-  myGen,
-  userText,
-  signal,
-  send,
-  rimeConfig,
-  llmConfig,
+  state = { generation: 1 },
+  myGen = 1,
+  userText = '',
+  prompt = '',
+  signal = new AbortController().signal,
+  send = () => {},
+  rimeConfig = {},
+  llmConfig = {},
   researchContext = null,
   researchData = null,
 }) {
-  const isTs =
-    userText.toLowerCase().includes('typescript') || userText.toLowerCase().includes('ts');
-  const isTodo = userText.toLowerCase().includes('todo');
+  const rawText = (userText || prompt || '').trim();
+  const isTs = rawText.toLowerCase().includes('typescript') || rawText.toLowerCase().includes('ts');
+  const isTodo = rawText.toLowerCase().includes('todo');
   const flavor = isTs ? 'TypeScript' : 'JavaScript';
   const title = `Scaffold Express REST API (${flavor})`;
+  const taskLang = detectLanguage(rawText);
 
   const stepNames = researchContext
     ? [
@@ -131,9 +140,16 @@ export async function executeScaffoldTask({
   });
 
   // 2. Synthesize and send initial spoken voice announcement
-  const initialSpoken = researchContext
+  let initialSpoken = researchContext
     ? `Starting the Express ${flavor} REST API scaffolding using current best practices.`
     : `Starting the Express ${flavor} REST API scaffolding now.`;
+  if (taskLang === 'hinglish') {
+    initialSpoken = researchContext
+      ? `Maine current best practices ke sath Express ${flavor} REST API scaffold karna shuru kar diya hai.`
+      : `Maine Express ${flavor} REST API ka project scaffold karna start kar diya hai.`;
+  } else if (taskLang === 'hi') {
+    initialSpoken = `मैंने एक्सप्रेस ${flavor} रेस्ट एपीआई का प्रोजेक्ट तैयार करना शुरू कर दिया है।`;
+  }
   send(ws, {
     type: 'ai_text',
     text: initialSpoken,
@@ -277,10 +293,15 @@ export async function executeScaffoldTask({
   });
 
   // 6. Final spoken voice announcement
-  const finalSpoken = `Your Express ${flavor} project is ready. I've placed the full code in the chat.`;
+  let finalSpoken = `Your Express ${flavor} project is ready. I've placed the full code in the chat.`;
+  if (taskLang === 'hinglish') {
+    finalSpoken = `Aapka Express ${flavor} project ready hai. Maine complete code workspace me place kar diya hai.`;
+  } else if (taskLang === 'hi') {
+    finalSpoken = `आपका एक्सप्रेस ${flavor} प्रोजेक्ट तैयार है। मैंने पूरा कोड वर्कस्पेस में रख दिया है।`;
+  }
   try {
     const audioBuffer = await synthesizeSpeech(finalSpoken, rimeConfig, signal);
-    if (signal.aborted || state.generation !== myGen) return;
+    if (signal?.aborted || (state && state.generation !== myGen)) return;
     if (audioBuffer) {
       send(ws, {
         type: 'audio',
@@ -304,6 +325,21 @@ export async function executeScaffoldTask({
   }
 
   send(ws, { type: 'done', generation: myGen, timestamp: Date.now() });
+
+  return {
+    success: true,
+    initialSpoken,
+    finalSpoken,
+    completionSpoken: finalSpoken,
+    files: filesList,
+    artifacts: [
+      {
+        filename: isTs ? 'src/server.ts' : 'server.js',
+        content: primaryCode,
+      },
+    ],
+    primaryCode,
+  };
 }
 
 function getJsExpressCode(isTodo = false) {

@@ -1727,33 +1727,59 @@
   // ---------- Multi-Lingual Speech & Language Helpers ----------
   function detectClientLanguage(text) {
     if (!text || typeof text !== 'string') return 'en';
-    if (/[\u0900-\u097F]/.test(text)) return 'hi';
-    const hinglishPatterns = [
-      /\b(namaste|namaskar|pranam|kya|kyun|kyu|kaise|kaisa|kaisi|kab|kahan|kidhar|kaun)\b/i,
-      /\b(hai|hain|ho|hoon|hun|tha|thi|the|hoga|hogi|honge|raha|rahi|rahe)\b/i,
-      /\b(mujhe|tum|tumhe|aap|aapko|hum|hume|mera|meri|mere|tera|teri|tere|apna|apni|apne)\b/i,
-      /\b(uska|uski|uske|iska|iski|iske|unka|unki|unke|inka|inki|inke|yeh|ye|woh|wo)\b/i,
-      /\b(batao|bataiye|samjhao|samjha|karo|kar|kariye|karna|karne|karta|karti|karte|do|de|dena|dijiye)\b/i,
-      /\b(sakte|sakta|sakti|sakenge|chahiye|mangta|padega|padegi)\b/i,
-      /\b(thik|theek|sahi|galat|nahi|nahin|mat|bhi|hi|toh|to|aur|ya|lekin|magar|par)\b/i,
-      /\b(bhai|yaar|dost|sir|madam|ji|sahab|accha|achha|acha|bohot|bahut|kuch|sab)\b/i,
-      /\b(kaam|baat|sawal|jawaab|jawab|likho|likhna|dikhaye|dekho|bhejo|suno)\b/i,
-      /\b(shukriya|dhanyawad|alvida|zarur|zaroor|bilkul|asani|aasan|mushkil)\b/i,
+    const trimmed = text.trim();
+    if (/[\u0900-\u097F]/.test(trimmed)) return 'hi';
+
+    if (
+      /\b(in english|explain in english|speak in english|switch to english|english please)\b/i.test(
+        trimmed
+      )
+    ) {
+      return 'en';
+    }
+    if (/\b(in hindi|explain in hindi|hindi me|hindi mein)\b/i.test(trimmed)) {
+      return 'hi';
+    }
+    if (/\b(in hinglish|explain in hinglish|hinglish me|hinglish mein)\b/i.test(trimmed)) {
+      return 'hinglish';
+    }
+
+    const phrases = [
+      /\bkya (hoti|hota|hote|hai|hain|tha|thi|the)\b/i,
+      /\bkaise (kaam|work|karta|karti|karte)\b/i,
+      /\b(kaise|kaha|kidhar|kab|kyu|kyun) (karu|karun|kare|karein|banaye|fix karu)\b/i,
+      /\b(nahi|nahin) (ho raha|ho rahi|chal raha|aata|samajh)\b/i,
+      /\b(start|run|connect) (nahi|nahin)\b/i,
+      /\b(bata|samjha) (sakte|sakti) ho\b/i,
+      /\b(mujhe|hume) (batao|samjhao|chahiye)\b/i,
+      /\b(bata|samjha|likh|kar|bana) (do|dijiye|na)\b/i,
+      /\b(kya chal raha|kaise ho|kya haal|theek hai|sahi hai)\b/i,
+      /\b(namaste|namaskar|shukriya|dhanyawad)\b/i,
+    ];
+    for (const p of phrases) {
+      if (p.test(trimmed)) return 'hinglish';
+    }
+
+    const tokens = [
+      /\b(kya|kyun|kyu|kaise|kaisa|kaisi|kab|kahan|kaha|kidhar|kaun|kitna|kitne|kitni)\b/i,
+      /\b(hai|hain|ho|hoon|hun|tha|thi|the|hoga|hogi|honge|raha|rahi|rahe|hota|hoti|hote)\b/i,
+      /\b(karna|karne|karta|karti|karte|karo|karu|karun|kare|karen|kiya|kiye)\b/i,
+      /\b(batao|bataiye|batana|bata|samjhao|samjha|samajh|bana|banao|chal|chalo)\b/i,
+      /\b(sakta|sakti|sakte|sakenge|chahiye|padega|padegi)\b/i,
+      /\b(mujhe|mera|meri|mere|tumhe|tumhara|tera|teri|tere|aapko|aapka|aapki|aapke)\b/i,
+      /\b(hum|hume|uska|uski|uske|iska|iski|iske|apna|apni|apne)\b/i,
+      /\b(nahi|nahin|mat|bhi|toh|lekin|magar|bohot|bahut|thoda|theek|thik|accha|achha|acha|bhai|yaar)\b/i,
     ];
     let matchCount = 0;
-    for (const pattern of hinglishPatterns) {
-      if (pattern.test(text)) {
+    for (const t of tokens) {
+      if (t.test(trimmed)) {
         matchCount++;
         if (matchCount >= 2) return 'hinglish';
       }
     }
-    if (
-      /\b(bhai|yaar|kaise ho|kya haal|kya chal raha|kya kar sakte|madad karo|samjha do|likh do|kar do|bata do|batao na|theek hai|sahi hai|pata hai|kya hai|namaste|shukriya|dhanyawad)\b/i.test(
-        text
-      )
-    ) {
-      return 'hinglish';
-    }
+    const words = trimmed.split(/\s+/).filter(Boolean);
+    if (matchCount >= 1 && words.length <= 5) return 'hinglish';
+
     return 'en';
   }
 
@@ -1771,11 +1797,9 @@
   function getBestVoiceForText(text) {
     if (!cachedVoices || !cachedVoices.length) populateVoices();
     const lang = detectClientLanguage(text);
-    const activeSetting =
-      (typeof localStorage !== 'undefined' && localStorage.getItem('aurora-speech-lang')) || 'auto';
 
     // 1. Hindi (Devanagari)
-    if (lang === 'hi' || activeSetting === 'hi-IN') {
+    if (lang === 'hi') {
       const hiVoice = cachedVoices.find(
         (v) =>
           (v.lang && (v.lang === 'hi-IN' || v.lang.startsWith('hi'))) ||
@@ -1783,7 +1807,6 @@
       );
       if (hiVoice) return { voice: hiVoice, lang: 'hi-IN' };
 
-      // Fallback to Indian English voice
       const inVoice = cachedVoices.find(
         (v) =>
           (v.lang && (v.lang === 'en-IN' || v.lang.startsWith('en-IN'))) ||
@@ -1793,12 +1816,12 @@
       return { voice: null, lang: 'hi-IN' };
     }
 
-    // 2. Hinglish (Roman Hindi)
-    if (lang === 'hinglish' || activeSetting === 'en-IN') {
+    // 2. Hinglish (Roman Hindi) - prioritize authentic Indian English pronunciation
+    if (lang === 'hinglish') {
       const inVoice = cachedVoices.find(
         (v) =>
           (v.lang && (v.lang === 'en-IN' || v.lang.startsWith('en-IN'))) ||
-          /india|neerja|prabhat|veena|heera/i.test(v.name)
+          /india|neerja|prabhat|veena|heera|ravi/i.test(v.name)
       );
       if (inVoice) return { voice: inVoice, lang: 'en-IN' };
 
@@ -1987,6 +2010,40 @@
           text: 'Haan bilkul! Main **Hindi (हिन्दी)** aur **Hinglish** dono me bohot naturally baat aur code dono kar sakta hoon. Boliye, aaj kya code ya explain karna hai?',
           visualType: 'text',
           title: 'Hindi & Hinglish Support',
+        };
+      }
+      if (
+        lower.includes('api work') ||
+        lower.includes('explain api') ||
+        lower.includes('what is an api') ||
+        lower.includes('what is api') ||
+        lower.includes('how api works') ||
+        lower.includes('how apis work') ||
+        lower.includes('api kya') ||
+        lower.includes('api kaise') ||
+        lower.includes('api request')
+      ) {
+        let apiSpoken =
+          'An API allows two applications to communicate and exchange data with structured requests and responses.';
+        let apiText =
+          'An **API (Application Programming Interface)** enables software systems to communicate securely.\n\n- **Client**: Sends requests (e.g. GET, POST, PUT, DELETE)\n- **Server**: Processes business logic and returns structured responses (JSON/XML)\n- **Common Protocols**: REST, GraphQL, WebSocket';
+        if (lang === 'hi') {
+          apiSpoken =
+            'एपीआई दो अलग-अलग एप्लिकेशन्स के बीच सुरक्षित डेटा और संदेशों के आदान-प्रदान का माध्यम होती है।';
+          apiText =
+            '**एपीआई (API - Application Programming Interface)** दो अलग-अलग एप्लिकेशन्स के बीच डेटा के आदान-प्रदान का सुरक्षित माध्यम होती है।';
+        } else if (lang === 'hinglish') {
+          apiSpoken =
+            'API basically do applications ke beech communication ka kaam karti hai. Ek application request bhejti hai aur doosri application uska response provide karti hai.';
+          apiText =
+            '**API (Application Programming Interface)** do applications ke beech data exchange aur structured communication enable karti hai.\n\n- **Client**: Request bhejta hai (GET, POST, PUT, DELETE)\n- **Server**: Request process karta hai aur response return karta hai (JSON/XML)\n- **Protocols**: REST, GraphQL, WebSocket';
+        }
+        return {
+          responseMode: 'VOICE',
+          spoken: apiSpoken,
+          text: apiText,
+          visualType: 'text',
+          title: 'API Architecture & Workings',
         };
       }
     }
@@ -2216,6 +2273,15 @@ executeTask();`,
             ? 'https://api.groq.com/openai/v1/chat/completions'
             : 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
         const model = userProvider === 'groq' ? 'llama-3.1-8b-instant' : 'gemini-3.5-flash-lite';
+        const detectedLang = detectClientLanguage(cleanText);
+        let langInstruction = 'Respond in clear, natural fluent English.';
+        if (detectedLang === 'hinglish') {
+          langInstruction =
+            'The user is speaking in natural Hinglish (Hindi in Roman script). You MUST respond in fluent, natural, conversational Hinglish using the SAME Roman/English alphabet. Keep all technical terms (API, server, database, code, HTTP, REST, etc.) in standard English. Example spoken style: "API basically do applications ke beech communication ka kaam karti hai. Ek application request bhejti hai aur doosri application uska response provide karti hai." Do not translate technical terms into formal Hindi.';
+        } else if (detectedLang === 'hi') {
+          langInstruction =
+            'The user is speaking in Hindi. You MUST respond in natural, modern Hindi in Devanagari script. Keep technical terms like API, code, database in standard English/transliteration.';
+        }
         const res = await fetch(endpoint, {
           method: 'POST',
           headers: {
@@ -2227,8 +2293,7 @@ executeTask();`,
             messages: [
               {
                 role: 'system',
-                content:
-                  'You are Aurora, an intelligent voice AI companion. Return a helpful, concise answer. If code is requested, provide complete code.',
+                content: `You are Aurora, an intelligent voice AI companion. Return a helpful, concise answer. If code is requested, provide complete code.\n\n${langInstruction}`,
               },
               ...history.slice(-4),
               { role: 'user', content: cleanText },
@@ -4432,40 +4497,6 @@ executeTask();`,
       }
     });
   }
-
-  // ---------- Speech & Conversation Language Configuration ----------
-  const voiceLangSelect = $('voiceLangSelect');
-  const settingsLangSelect = $('settingsLangSelect');
-
-  function syncSpeechLanguage(lang) {
-    const validLang = lang || 'auto';
-    if (voiceLangSelect) voiceLangSelect.value = validLang;
-    if (settingsLangSelect) settingsLangSelect.value = validLang;
-    try {
-      localStorage.setItem('aurora-speech-lang', validLang);
-    } catch (_) {}
-    if (mic && typeof mic.setLanguage === 'function') {
-      mic.setLanguage(validLang);
-    }
-  }
-
-  if (voiceLangSelect) {
-    voiceLangSelect.addEventListener('change', (e) => {
-      syncSpeechLanguage(e.target.value);
-    });
-  }
-
-  if (settingsLangSelect) {
-    settingsLangSelect.addEventListener('change', (e) => {
-      syncSpeechLanguage(e.target.value);
-    });
-  }
-
-  // Restore saved speech language
-  try {
-    const savedSpeechLang = localStorage.getItem('aurora-speech-lang') || 'auto';
-    syncSpeechLanguage(savedSpeechLang);
-  } catch (_) {}
 
   // ---------- Online LLM Key Activation ----------
   const llmProviderSelect = $('llmProviderSelect');

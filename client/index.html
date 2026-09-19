@@ -223,37 +223,6 @@
                 <span>New Chat</span>
               </button>
 
-              <!-- Language Selector Pill -->
-              <div
-                class="lang-selector-pill"
-                id="langSelectorPill"
-                title="Speech &amp; Conversation Language"
-              >
-                <svg
-                  width="13"
-                  height="13"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  aria-hidden="true"
-                >
-                  <circle cx="12" cy="12" r="10"></circle>
-                  <line x1="2" y1="12" x2="22" y2="12"></line>
-                  <path
-                    d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"
-                  ></path>
-                </svg>
-                <select id="voiceLangSelect" class="lang-select" aria-label="Speech Language">
-                  <option value="auto">Auto · Hinglish</option>
-                  <option value="hi-IN">🇮🇳 हिन्दी (Hindi)</option>
-                  <option value="en-IN">🇮🇳 Indian EN</option>
-                  <option value="en-US">🇺🇸 English (US)</option>
-                </select>
-              </div>
-
               <!-- Status Pill (Rounded-full, dark green background, pulsing dot) -->
               <div class="status" id="statusPill">
                 <i class="dot" id="connDot"></i>
@@ -669,32 +638,6 @@
                   >Google Gemini 3.5 Cloud Brain and Rime Neural Voice are pre-configured. No API
                   key setup required — start chatting immediately.</span
                 >
-              </div>
-            </div>
-
-            <!-- 0. Speech & Conversation Language -->
-            <div class="config-field">
-              <label for="settingsLangSelect">Speech &amp; Conversation Language</label>
-              <p class="config-desc">
-                Select your preferred voice recognition and conversational fluency style (Hindi,
-                Hinglish, or English).
-              </p>
-              <div class="input-action-row">
-                <select
-                  id="settingsLangSelect"
-                  class="settings-select"
-                  aria-label="Speech and Conversation Language"
-                >
-                  <option value="auto" selected>
-                    🌐 Auto (Hinglish &amp; Multi-lingual · Recommended)
-                  </option>
-                  <option value="hi-IN">🇮🇳 हिन्दी (Hindi · Native Devanagari)</option>
-                  <option value="en-IN">🇮🇳 Hinglish / Indian English (en-IN)</option>
-                  <option value="en-US">🇺🇸 English (United States · en-US)</option>
-                </select>
-              </div>
-              <div class="preview-status" id="langStatusMsg" style="color: #7ee3a8">
-                ✓ Hindi &amp; Hinglish conversational fluency active.
               </div>
             </div>
 

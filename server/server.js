@@ -26,6 +26,7 @@ import { getAssistantReply, localFallbackReply } from './llm.js';
 import { synthesizeSpeech, RIME_SPEAKERS, RIME_MODELS } from './rime.js';
 import { isTaskRequest, executeScaffoldTask } from './tasks.js';
 import { getDb } from './db.js';
+import { detectLanguage } from './response-router.js';
 import {
   calculateTurnCost,
   checkSessionBudget,
@@ -669,12 +670,14 @@ export function createAuroraServer(options = {}) {
 
       const t1 = Date.now();
       let audioBase64 = null;
+      const requestLang = detectLanguage(userText, conversationHistory);
       try {
         const buf = await synthesizeSpeech(spokenText, {
           ...rimeConfig,
           apiKey: requestRimeApiKey,
           speaker: activeSpeaker,
           modelId: activeModel,
+          lang: requestLang === 'hi' ? 'hi' : 'en',
         });
         if (buf) {
           audioBase64 = buf.toString('base64');
@@ -720,6 +723,7 @@ export function createAuroraServer(options = {}) {
         ok: true,
         sessionId,
         responseMode: replyObj.responseMode || 'VOICE',
+        detectedLanguage: replyObj.detectedLanguage || requestLang,
         spokenResponse: spokenText,
         visualResponse: visualPayload,
         audio: audioBase64,
@@ -1401,6 +1405,7 @@ async function handleTurn({
     } catch (_) {}
   }
   if (isStale(state, myGen)) return;
+  const turnLang = detectLanguage(userText, state.history);
   const t0 = Date.now();
   let replyObj;
   let degraded = false;
@@ -1489,7 +1494,12 @@ async function handleTurn({
               // Launch synthesis HTTP fetch concurrently without waiting for prior chunks to finish
               const synthPromise = synthesizeSpeech(
                 textToSpeak,
-                { ...rimeConfig, speaker: activeSpeaker, modelId: activeModel },
+                {
+                  ...rimeConfig,
+                  speaker: activeSpeaker,
+                  modelId: activeModel,
+                  lang: turnLang === 'hi' ? 'hi' : 'en',
+                },
                 controller.signal
               );
               // Strictly sequence delivery over WebSocket so playback remains in natural order
@@ -1594,6 +1604,7 @@ async function handleTurn({
     visual: visualPayload,
     visualType: visualPayload.type || replyObj.visualType || replyObj.type || 'text',
     language: visualPayload.language || replyObj.language || null,
+    detectedLanguage: replyObj.detectedLanguage || turnLang,
     title: visualPayload.title || replyObj.title || null,
     responseMode: replyObj.responseMode || 'VOICE',
     spokenResponse: replyObj.spokenResponse || replyObj.spoken || '',
@@ -1639,15 +1650,19 @@ async function handleTurn({
   });
 
   // Ensure verbal response is spoken if no audio chunks were sent during stream
-  let cleanSpoken = replyObj.content
-    .replace(/```[\s\S]*?(?:```|$)/g, '')
-    .replace(/`[^`]+(?:`|$)/g, '');
+  const spokenSource = replyObj.spokenResponse || replyObj.spoken || replyObj.content || '';
+  let cleanSpoken = spokenSource.replace(/```[\s\S]*?(?:```|$)/g, '').replace(/`[^`]+(?:`|$)/g, '');
   cleanSpoken = cleanSpoken.replace(/[*_#[\]>]/g, '').trim();
   if (!cleanSpoken) {
-    if (replyObj.content.includes('```')) {
-      cleanSpoken = "I've written the implementation in the chat for you.";
+    if (replyObj.content && replyObj.content.includes('```')) {
+      cleanSpoken =
+        turnLang === 'hinglish'
+          ? 'Maine code workspace me taiyar kar diya hai.'
+          : turnLang === 'hi'
+            ? 'मैंने कोड वर्कस्पेस में तैयार कर दिया है।'
+            : "I've written the implementation in the chat for you.";
     } else {
-      cleanSpoken = replyObj.content.slice(0, 150);
+      cleanSpoken = (replyObj.content || '').slice(0, 150);
     }
   }
 
@@ -1658,7 +1673,12 @@ async function handleTurn({
         try {
           const buf = await synthesizeSpeech(
             cleanSpoken,
-            { ...rimeConfig, speaker: activeSpeaker, modelId: activeModel },
+            {
+              ...rimeConfig,
+              speaker: activeSpeaker,
+              modelId: activeModel,
+              lang: turnLang === 'hi' ? 'hi' : 'en',
+            },
             controller.signal
           );
           if (buf && !isStale(state, myGen)) {
