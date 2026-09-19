@@ -701,6 +701,39 @@
               </div>
             </div>
 
+            <!-- 2b. SerpApi Live Web Search Key -->
+            <div class="config-field">
+              <label for="serpapiKeyInput">SerpApi Web Search Key (Optional)</label>
+              <p class="config-desc">
+                Real-time Google search for current news, weather, and live web research.
+              </p>
+              <div class="input-action-row">
+                <input
+                  type="password"
+                  id="serpapiKeyInput"
+                  placeholder="●●●●●●●● (Pre-configured · Active for all users)"
+                  autocomplete="off"
+                />
+                <button
+                  id="btnSaveSerpapiKey"
+                  class="small-action-btn"
+                  title="Optional: Override with your own custom key"
+                >
+                  Override Key
+                </button>
+                <button
+                  id="btnTestSerpapi"
+                  class="small-action-btn"
+                  title="Test SerpApi live search connectivity"
+                >
+                  Test Search
+                </button>
+              </div>
+              <div class="preview-status" id="serpapiKeyStatusMsg" style="color: #7ee3a8">
+                ✓ Live web search is available.
+              </div>
+            </div>
+
             <!-- 3. Real-Time Backend Host -->
             <div class="config-field">
               <label for="backendUrlInput">Real-Time Backend Server</label>

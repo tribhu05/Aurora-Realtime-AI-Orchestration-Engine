@@ -38,7 +38,9 @@ import {
   generateResearchQuery,
   performLiveResearch,
   formatResearchContextForLLM,
+  testSerpApiConnectivity,
 } from './research.js';
+import { detectGitHubUrl, fetchGitHubRepoDetails, formatGitHubContextForLLM } from './github.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -224,12 +226,18 @@ export function createAuroraServer(options = {}) {
     mock,
   };
 
+  const resolvedSerpapiKey = mock
+    ? ''
+    : realKey(options.serpapiKey || process.env.SERPAPI_API_KEY || process.env.SERPAPI_KEY || '');
+
   const serpapiConfig = {
     enabled:
       options.serpapiEnabled !== undefined
         ? Boolean(options.serpapiEnabled)
-        : process.env.SERPAPI_ENABLED === 'true',
-    apiKey: mock ? '' : realKey(options.serpapiKey || process.env.SERPAPI_KEY || ''),
+        : process.env.SERPAPI_ENABLED === 'false'
+          ? false
+          : Boolean(resolvedSerpapiKey),
+    apiKey: resolvedSerpapiKey,
     timeoutMs: Number(options.serpapiTimeoutMs || process.env.SERPAPI_TIMEOUT_MS) || 4000,
     mockResults: options.mockResearchResults || null,
   };
@@ -428,6 +436,58 @@ export function createAuroraServer(options = {}) {
     });
   });
 
+  app.get(['/api/keys', '/keys'], (_req, res) => {
+    res.json({
+      ok: true,
+      rimeConfigured: Boolean(rimeConfig.apiKey),
+      llmConfigured: Boolean(llmConfig.apiKey),
+      serpapiConfigured: Boolean(serpapiConfig.apiKey),
+    });
+  });
+
+  app.all(['/api/diagnostic/serpapi', '/diagnostic/serpapi'], async (req, res) => {
+    try {
+      const incomingKey =
+        (typeof req.headers['x-serpapi-key'] === 'string' && req.headers['x-serpapi-key'].trim()) ||
+        (typeof req.headers['x-serpapi-api-key'] === 'string' &&
+          req.headers['x-serpapi-api-key'].trim()) ||
+        (typeof req.query?.apiKey === 'string' && req.query.apiKey.trim()) ||
+        (typeof req.body?.apiKey === 'string' && req.body.apiKey.trim()) ||
+        serpapiConfig.apiKey;
+
+      const testQuery = req.query?.q || req.body?.q || 'latest AI news';
+      const diagnostic = await testSerpApiConnectivity(incomingKey, {
+        testQuery,
+        timeoutMs: 6000,
+        mockResults: serpapiConfig.mockResults,
+      });
+
+      return res.status(diagnostic.ok ? 200 : diagnostic.status || 400).json(diagnostic);
+    } catch (err) {
+      return res.status(500).json({
+        ok: false,
+        error: sanitizeError(err.message || 'Diagnostic execution failed'),
+      });
+    }
+  });
+
+  app.all(['/api/diagnostic/github', '/diagnostic/github'], async (req, res) => {
+    try {
+      const owner = req.query?.owner || req.body?.owner || 'tribhu05';
+      const repo = req.query?.repo || req.body?.repo || 'SolarVision';
+      const repoData = await fetchGitHubRepoDetails(owner, repo, {
+        token: process.env.GITHUB_TOKEN || '',
+        timeoutMs: 6000,
+      });
+      return res.status(repoData.ok ? 200 : 400).json(repoData);
+    } catch (err) {
+      return res.status(500).json({
+        ok: false,
+        error: sanitizeError(err.message || 'GitHub diagnostic failed'),
+      });
+    }
+  });
+
   app.post(['/api/turn', '/turn'], async (req, res) => {
     try {
       const { text, mode, history = [], speaker, modelId } = req.body || {};
@@ -478,14 +538,50 @@ export function createAuroraServer(options = {}) {
           : db.getSessionMessagesForContext(sessionId, 20);
       conversationHistory.push({ role: 'user', content: userText });
 
+      // Resolve runtime SerpApi key from headers, body, or server config
+      const incomingSerpApiKey =
+        (typeof req.headers['x-serpapi-key'] === 'string' && req.headers['x-serpapi-key'].trim()) ||
+        (typeof req.headers['x-serpapi-api-key'] === 'string' &&
+          req.headers['x-serpapi-api-key'].trim()) ||
+        (typeof req.body?.serpapiKey === 'string' && req.body.serpapiKey.trim()) ||
+        serpapiConfig.apiKey;
+      const effectiveSerpapiEnabled = serpapiConfig.enabled || Boolean(incomingSerpApiKey);
+
+      // GitHub Repository Inspection (Real-Time Pre-Fetch)
+      let githubData = null;
+      let githubContext = null;
+      const ghUrl = detectGitHubUrl(userText);
+      if (ghUrl) {
+        const tGh0 = Date.now();
+        const ghResult = await fetchGitHubRepoDetails(ghUrl.owner, ghUrl.repo, {
+          token: process.env.GITHUB_TOKEN || '',
+          timeoutMs: 5000,
+        });
+        const ghDurationMs = Date.now() - tGh0;
+        if (ghResult.ok) {
+          githubData = ghResult;
+          githubContext = formatGitHubContextForLLM(ghResult);
+          db.recordTelemetryEvent(sessionId, 'github_repo_success', {
+            repo: ghResult.fullName,
+            durationMs: ghDurationMs,
+          });
+        } else {
+          db.recordTelemetryEvent(sessionId, 'github_repo_failed', {
+            repo: `${ghUrl.owner}/${ghUrl.repo}`,
+            reason: sanitizeError(ghResult.error || 'unavailable'),
+            durationMs: ghDurationMs,
+          });
+        }
+      }
+
       // Optional SerpApi live research
       let researchData = null;
       let researchContext = null;
-      if (serpapiConfig?.enabled && isResearchNeeded(userText)) {
+      if (!ghUrl && effectiveSerpapiEnabled && isResearchNeeded(userText)) {
         const researchQuery = generateResearchQuery(userText);
         const tRes0 = Date.now();
         const researchResult = await performLiveResearch(researchQuery, {
-          apiKey: serpapiConfig.apiKey,
+          apiKey: incomingSerpApiKey,
           timeoutMs: serpapiConfig.timeoutMs,
           mockResults: serpapiConfig.mockResults,
         });
@@ -507,6 +603,9 @@ export function createAuroraServer(options = {}) {
         }
       }
 
+      const combinedResearchContext =
+        [researchContext, githubContext].filter(Boolean).join('\n\n') || null;
+
       // 1. Task request check
       if (isTaskRequest(userText)) {
         const isTs = /\b(typescript|ts)\b/i.test(userText);
@@ -514,7 +613,7 @@ export function createAuroraServer(options = {}) {
         const flavor = isTs ? 'TypeScript' : 'JavaScript';
         const targetSubject = isTodo ? 'Todo App' : 'REST API';
         const title = `Scaffold Express ${targetSubject} (${flavor})`;
-        const spoken = researchContext
+        const spoken = combinedResearchContext
           ? `Scaffolded the Express ${flavor} REST API using current best practices.`
           : `Scaffolded the Express ${flavor} REST API in the workspace.`;
         const visualContent = `// Express ${flavor} ${targetSubject} Scaffolding Completed\n// Project structure, routes, controllers, and environment configuration generated.`;
@@ -594,7 +693,7 @@ export function createAuroraServer(options = {}) {
           cost: session.total_cost_usd,
           cap: DEFAULT_SESSION_BUDGET_CAP_USD,
         });
-        replyObj = localFallbackReply(userText, userOverride, researchContext);
+        replyObj = localFallbackReply(userText, userOverride, combinedResearchContext);
         degraded = true;
       } else {
         try {
@@ -615,7 +714,9 @@ export function createAuroraServer(options = {}) {
               model: currentLlm.model,
               messages: conversationHistory,
               userOverride,
-              researchContext,
+              researchContext: combinedResearchContext,
+              serpapiKey: incomingSerpApiKey,
+              toolsEnabled: effectiveSerpapiEnabled,
             }),
             new Promise((_, reject) =>
               setTimeout(
@@ -631,10 +732,29 @@ export function createAuroraServer(options = {}) {
           db.recordTelemetryEvent(sessionId, 'latency_fallback', {
             reason: llmErr.message || 'timeout',
           });
-          replyObj = localFallbackReply(userText, userOverride, researchContext);
+          replyObj = localFallbackReply(userText, userOverride, combinedResearchContext);
           degraded = true;
         }
       }
+
+      if (replyObj.toolExecution) {
+        if (replyObj.toolExecution.tool === 'web_search') {
+          researchData = {
+            query: replyObj.toolExecution.args?.query || userText,
+            results: replyObj.toolExecution.result?.results || [],
+          };
+          db.recordTelemetryEvent(sessionId, 'serpapi_tool_success', {
+            query: researchData.query,
+            resultCount: researchData.results.length,
+          });
+        } else if (replyObj.toolExecution.tool === 'inspect_github_repo') {
+          githubData = replyObj.toolExecution.result;
+          db.recordTelemetryEvent(sessionId, 'github_tool_success', {
+            repo: githubData?.fullName,
+          });
+        }
+      }
+
       const llmMs = Date.now() - t0;
       console.log(`[TURN] LLM response received in ${llmMs}ms`);
       console.log(`[TURN] response normalized: mode=${replyObj.responseMode || 'VOICE'}`);
@@ -678,7 +798,7 @@ export function createAuroraServer(options = {}) {
           apiKey: requestRimeApiKey,
           speaker: activeSpeaker,
           modelId: activeModel,
-          lang: requestLang === 'hi' || requestLang === 'hinglish' ? 'hi' : 'en',
+          lang: requestLang === 'hi' ? 'hi' : 'en',
         });
         if (buf) {
           audioBase64 = buf.toString('base64');
@@ -734,7 +854,21 @@ export function createAuroraServer(options = {}) {
         format: rimeConfig.audioFormat,
         speaker: activeSpeaker,
         modelId: activeModel,
-        research: researchData || null,
+        research:
+          researchData ||
+          (githubData
+            ? {
+                query: githubData.fullName,
+                results: [
+                  {
+                    title: githubData.fullName,
+                    url: `https://github.com/${githubData.fullName}`,
+                    snippet: githubData.description || (githubData.readme || '').slice(0, 250),
+                    source: 'GitHub',
+                  },
+                ],
+              }
+            : null),
         llmMs,
         ttsMs,
         totalMs,
@@ -811,12 +945,26 @@ export function createAuroraServer(options = {}) {
   });
 
   app.post(['/keys', '/api/keys'], (req, res) => {
-    const { llmApiKey, llmProvider = 'groq', llmModel, rimeApiKey } = req.body || {};
+    const {
+      llmApiKey,
+      llmProvider = 'gemini',
+      llmModel,
+      rimeApiKey,
+      serpapiKey,
+      serpapiEnabled,
+    } = req.body || {};
     let rimeUpdated = false;
+    let serpapiUpdated = false;
     if (typeof rimeApiKey === 'string' && rimeApiKey.trim()) {
       rimeConfig.apiKey = rimeApiKey.trim();
       rimeUpdated = true;
       if (!quiet) console.log(`🎙️ Rime TTS Key activated: ${rimeConfig.speaker}`);
+    }
+    if (typeof serpapiKey === 'string' && serpapiKey.trim()) {
+      serpapiConfig.apiKey = serpapiKey.trim();
+      serpapiConfig.enabled = serpapiEnabled !== false;
+      serpapiUpdated = true;
+      if (!quiet) console.log(`🔍 SerpApi Key activated`);
     }
     if (typeof llmApiKey === 'string' && llmApiKey.trim()) {
       llmConfig.apiKey = llmApiKey.trim();
@@ -837,15 +985,17 @@ export function createAuroraServer(options = {}) {
         ok: true,
         llmConfigured: true,
         rimeConfigured: Boolean(rimeConfig.apiKey),
+        serpapiConfigured: Boolean(serpapiConfig.apiKey),
         provider: llmConfig.provider,
         model: llmConfig.model,
       });
     }
-    if (rimeUpdated) {
+    if (rimeUpdated || serpapiUpdated) {
       return res.json({
         ok: true,
-        rimeConfigured: true,
+        rimeConfigured: Boolean(rimeConfig.apiKey),
         llmConfigured: Boolean(llmConfig.apiKey),
+        serpapiConfigured: Boolean(serpapiConfig.apiKey),
       });
     }
     res.json({ ok: false, error: 'API key is required' });
@@ -1325,11 +1475,57 @@ async function handleTurn({
     });
   }
 
+  // GitHub Repository Inspection (Real-Time Pre-Fetch)
+  let githubData = null;
+  let githubContext = null;
+  const ghUrl = detectGitHubUrl(userText);
+  if (ghUrl) {
+    if (!isStale(state, myGen)) {
+      send(ws, {
+        type: 'research_started',
+        query: `${ghUrl.owner}/${ghUrl.repo}`,
+        generation: myGen,
+        timestamp: Date.now(),
+      });
+      const tGh0 = Date.now();
+      const ghResult = await fetchGitHubRepoDetails(ghUrl.owner, ghUrl.repo, {
+        token: process.env.GITHUB_TOKEN || '',
+        signal: controller.signal,
+        timeoutMs: 5000,
+      });
+      const ghDurationMs = Date.now() - tGh0;
+      if (isStale(state, myGen)) return;
+
+      if (ghResult.ok) {
+        githubData = ghResult;
+        githubContext = formatGitHubContextForLLM(ghResult);
+        send(ws, {
+          type: 'research_result',
+          query: ghResult.fullName,
+          results: [
+            {
+              title: ghResult.fullName,
+              url: `https://github.com/${ghResult.fullName}`,
+              snippet: ghResult.description || (ghResult.readme || '').slice(0, 250),
+              source: 'GitHub',
+            },
+          ],
+          generation: myGen,
+          timestamp: Date.now(),
+        });
+        db.recordTelemetryEvent(state.sessionId, 'github_repo_success', {
+          repo: ghResult.fullName,
+          durationMs: ghDurationMs,
+        });
+      }
+    }
+  }
+
   // Optional SerpApi live research
   let researchData = null;
   let researchContext = null;
 
-  if (serpapiConfig?.enabled && isResearchNeeded(userText)) {
+  if (!ghUrl && serpapiConfig?.enabled && isResearchNeeded(userText)) {
     if (!isStale(state, myGen)) {
       const researchQuery = generateResearchQuery(userText);
       send(ws, {
@@ -1382,6 +1578,9 @@ async function handleTurn({
     }
   }
 
+  const combinedResearchContext =
+    [researchContext, githubContext].filter(Boolean).join('\n\n') || null;
+
   if (isStale(state, myGen)) return;
 
   // 1. Task execution routing
@@ -1400,7 +1599,7 @@ async function handleTurn({
           modelId: activeModel,
         },
         llmConfig,
-        researchContext,
+        researchContext: combinedResearchContext,
         researchData,
       });
 
@@ -1491,7 +1690,7 @@ async function handleTurn({
   let degraded = false;
 
   if (forceLocal) {
-    replyObj = localFallbackReply(userText, userOverride, researchContext);
+    replyObj = localFallbackReply(userText, userOverride, combinedResearchContext);
     degraded = true;
   } else {
     try {
@@ -1509,7 +1708,30 @@ async function handleTurn({
         messages: state.history.slice(-10),
         signal: controller.signal,
         userOverride,
-        researchContext,
+        researchContext: combinedResearchContext,
+        serpapiKey: serpapiConfig.apiKey,
+        toolsEnabled: serpapiConfig.enabled,
+        onToolStart: (toolCall) => {
+          if (isStale(state, myGen)) return;
+          send(ws, {
+            type: 'research_started',
+            query: toolCall.args?.query || toolCall.args?.repo || userText,
+            generation: myGen,
+            timestamp: Date.now(),
+          });
+        },
+        onToolEnd: (toolCall) => {
+          if (isStale(state, myGen)) return;
+          if (toolCall.result?.results) {
+            send(ws, {
+              type: 'research_result',
+              query: toolCall.args?.query || userText,
+              results: toolCall.result.results,
+              generation: myGen,
+              timestamp: Date.now(),
+            });
+          }
+        },
         onChunk: (fullText) => {
           if (isStale(state, myGen)) return;
           if (state.currentTurn && state.currentTurn.generation === myGen) {
@@ -1581,7 +1803,7 @@ async function handleTurn({
                   ...rimeConfig,
                   speaker: activeSpeaker,
                   modelId: activeModel,
-                  lang: turnLang === 'hi' || turnLang === 'hinglish' ? 'hi' : 'en',
+                  lang: turnLang === 'hi' ? 'hi' : 'en',
                 },
                 controller.signal
               );
@@ -1665,7 +1887,7 @@ async function handleTurn({
         generation: myGen,
         reason: 'LLM latency threshold exceeded. Gracefully degraded to local inference.',
       });
-      replyObj = localFallbackReply(userText, userOverride, researchContext);
+      replyObj = localFallbackReply(userText, userOverride, combinedResearchContext);
       degraded = true;
     }
   }
@@ -1705,7 +1927,21 @@ async function handleTurn({
     responseMode: replyObj.responseMode || 'VOICE',
     spokenResponse: replyObj.spokenResponse || replyObj.spoken || '',
     visualResponse: visualPayload,
-    research: researchData || null,
+    research:
+      researchData ||
+      (githubData
+        ? {
+            query: githubData.fullName,
+            results: [
+              {
+                title: githubData.fullName,
+                url: `https://github.com/${githubData.fullName}`,
+                snippet: githubData.description || (githubData.readme || '').slice(0, 250),
+                source: 'GitHub',
+              },
+            ],
+          }
+        : null),
     generation: myGen,
     llmMs,
     timestamp: Date.now(),
@@ -1752,11 +1988,9 @@ async function handleTurn({
   if (!cleanSpoken) {
     if (replyObj.content && replyObj.content.includes('```')) {
       cleanSpoken =
-        turnLang === 'hinglish'
-          ? 'Maine code workspace me taiyar kar diya hai.'
-          : turnLang === 'hi'
-            ? 'मैंने कोड वर्कस्पेस में तैयार कर दिया है।'
-            : "I've written the implementation in the chat for you.";
+        turnLang === 'hi'
+          ? 'मैंने कोड वर्कस्पेस में तैयार कर दिया है।'
+          : "I've written the implementation in the chat for you.";
     } else {
       cleanSpoken = (replyObj.content || '').slice(0, 150);
     }

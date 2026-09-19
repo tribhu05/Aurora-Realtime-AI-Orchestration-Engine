@@ -149,30 +149,7 @@ export function analyzeLanguage(text, context = null) {
     };
   }
 
-  // Check Hinglish explicit directive:
-  const isExplicitHinglish =
-    /\b(in hinglish|explain in hinglish|speak in hinglish|switch to hinglish|hinglish please|reply in hinglish|answer in hinglish|tell me in hinglish)\b/i.test(
-      trimmed
-    ) ||
-    /\b(ab|abb|now)?\s*(in\s+)?hinglish\s*(mein|me|mai)?\s*(explain|batao|bata|bolo|karo|kar|likho|speak|reply)?\b/i.test(
-      trimmed
-    ) ||
-    /\b(reply|answer|respond|speak)\s+(in\s+)?hinglish\b/i.test(trimmed) ||
-    /\bcan you (explain|speak|reply)\s+(in\s+)?hinglish\b/i.test(trimmed);
-
-  if (isExplicitHinglish) {
-    return {
-      detectedLanguage: 'hinglish',
-      detectedScript: 'Latin',
-      responseLanguage: 'hinglish',
-      confidence: 0.99,
-      isMixed: false,
-      hasTechnicalTerms: false,
-      isExplicit: true,
-    };
-  }
-
-  // 2. Devanagari script detection (Hindi or Mixed Hindi-English)
+  // 2. Devanagari script detection (Hindi)
   if (hasDevanagari) {
     const hasEnglishWords = /[a-zA-Z]{2,}/.test(trimmed);
     return {
@@ -190,137 +167,27 @@ export function analyzeLanguage(text, context = null) {
   const words = trimmed.split(/\s+/).filter(Boolean);
   const previousLang = resolvePreviousLang(context);
 
-  if (words.length <= 3) {
-    // Distinctive Hindi/Hinglish affirmation or follow-up words: "haan", "theek hai", "kyu?", "achha", "sahi", etc.
-    if (
-      /^(haan|ha|ji|accha|achha|acha|theek|thik|theek hai|thik hai|sahi|bilkul|aur batao|thoda aur|aur|kyu|kyun|kyu\?|kyun\?)$/i.test(
-        trimmed
-      )
-    ) {
-      const inheritedLang = previousLang === 'hi' ? 'hi' : 'hinglish';
+  if (words.length <= 3 && previousLang === 'hi') {
+    // Distinctive Devanagari affirmations or Hindi affirmations
+    if (/^(हाँ|हा|जी|ठीक है|सही|और बताओ|क्यों|क्यों\?)$/i.test(trimmed)) {
       return {
-        detectedLanguage: inheritedLang,
-        detectedScript: inheritedLang === 'hi' ? 'Devanagari' : 'Latin',
-        responseLanguage: inheritedLang,
+        detectedLanguage: 'hi',
+        detectedScript: 'Devanagari',
+        responseLanguage: 'hi',
         confidence: 0.92,
         isMixed: false,
         hasTechnicalTerms: false,
         isExplicit: false,
       };
     }
-
-    // Neutral continuations: "yes", "okay", "ok", "sure", "continue", "go on", "why", "why?", "more", "next"
-    if (
-      /\b(yes|yeah|yep|yup|okay|ok|sure|continue|go on|why|why\?|more|next|explain more|details)\b/i.test(
-        trimmed
-      )
-    ) {
-      const inheritedLang = previousLang || 'en';
-      return {
-        detectedLanguage: inheritedLang,
-        detectedScript: inheritedLang === 'hi' ? 'Devanagari' : 'Latin',
-        responseLanguage: inheritedLang,
-        confidence: 0.85,
-        isMixed: false,
-        hasTechnicalTerms: false,
-        isExplicit: false,
-      };
-    }
   }
 
-  // 4. High-Confidence Hinglish / Roman Hindi Patterns
-  const highConfidencePhrases = [
-    /\b(bhai|bro|yaar|dost)?\s*(mujhe|hume)?\s*([a-zA-Z0-9_.-]+\s+)?(samjha|bata|bana|likh)\s*(de|do|dijiye|na|karo)\b/i,
-    /\b(aap|tum)?\s*kaise\s*(ho|hai|hain)\b/i,
-    /\b(aaj\s+)?kya\s*(kar|chal)\s*(rahe|raha)\s*(ho|hai)\b/i,
-    /\b(mujhe|hume|humko)\s*(samajh|samjh)\s*(nahi|nahin)\s*(aa\s+raha|aaya)\b/i,
-    /\bkya (hoti|hota|hote|hai|hain|tha|thi|the)\b/i,
-    /\bkaise (kaam|work|work karta|work karti|karta|karti|karte|hoga|hogi)\b/i,
-    /\b(kaise|kaha|kidhar|kab|kyu|kyun) (karu|karun|kare|karein|karega|karegi|karenge|banaye|fix karu|fix kare)\b/i,
-    /\b(nahi|nahin) (ho raha|ho rahi|ho rahe|chal raha|aata|aati|aate|mil raha|samajh)\b/i,
-    /\b(samajh|samjh) (nahi|nahin) (aa raha|aaya|aayi)\b/i,
-    /\b(start|run|connect|install|build|compile) (nahi|nahin) (ho raha|ho rahi|hua|hui)\b/i,
-    /\b(bata|samjha) (sakte|sakti|sakoge) ho\b/i,
-    /\b(mujhe|hume|humko) (batao|samjhao|chahiye|madad|help chahiye)\b/i,
-    /\b(mere|hamare|apne) (liye|code me|project me)\b/i,
-    /\b(kya chal raha|kaise ho|kya haal|kya kar rahe|theek hai|sahi hai|pata hai)\b/i,
-    /\b(namaste|namaskar|shukriya|dhanyawad)\b/i,
-  ];
-
-  for (const phraseRegex of highConfidencePhrases) {
-    if (phraseRegex.test(trimmed)) {
-      const hasEnglishWords = /[a-zA-Z]{3,}/.test(trimmed);
-      return {
-        detectedLanguage: 'hinglish',
-        detectedScript: 'Latin',
-        responseLanguage: 'hinglish',
-        confidence: 0.96,
-        isMixed: hasEnglishWords,
-        hasTechnicalTerms: hasEnglishWords,
-        isExplicit: false,
-      };
-    }
-  }
-
-  // 5. Unambiguous Roman Hindi / Hinglish Token Dictionary
-  const hinglishTokens = [
-    // Question words
-    /\b(kya|kyun|kyu|kaise|kaisa|kaisi|kab|kahan|kaha|kidhar|kaun|kitna|kitne|kitni|kisko|kisse)\b/i,
-    // Auxiliary & state verbs
-    /\b(hai|hain|ho|hoon|hun|tha|thi|the|hoga|hogi|honge|raha|rahi|rahe|hota|hoti|hote|hua|hui|hue)\b/i,
-    // Action verbs
-    /\b(karna|karne|karta|karti|karte|kar|karo|karu|karun|kare|karen|karega|karegi|karenge|kiya|kiye)\b/i,
-    /\b(batao|bataiye|batana|bata|bataao|samjhao|samjha|samjhi|samjhe|samajh)\b/i,
-    /\b(bana|banao|banaye|banado|banana|chal|chalo|chalate|chalata|chalti)\b/i,
-    /\b(de|do|dena|dijiye|diya|diye|le|lo|lena|lijiye|liya|liye|dekh|dekho|dekhna|suno|bol|bolo|bolna|likh|likho|likhna|likhe|bhejo)\b/i,
-    /\b(aana|aata|aati|aate|aao|aaye|aaya|aayi|jaana|jaata|jaati|jaate|jaa|jao|gaya|gayi|gaye)\b/i,
-    // Modals & necessity
-    /\b(sakta|sakti|sakte|sakenge|chahiye|padega|padegi|padenge|mangta)\b/i,
-    // Pronouns & possessives
-    /\b(mujhe|mera|meri|mere|main|mai|hum|hume|humara|humari|humare|tum|tumhe|tumhara|tumhari|tumhare|tera|teri|tere|tujhe|aap|aapko|aapka|aapki|aapke)\b/i,
-    /\b(uska|uski|uske|usko|use|iska|iski|iske|isko|ise|unka|unki|unke|inka|inki|inke|yeh|ye|woh|wo|apna|apni|apne)\b/i,
-    // Negative, conjunctions, adverbs & particles
-    /\b(nahi|nahin|mat|bhi|hi|toh|to|aur|lekin|magar|par|bohot|bahut|thoda|thodi|zyada|jyada|theek|thik|accha|achha|acha)\b/i,
-    /\b(bhai|bro|yaar|dost|shukriya|dhanyawad|bilkul|zaroor|zarur|aasan|mushkil|kaam|baat|sawal|jawab|jawaab|mein|me|mai|se|ko|ka|ke|ki)\b/i,
-  ];
-
-  let matches = 0;
-  for (const tokenRegex of hinglishTokens) {
-    if (tokenRegex.test(trimmed)) {
-      matches++;
-      if (matches >= 2) {
-        return {
-          detectedLanguage: 'hinglish',
-          detectedScript: 'Latin',
-          responseLanguage: 'hinglish',
-          confidence: 0.94,
-          isMixed: true,
-          hasTechnicalTerms: false,
-          isExplicit: false,
-        };
-      }
-    }
-  }
-
-  // Single distinctive Hindi token in a short message (< 6 words)
-  if (matches >= 1 && words.length <= 5) {
-    return {
-      detectedLanguage: 'hinglish',
-      detectedScript: 'Latin',
-      responseLanguage: 'hinglish',
-      confidence: 0.88,
-      isMixed: true,
-      hasTechnicalTerms: false,
-      isExplicit: false,
-    };
-  }
-
-  // Default: English
+  // Default: English (all Roman/Latin script is treated as English)
   return {
     detectedLanguage: 'en',
     detectedScript: 'Latin',
     responseLanguage: 'en',
-    confidence: 0.95,
+    confidence: 0.98,
     isMixed: false,
     hasTechnicalTerms: false,
     isExplicit: false,
@@ -361,13 +228,6 @@ function resolvePreviousLang(context) {
       const msg = context[i];
       if (msg?.role === 'user' && msg.content) {
         if (/[\u0900-\u097F]/.test(msg.content)) return 'hi';
-        if (
-          /\b(kya|kaise|mujhe|mera|hai|hain|nahi|batao|samjhao|karna|karu|hoga|raha|chahiye|bhai|bro|yaar|de|do)\b/i.test(
-            msg.content
-          )
-        ) {
-          return 'hinglish';
-        }
         return 'en';
       }
     }
@@ -875,10 +735,6 @@ export function validateAndEnforceContract(
       if (effectiveLang === 'hi') {
         const itemDesc = visualType === 'code' ? 'कोड' : visualType === 'table' ? 'तालिका' : 'जवाब';
         spoken = `लीजिए, मैंने वर्कस्पेस में ${itemDesc} तैयार कर दिया है।`;
-      } else if (effectiveLang === 'hinglish') {
-        const itemDesc =
-          visualType === 'code' ? 'code' : visualType === 'table' ? 'table' : 'response';
-        spoken = `Maine workspace me ${itemDesc} taiyar kar diya hai.`;
       } else {
         const itemDesc =
           visualType === 'code'
@@ -910,9 +766,7 @@ export function validateAndEnforceContract(
         spoken =
           fallbackProse && !containsStructuredContent(fallbackProse)
             ? fallbackProse
-            : effectiveLang === 'hinglish'
-              ? 'Maine response workspace me taiyar kar diya hai.'
-              : "I've placed the response in the workspace.";
+            : "I've placed the response in the workspace.";
       }
     }
   }
@@ -923,10 +777,6 @@ export function validateAndEnforceContract(
       if (effectiveLang === 'hi') {
         const itemDesc = visualType === 'code' ? 'कोड' : visualType === 'table' ? 'तालिका' : 'जवाब';
         spoken = `लीजिए, मैंने वर्कस्पेस में ${itemDesc} तैयार कर दिया है।`;
-      } else if (effectiveLang === 'hinglish') {
-        const itemDesc =
-          visualType === 'code' ? 'code' : visualType === 'table' ? 'table' : 'response';
-        spoken = `Maine workspace me ${itemDesc} taiyar kar diya hai.`;
       } else {
         const itemDesc =
           visualType === 'code'
@@ -949,9 +799,6 @@ export function validateAndEnforceContract(
       if (effectiveLang === 'hi') {
         spoken =
           'मैंने मुख्य विचार संक्षेप में समझा दिया है, और पूरा विवरण वर्कस्पेस में जोड़ दिया है।';
-      } else if (effectiveLang === 'hinglish') {
-        spoken =
-          'Maine key concept samjha diya hai, aur pura implementation workspace me add kar diya hai.';
       } else {
         spoken = "I've provided a summary, and added the full details to the workspace.";
       }

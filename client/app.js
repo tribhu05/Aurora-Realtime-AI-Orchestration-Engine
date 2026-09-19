@@ -1106,6 +1106,18 @@
       }
     }
 
+    const serpapiInput = $('serpapiKeyInput');
+    const serpapiStatus = $('serpapiKeyStatusMsg');
+    if (msg.serpapiConfigured) {
+      if (serpapiInput && !localStorage.getItem('aurora-serpapi-key')) {
+        serpapiInput.placeholder = '●●●●●●●● (Pre-configured · Active for all users)';
+      }
+      if (serpapiStatus && !localStorage.getItem('aurora-serpapi-key')) {
+        serpapiStatus.style.color = '#7ee3a8';
+        serpapiStatus.textContent = '✓ Pre-configured & active for all users.';
+      }
+    }
+
     loadVoiceStudio();
   }
 
@@ -2620,6 +2632,8 @@ executeTask();`,
         reqHeaders['x-llm-api-key'] = userLlmKey;
         if (userLlmProv) reqHeaders['x-llm-provider'] = userLlmProv;
       }
+      const userSerpapiKey = localStorage.getItem('aurora-serpapi-key');
+      if (userSerpapiKey) reqHeaders['x-serpapi-key'] = userSerpapiKey;
     } catch (_) {}
 
     try {
@@ -4753,6 +4767,99 @@ executeTask();`,
         if (llmStatusMsg) {
           llmStatusMsg.style.color = '#7ee3a8';
           llmStatusMsg.textContent = '✓ Saved locally in browser for direct inference.';
+        }
+      }
+    });
+  }
+
+  // ---------- SerpApi Search Key & Diagnostic Activation ----------
+  const serpapiKeyInput = $('serpapiKeyInput');
+  const btnSaveSerpapiKey = $('btnSaveSerpapiKey');
+  const btnTestSerpapi = $('btnTestSerpapi');
+  const serpapiKeyStatusMsg = $('serpapiKeyStatusMsg');
+
+  if (serpapiKeyInput) {
+    try {
+      const savedKey = localStorage.getItem('aurora-serpapi-key');
+      if (savedKey) serpapiKeyInput.value = savedKey;
+    } catch (_) {}
+  }
+
+  if (btnSaveSerpapiKey) {
+    btnSaveSerpapiKey.addEventListener('click', async () => {
+      const key = serpapiKeyInput ? serpapiKeyInput.value.trim() : '';
+      if (!key) {
+        localStorage.removeItem('aurora-serpapi-key');
+        if (serpapiKeyInput) {
+          serpapiKeyInput.value = '';
+          serpapiKeyInput.placeholder = '●●●●●●●● (Pre-configured · Active for all users)';
+        }
+        if (serpapiKeyStatusMsg) {
+          serpapiKeyStatusMsg.style.color = '#7ee3a8';
+          serpapiKeyStatusMsg.textContent = '✓ Reverted to pre-configured system search key.';
+        }
+        return;
+      }
+      try {
+        localStorage.setItem('aurora-serpapi-key', key);
+      } catch (_) {}
+
+      if (serpapiKeyStatusMsg) {
+        serpapiKeyStatusMsg.style.color = '#7ee3a8';
+        serpapiKeyStatusMsg.textContent = 'Saving SerpApi key…';
+      }
+      try {
+        await fetch(apiUrl('/api/keys'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ serpapiKey: key, serpapiEnabled: true }),
+        });
+        if (serpapiKeyStatusMsg) {
+          serpapiKeyStatusMsg.style.color = '#7ee3a8';
+          serpapiKeyStatusMsg.textContent = '✓ SerpApi search key activated successfully!';
+        }
+      } catch (_) {
+        if (serpapiKeyStatusMsg) {
+          serpapiKeyStatusMsg.style.color = '#7ee3a8';
+          serpapiKeyStatusMsg.textContent = '✓ Saved locally in browser.';
+        }
+      }
+    });
+  }
+
+  if (btnTestSerpapi) {
+    btnTestSerpapi.addEventListener('click', async () => {
+      const key = serpapiKeyInput
+        ? serpapiKeyInput.value.trim()
+        : localStorage.getItem('aurora-serpapi-key') || '';
+      if (serpapiKeyStatusMsg) {
+        serpapiKeyStatusMsg.style.color = '#7ee3a8';
+        serpapiKeyStatusMsg.textContent = 'Testing SerpApi connectivity…';
+      }
+      try {
+        const headers = { 'Content-Type': 'application/json' };
+        if (key) headers['x-serpapi-key'] = key;
+        const res = await fetch(apiUrl('/api/diagnostic/serpapi'), {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ q: 'latest technology news' }),
+        });
+        const data = await res.json();
+        if (data.ok) {
+          if (serpapiKeyStatusMsg) {
+            serpapiKeyStatusMsg.style.color = '#7ee3a8';
+            serpapiKeyStatusMsg.textContent = `✓ Search connected! Found ${data.resultCount} results in ${data.durationMs}ms.`;
+          }
+        } else {
+          if (serpapiKeyStatusMsg) {
+            serpapiKeyStatusMsg.style.color = '#f87171';
+            serpapiKeyStatusMsg.textContent = `✗ Search failed: ${data.message || 'Check key and connectivity.'}`;
+          }
+        }
+      } catch (err) {
+        if (serpapiKeyStatusMsg) {
+          serpapiKeyStatusMsg.style.color = '#f87171';
+          serpapiKeyStatusMsg.textContent = `✗ Test error: ${err.message}`;
         }
       }
     });

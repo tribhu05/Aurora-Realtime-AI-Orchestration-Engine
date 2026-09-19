@@ -1,5 +1,5 @@
 // tests/hinglish-voice-quality.test.js
-// Voice Quality & Hinglish Pronunciation Test Suite for Aurora Voice AI.
+// Voice Quality & English Default Language Test Suite for Aurora Voice AI.
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -25,8 +25,8 @@ test('Voice Catalog Audit - includes native Hindi and Indian English voices', ()
   assert.match(codaModel.description, /Hindi & multilingual/i);
 });
 
-test('Pronunciation Controls - Section 3 Hinglish Tokens in mock & configuration', async () => {
-  const section3Tokens = [
+test('Pronunciation Controls - English default resolution for Roman queries', async () => {
+  const romanTokens = [
     'Bhai',
     'Kya haal hai',
     'Samajh gaya',
@@ -37,19 +37,19 @@ test('Pronunciation Controls - Section 3 Hinglish Tokens in mock & configuration
     'Chalo shuru karte hain',
   ];
 
-  for (const token of section3Tokens) {
+  for (const token of romanTokens) {
     const analysis = analyzeLanguage(token);
     assert.equal(
       analysis.responseLanguage,
-      'hinglish',
-      `Token "${token}" must be recognized as Hinglish`
+      'en',
+      `Roman token "${token}" must default to English response language`
     );
 
     // Verify mock audio synthesis succeeds with taru on coda
     const audioBuf = await synthesizeSpeech(token, {
       speaker: 'taru',
       modelId: 'coda',
-      lang: 'hi',
+      lang: 'en',
       mockAudio: true,
     });
     assert.ok(
@@ -59,29 +59,23 @@ test('Pronunciation Controls - Section 3 Hinglish Tokens in mock & configuration
   }
 });
 
-test('Section 6 Test Phrases - Text Normalization & Cadence Guidance', () => {
-  const section6Phrases = [
-    'Bhai, kya haal hai? Aaj kya kar rahe ho?',
-    'Chalo, binary search ko simple example se samajhte hain.',
-    'Ye API request leti hai aur response return karti hai.',
-    'Samajh gaya bhai. Ab next topic kya hai?',
-    'Mujhe ye concept thoda aur clearly samjha do.',
+test('Test Phrases - English Default Instruction Guidance', () => {
+  const testPhrases = [
+    'Hello, how are you today?',
+    'Explain binary search with a simple example.',
+    'This API accepts requests and returns structured JSON responses.',
+    'I understand. What is our next topic?',
+    'Explain this concept in more detail please.',
   ];
 
-  for (const phrase of section6Phrases) {
+  for (const phrase of testPhrases) {
     const analysis = analyzeLanguage(phrase);
-    assert.equal(
-      analysis.responseLanguage,
-      'hinglish',
-      `Phrase "${phrase}" must be detected as Hinglish`
-    );
+    assert.equal(analysis.responseLanguage, 'en', `Phrase "${phrase}" must be detected as English`);
 
     const instruction = buildLanguageInstruction(analysis);
-    assert.match(instruction, /Current user language: Hinglish/);
-    assert.match(instruction, /natural Indian conversational rhythm/i);
-    assert.match(instruction, /simple way mein samajhte hain/i);
-    assert.match(instruction, /Do NOT convert Hinglish to Devanagari script/);
-    assert.match(instruction, /standard English/);
+    assert.match(instruction, /Current user language: English/);
+    assert.match(instruction, /clear, crisp, natural fluent English/i);
+    assert.match(instruction, /LANGUAGE REQUIREMENT: ENGLISH/);
   }
 });
 

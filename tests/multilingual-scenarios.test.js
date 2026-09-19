@@ -1,5 +1,5 @@
 // tests/multilingual-scenarios.test.js
-// Dedicated test suite verifying the 8 specific multilingual & barge-in scenarios.
+// Dedicated test suite verifying multilingual & barge-in scenarios with English as default.
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -59,53 +59,49 @@ test('Scenario 2: Hindi (Devanagari) - "आप कैसे हो?" detects Hin
   assert.match(reply.spokenResponse, /मैं बिल्कुल ठीक हूँ|आप कैसे हैं/);
 });
 
-test('Scenario 3: Hinglish (Roman script) - "Aap kaise ho?" detects Hinglish and responds in Roman script', () => {
+test('Scenario 3: Roman query defaults to English (Hinglish removed)', () => {
   const query = 'Aap kaise ho?';
   const analysis = analyzeLanguage(query);
 
-  assert.equal(analysis.detectedLanguage, 'hinglish');
+  assert.equal(analysis.detectedLanguage, 'en');
   assert.equal(analysis.detectedScript, 'Latin');
-  assert.equal(analysis.responseLanguage, 'hinglish');
+  assert.equal(analysis.responseLanguage, 'en');
 
   const instruction = buildLanguageInstruction(analysis);
-  assert.match(instruction, /Current user language: Hinglish/);
+  assert.match(instruction, /Current user language: English/);
   assert.match(instruction, /Current script: Latin\/Roman/);
-  assert.match(instruction, /Respond naturally in Hinglish using Roman script/);
-  assert.match(instruction, /Do NOT convert Hinglish to Devanagari script/);
+  assert.match(instruction, /Respond naturally in English using Latin script/);
 
   const reply = localFallbackReply(query);
-  assert.equal(reply.detectedLanguage, 'hinglish');
+  assert.equal(reply.detectedLanguage, 'en');
   assert.equal(reply.detectedScript, 'Latin');
   assert.doesNotMatch(
     reply.spokenResponse,
     /[\u0900-\u097F]/,
-    'Hinglish response must NOT contain Devanagari characters'
+    'English response must NOT contain Devanagari characters'
   );
-  assert.match(reply.spokenResponse, /Main ekdum theek hoon|badhiya/i);
 });
 
-test('Scenario 4: Hinglish DSA Concept - "Bhai mujhe DSA samjha de" retains English technical terms in Roman script', () => {
+test('Scenario 4: Roman DSA query defaults to English with technical terms', () => {
   const query = 'Bhai mujhe DSA samjha de';
   const analysis = analyzeLanguage(query);
 
-  assert.equal(analysis.detectedLanguage, 'hinglish');
+  assert.equal(analysis.detectedLanguage, 'en');
   assert.equal(analysis.detectedScript, 'Latin');
-  assert.equal(analysis.responseLanguage, 'hinglish');
-  assert.equal(analysis.hasTechnicalTerms, true);
+  assert.equal(analysis.responseLanguage, 'en');
 
   const reply = localFallbackReply(query);
-  assert.equal(reply.detectedLanguage, 'hinglish');
+  assert.equal(reply.detectedLanguage, 'en');
   assert.doesNotMatch(
     reply.spokenResponse,
     /[\u0900-\u097F]/,
-    'Hinglish DSA must NOT be in Devanagari script'
+    'English DSA must NOT be in Devanagari script'
   );
   assert.match(
     reply.spokenResponse,
     /DSA|Data Structures/i,
     'Must retain DSA/technical terms in English'
   );
-  assert.match(reply.spokenResponse, /foundation|core|software/i);
 });
 
 test('Scenario 5: Hindi Devanagari DSA Concept - "मुझे DSA समझा दो" responds in Devanagari with technical clarity', () => {
@@ -137,15 +133,15 @@ test('Scenario 6: Explicit Language Switch - "Ab English mein explain kar" overr
   assert.equal(analysis.responseLanguage, 'en', 'Response language must switch to English');
   assert.equal(analysis.detectedScript, 'Latin');
 
-  // Also test reverse switch: from English to Hinglish
+  // Also test switch from English to Hindi
   const historyEnglish = [
     { role: 'user', content: 'Explain APIs to me' },
     { role: 'assistant', content: 'An API allows two software systems to communicate.' },
   ];
-  const switchToHinglish = 'Now explain in Hinglish';
-  const analysisHinglish = analyzeLanguage(switchToHinglish, { messages: historyEnglish });
-  assert.equal(analysisHinglish.isExplicit, true);
-  assert.equal(analysisHinglish.responseLanguage, 'hinglish');
+  const switchToHindi = 'Ab Hindi mein batao';
+  const analysisHindi = analyzeLanguage(switchToHindi, { messages: historyEnglish });
+  assert.equal(analysisHindi.isExplicit, true);
+  assert.equal(analysisHindi.responseLanguage, 'hi');
 });
 
 test('Scenario 7: Barge-in and Speaker Echo Loop Prevention - cleans context and drops echoed audio', async () => {
@@ -213,24 +209,22 @@ test('Scenario 7: Barge-in and Speaker Echo Loop Prevention - cleans context and
   await server.close();
 });
 
-test('Scenario 8: Short Messages - "haan", "theek hai", "kyu?", "okay" inherit context language', () => {
+test('Scenario 8: Short Messages - "haan", "theek hai", "kyu?", "okay" language resolution', () => {
   const hindiContext = [{ role: 'user', content: 'आप कैसे हो?' }];
-  const hinglishContext = [{ role: 'user', content: 'Bhai mujhe DSA samjha de' }];
   const englishContext = [{ role: 'user', content: 'How are you doing today?' }];
 
-  // 'theek hai' in Hindi context inherits Hindi Devanagari or Hinglish
-  const res1 = analyzeLanguage('theek hai', { messages: hindiContext, previousLang: 'hi' });
+  // Devanagari in Hindi context inherits Hindi Devanagari
+  const res1 = analyzeLanguage('हाँ', { messages: hindiContext, previousLang: 'hi' });
   assert.equal(res1.responseLanguage, 'hi');
 
-  // 'haan' in Hinglish context inherits Hinglish
-  const res2 = analyzeLanguage('haan', { messages: hinglishContext, previousLang: 'hinglish' });
-  assert.equal(res2.responseLanguage, 'hinglish');
+  const res2 = analyzeLanguage('ठीक है', { messages: hindiContext, previousLang: 'hi' });
+  assert.equal(res2.responseLanguage, 'hi');
 
   // 'okay' in English context inherits English
   const res3 = analyzeLanguage('okay', { messages: englishContext, previousLang: 'en' });
   assert.equal(res3.responseLanguage, 'en');
 
-  // 'kyu?' in Hinglish context inherits Hinglish
-  const res4 = analyzeLanguage('kyu?', { messages: hinglishContext, previousLang: 'hinglish' });
-  assert.equal(res4.responseLanguage, 'hinglish');
+  // Roman words default to English
+  const res4 = analyzeLanguage('why?', { messages: englishContext, previousLang: 'en' });
+  assert.equal(res4.responseLanguage, 'en');
 });

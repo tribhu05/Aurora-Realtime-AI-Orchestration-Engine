@@ -42,8 +42,8 @@ class AuroraMic {
 
   _resolveLang(langSetting = 'auto') {
     if (langSetting === 'hi-IN' || langSetting === 'hi') return 'hi-IN';
-    if (langSetting === 'en-IN' || langSetting === 'hinglish') return 'en-IN';
     if (langSetting === 'en-US' || langSetting === 'en') return 'en-US';
+    if (langSetting === 'en-IN') return 'en-IN';
 
     // Automatic resolution: inspect browser locale
     if (typeof navigator !== 'undefined') {
@@ -53,11 +53,10 @@ class AuroraMic {
         ''
       ).toLowerCase();
       if (dev.startsWith('hi')) return 'hi-IN';
-      if (dev.includes('in')) return 'en-IN';
       if (dev.startsWith('en')) return dev;
     }
-    // Default to en-IN for optimal Hinglish / Indian English speech recognition
-    return 'en-IN';
+    // Default to en-US for standard English speech recognition
+    return 'en-US';
   }
 
   /** Dynamically updates speech recognition language */

@@ -1,7 +1,7 @@
 /**
  * @file tests/language-detection.test.js
- * Comprehensive automated test suite for dynamic multilingual detection,
- * Hinglish/English/Hindi prompt construction, fallback fidelity, and context inheritance.
+ * Comprehensive automated test suite for English default language handling
+ * and Hindi (Devanagari) detection, with Hinglish removed.
  */
 
 import test from 'node:test';
@@ -25,8 +25,8 @@ test('Language Detection - English queries', () => {
   }
 });
 
-test('Language Detection - Roman Hindi & Hinglish queries', () => {
-  const hinglishQueries = [
+test('Language Detection - Roman queries default to English (Hinglish removed)', () => {
+  const romanQueries = [
     'API kaise kaam karti hai?',
     'API kya hoti hai?',
     'mujhe batao ki database kya hota hai',
@@ -37,9 +37,9 @@ test('Language Detection - Roman Hindi & Hinglish queries', () => {
     'ek express api bana do',
   ];
 
-  for (const query of hinglishQueries) {
+  for (const query of romanQueries) {
     const lang = detectLanguage(query);
-    assert.equal(lang, 'hinglish', `Expected 'hinglish' for query: "${query}", got: "${lang}"`);
+    assert.equal(lang, 'en', `Expected 'en' for Roman query: "${query}", got: "${lang}"`);
   }
 });
 
@@ -57,18 +57,17 @@ test('Language Detection - Devanagari Hindi queries', () => {
 });
 
 test('Language Detection - Conversational context inheritance', () => {
-  // Turn 1: Hinglish
-  const historyHinglish = [
-    { role: 'user', content: 'API kaise kaam karti hai?' },
+  // Turn 1: Devanagari Hindi
+  const historyHindi = [
+    { role: 'user', content: 'एपीआई कैसे काम करती है?' },
     {
       role: 'assistant',
-      content: 'API basically do applications ke beech communication ka kaam karti hai.',
+      content: 'एपीआई दो सिस्टम्स के बीच संचार कराती है।',
     },
   ];
-  // Short follow-up inheriting Hinglish
-  assert.equal(detectLanguage('haan', historyHinglish), 'hinglish');
-  assert.equal(detectLanguage('theek hai', historyHinglish), 'hinglish');
-  assert.equal(detectLanguage('continue', historyHinglish), 'hinglish');
+  // Short Devanagari follow-up inheriting Hindi
+  assert.equal(detectLanguage('हाँ', historyHindi), 'hi');
+  assert.equal(detectLanguage('ठीक है', historyHindi), 'hi');
 
   // Turn 1: English
   const historyEnglish = [
@@ -81,54 +80,39 @@ test('Language Detection - Conversational context inheritance', () => {
 });
 
 test('Language Detection - Explicit language switches', () => {
-  const historyHinglish = [
-    { role: 'user', content: 'API kaise kaam karti hai?' },
+  const historyHindi = [
+    { role: 'user', content: 'एपीआई कैसे काम करती है?' },
     {
       role: 'assistant',
-      content: 'API basically do applications ke beech communication ka kaam karti hai.',
+      content: 'एपीआई दो सिस्टम्स के बीच संचार कराती है।',
     },
   ];
 
   // User explicitly asks to switch to English
-  assert.equal(detectLanguage('Now explain it in English.', historyHinglish), 'en');
-  assert.equal(detectLanguage('Speak in English please', historyHinglish), 'en');
+  assert.equal(detectLanguage('Now explain it in English.', historyHindi), 'en');
+  assert.equal(detectLanguage('Speak in English please', historyHindi), 'en');
 
   const historyEnglish = [
     { role: 'user', content: 'Can you explain how APIs work?' },
     { role: 'assistant', content: 'An API allows applications to communicate.' },
   ];
 
-  // User explicitly asks to switch to Hinglish or Hindi
-  assert.equal(detectLanguage('Now explain in Hinglish', historyEnglish), 'hinglish');
+  // User explicitly asks to switch to Hindi
   assert.equal(detectLanguage('Explain in Hindi please', historyEnglish), 'hi');
+  assert.equal(detectLanguage('Ab Hindi mein batao', historyEnglish), 'hi');
 });
 
-test('Dynamic LLM Prompting - buildLanguageInstruction', () => {
-  const hinglishPrompt = buildLanguageInstruction('hinglish');
-  assert.match(hinglishPrompt, /LANGUAGE REQUIREMENT: HINGLISH/);
-  assert.match(hinglishPrompt, /Roman\/Latin script/i);
-  assert.match(hinglishPrompt, /Do NOT translate technical terms into formal Hindi/i);
-  assert.match(hinglishPrompt, /API basically do applications ke beech communication/);
-
+test('Dynamic LLM Prompting - buildLanguageInstruction defaults to English', () => {
   const englishPrompt = buildLanguageInstruction('en');
   assert.match(englishPrompt, /LANGUAGE REQUIREMENT: ENGLISH/);
   assert.match(englishPrompt, /clear, crisp, natural fluent English/);
 
+  const fallbackPrompt = buildLanguageInstruction('other');
+  assert.match(fallbackPrompt, /LANGUAGE REQUIREMENT: ENGLISH/);
+
   const hindiPrompt = buildLanguageInstruction('hi');
   assert.match(hindiPrompt, /LANGUAGE REQUIREMENT: HINDI/);
   assert.match(hindiPrompt, /Devanagari script/);
-});
-
-test('Local Fallback - Fluent Hinglish Spoken Verbal Response for API query', () => {
-  const messages = [{ role: 'user', content: 'API kaise kaam karti hai?' }];
-  const reply = localFallbackReply(messages);
-
-  assert.equal(reply.responseMode, 'HYBRID');
-  assert.equal(
-    reply.spokenResponse,
-    'API basically do applications ke beech communication ka kaam karti hai. Ek application request bhejti hai aur doosri application uska response provide karti hai.'
-  );
-  assert.match(reply.visualResponse.content, /API \(Application Programming Interface\)/);
 });
 
 test('Local Fallback - English Spoken Verbal Response for API query', () => {
@@ -142,43 +126,48 @@ test('Local Fallback - English Spoken Verbal Response for API query', () => {
   );
 });
 
-test('Local Fallback - Fluent Hinglish Spoken Verbal Response for conversational greeting', () => {
-  const messages = [{ role: 'user', content: 'Namaste, kaise ho?' }];
+test('Local Fallback - English greeting default', () => {
+  const messages = [{ role: 'user', content: 'Hello, how are you?' }];
   const reply = localFallbackReply(messages);
 
   assert.equal(reply.responseMode, 'VOICE');
-  assert.equal(
-    reply.spokenResponse,
-    'Main bilkul badhiya hoon! Aap bataiye, aaj kya madad karoon?'
-  );
+  assert.match(reply.spokenResponse, /I'm doing great, thank you!/);
 });
 
-test('Task Scaffolding - Hinglish trigger detection and announcements', async () => {
-  assert.equal(isTaskRequest('api bana do'), true);
-  assert.equal(isTaskRequest('ek express api banao'), true);
-  assert.equal(isTaskRequest('project bana do'), true);
+test('Task Scaffolding - English announcements by default', async () => {
+  assert.equal(isTaskRequest('scaffold api'), true);
+  assert.equal(isTaskRequest('create an express rest api'), true);
 
   const steps = [];
   const res = await executeScaffoldTask({
-    prompt: 'express api bana do',
+    prompt: 'create an express rest api',
     onProgress: (p) => steps.push(p),
   });
 
   assert.equal(res.success, true);
-  assert.match(res.initialSpoken, /Express.*REST API.*scaffold/);
-  assert.match(res.completionSpoken, /Express.*project ready hai/);
+  assert.match(res.initialSpoken, /Starting the Express.*REST API/);
+  assert.match(res.completionSpoken, /Your Express.*project is ready/);
   assert.match(res.artifacts[0].content, /express/);
 });
 
-test('Contract Enforcement - returns detectedLanguage tag in normalized contract', () => {
-  const contract = validateAndEnforceContract(
+test('Contract Enforcement - returns en for Roman script and hi for Devanagari', () => {
+  const contractEn = validateAndEnforceContract(
     {
       responseMode: 'VOICE',
-      spokenResponse: 'Main aapki madad ke liye taiyar hoon.',
-      visualResponse: { type: 'text', content: 'Main ready hoon.' },
+      spokenResponse: 'I am ready to help you.',
+      visualResponse: { type: 'text', content: 'Ready.' },
     },
-    'mujhe batao ki ye kaise kaam karta hai'
+    'tell me how this works'
   );
+  assert.equal(contractEn.detectedLanguage, 'en');
 
-  assert.equal(contract.detectedLanguage, 'hinglish');
+  const contractHi = validateAndEnforceContract(
+    {
+      responseMode: 'VOICE',
+      spokenResponse: 'मैं आपकी मदद के लिए तैयार हूँ।',
+      visualResponse: { type: 'text', content: 'तैयार हूँ।' },
+    },
+    'मुझे बताओ कि यह कैसे काम करता है'
+  );
+  assert.equal(contractHi.detectedLanguage, 'hi');
 });

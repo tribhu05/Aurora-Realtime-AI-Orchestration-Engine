@@ -10,6 +10,8 @@ import {
   detectLanguage,
   analyzeLanguage,
 } from './response-router.js';
+import { performLiveResearch } from './research.js';
+import { fetchGitHubRepoDetails } from './github.js';
 
 const ENDPOINTS = {
   groq: 'https://api.groq.com/openai/v1/chat/completions',
@@ -18,24 +20,79 @@ const ENDPOINTS = {
   gemini: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
 };
 
+/**
+ * Standard tool declarations for Gemini / OpenAI tool calling.
+ */
+export const AURORA_TOOLS = [
+  {
+    type: 'function',
+    function: {
+      name: 'web_search',
+      description:
+        'Search the live web using Google Search via SerpApi for current facts, latest news, weather, documentation, or real-time information.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: {
+            type: 'string',
+            description:
+              'The search query to look up on Google via SerpApi (e.g. "latest AI news", "current CEO of OpenAI", "weather in Bhopal").',
+          },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'inspect_github_repo',
+      description:
+        'Inspect a public GitHub repository using GitHub API to fetch repository metadata, description, primary language, stars, README, and file structure.',
+      parameters: {
+        type: 'object',
+        properties: {
+          owner: {
+            type: 'string',
+            description: 'The GitHub repository owner/user (e.g. "tribhu05").',
+          },
+          repo: {
+            type: 'string',
+            description: 'The GitHub repository name (e.g. "SolarVision").',
+          },
+        },
+        required: ['owner', 'repo'],
+      },
+    },
+  },
+];
+
 const DUAL_CHANNEL_SYSTEM_PROMPT = `You are Aurora, an intelligent, highly articulate voice-first AI assistant.
 Provide direct, clear, natural, and conversational responses.
 Answer immediately without conversational preamble, filler phrases, or robotic boilerplate.
 
 Language & Fluency Guidelines:
-1. Hindi (Devanagari):
-   - When the user asks in Hindi (Devanagari script), reply in natural, fluent, modern everyday Hindi (सहज, स्पष्ट और बोलचाल की स्वाभाविक हिंदी).
-   - Avoid overly archaic, obscure, or stiff Sanskritized words. Use natural words that Hindi speakers actually use in everyday conversation.
-   - Retain technical, coding, and scientific terminology in standard English or standard transliteration (जैसे: recursion, binary search, API, DBMS, DSA, कोड, लूप, फ़ंक्शन, वेरिएबल, डेटाबेस).
+1. English (Default Language):
+   - Default language is English.
+   - When the user speaks in English, Roman script, or asks general technical questions, reply in crisp, clear, natural, and direct English.
+   - Do not insert Hindi or Hinglish phrases into English responses.
+2. Hindi (Devanagari Script):
+   - When the user asks in Hindi using Devanagari script, reply in natural, fluent, modern everyday Hindi (सहज, स्पष्ट और बोलचाल की स्वाभाविक हिंदी).
+   - Avoid overly archaic or stiff Sanskritized words. Use natural words that Hindi speakers use in everyday conversation.
+   - Retain technical, coding, and scientific terminology in standard English or standard transliteration (e.g. recursion, binary search, API, DBMS, DSA, loop, function, variable, database).
    - Ensure the spoken response is polite, clear, natural, and easy to speak aloud.
-2. Hinglish (Romanized Hindi):
-   - When the user speaks or writes in Hinglish (Hindi written in the Latin/English alphabet, e.g. "kya haal hai", "mujhe React explain karo", "python me loop kaise chalate hain", "Bhai recursion samjha de"), reply in fluent, natural, authentic Hinglish using the SAME Latin/English alphabet!
-   - Example tone: "Haan bhai! Recursion mein ek function khud ko call karta hai...", "Maine aapke liye binary search ka C++ code workspace me taiyar kar diya hai."
-   - Sound friendly, modern, confident, and direct — matching how tech professionals and students communicate naturally.
-   - Never convert Hinglish to Devanagari script.
-3. English:
-   - When the user speaks in English, reply in crisp, clear, direct English.
-   - Do not insert Hindi or Hinglish phrases.
+
+Live Information & Tool Capabilities:
+1. Live Web Search (Powered by SerpApi):
+   - You are equipped with real-time web search powered by SerpApi Google Search.
+   - When the user asks for current news, today's weather, recent documentation, real-time facts, or asks you to look up/search something online, use your live search capabilities and ground your answer in the verified search results.
+   - DO NOT state "I do not have live internet access" or "I cannot browse the web" when search tools or search results are available.
+   - If the user asks whether you can visit or check websites/information, clarify accurately: "I can search the live web and retrieve real-time facts, news, documentation, and website content via SerpApi, though I do not render an interactive browser window."
+2. GitHub Repository Inspection:
+   - You have direct access to inspect public GitHub repositories via the GitHub REST API.
+   - When provided with a GitHub repository link or asked about a repository, analyze the retrieved repository description, README, tech stack, and file tree.
+3. Tool Error Transparency:
+   - If a search or repository tool fails (e.g., due to an invalid API key, quota exhaustion, or network timeout), state the specific reason clearly and gracefully. Never claim you lack browsing capability when a tool simply experienced a temporary failure.
 
 Dual-Channel Output Structure:
 When asked to write code, build an app, or provide a technical solution:
@@ -69,7 +126,7 @@ export function sanitizeMessagesForLlm(messages) {
 /**
  * Generates dynamic, request-specific language requirements for the LLM.
  *
- * @param {'en'|'hi'|'hinglish'|object} detectedLangOrAnalysis - The detected language or analysis object.
+ * @param {'en'|'hi'|object} detectedLangOrAnalysis - The detected language or analysis object.
  * @returns {string} Dynamic prompt instruction block.
  */
 export function buildLanguageInstruction(detectedLangOrAnalysis) {
@@ -84,25 +141,6 @@ export function buildLanguageInstruction(detectedLangOrAnalysis) {
         };
 
   const respLang = analysis.responseLanguage || analysis.detectedLanguage || 'en';
-
-  if (respLang === 'hinglish') {
-    return `Current user language: Hinglish
-Current script: Latin/Roman
-
-Respond naturally in Hinglish using Roman script.
-Do not switch languages unless the user requests it.
-
-### LANGUAGE REQUIREMENT: HINGLISH
-- Spoken rhythm: Use authentic, natural Indian conversational rhythm and short spoken sentences with clear punctuation (commas, periods) to guide voice cadence.
-- Conversational phrasing: Use casual, friendly phrasing like "Chalo, is concept ko simple way mein samajhte hain." Avoid stiff, formal textbook Hindi (e.g. do NOT say "ke sambandh mein vistarpoorvak charcha karenge").
-- Use natural, authentic conversational Hinglish (Hindi written in Roman/Latin script, e.g. "Haan bhai! Recursion mein ek function khud ko call karta hai...").
-- Example style: "API basically do applications ke beech communication ka kaam karti hai. Ek application request bhejti hai aur doosri application uska response provide karti hai."
-- Keep all technical terms, programming languages, libraries, APIs, protocols, frameworks, databases, and code strictly in standard English (e.g. recursion, binary search, API, DBMS, DSA, loop, array, function, React, Node.js, request, response).
-- Do NOT translate technical terms into formal Hindi.
-- Do NOT convert Hinglish to Devanagari script.
-- Do NOT produce stiff or formal dictionary translations. Speak naturally and conversationally as Indian tech professionals and students communicate.
-- All code blocks must remain 100% valid code in standard English syntax.`;
-  }
 
   if (respLang === 'hi') {
     return `Current user language: Hindi${analysis.hasTechnicalTerms ? ' (with English technical terms)' : ''}
@@ -123,7 +161,7 @@ Current script: Latin/Roman
 Respond naturally in English using Latin script.
 Do not switch languages unless the user requests it.
 
-### LANGUAGE REQUIREMENT: ENGLISH
+### LANGUAGE REQUIREMENT: ENGLISH (DEFAULT)
 - Respond in clear, crisp, natural fluent English.
 - Do not insert Hindi or Hinglish phrases.
 - All code blocks must remain 100% valid code in standard English syntax.`;
@@ -141,6 +179,34 @@ Do not switch languages unless the user requests it.
  * @param {'VOICE'|'TEXT'|'HYBRID'|null} [params.userOverride=null] - Explicit manual mode override.
  * @returns {Promise<object>} Structured response meeting the dual-channel contract.
  */
+async function readSseStream(body, onChunk) {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let sseBuffer = '';
+  let rawText = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    sseBuffer += decoder.decode(value, { stream: true });
+    const lines = sseBuffer.split('\n');
+    sseBuffer = lines.pop(); // Retain incomplete line
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('data: ') && trimmed !== 'data: [DONE]') {
+        try {
+          const data = JSON.parse(trimmed.slice(6));
+          const content = data.choices?.[0]?.delta?.content || '';
+          if (content) {
+            rawText += content;
+            onChunk(rawText);
+          }
+        } catch (_) {}
+      }
+    }
+  }
+  return rawText;
+}
+
 export async function getAssistantReply({
   provider,
   apiKey,
@@ -150,6 +216,11 @@ export async function getAssistantReply({
   userOverride,
   onChunk,
   researchContext = null,
+  toolsEnabled = true,
+  serpapiKey = null,
+  toolExecutor = null,
+  onToolStart = null,
+  onToolEnd = null,
 }) {
   const userQuery =
     messages && messages.length > 0 ? messages[messages.length - 1]?.content || '' : '';
@@ -188,59 +259,197 @@ export async function getAssistantReply({
   }
 
   const sanitizedMessages = sanitizeMessagesForLlm(messages);
+  const supportsTools = (provider === 'gemini' || provider === 'openai') && toolsEnabled !== false;
 
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${cleanApiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: effectiveModel,
-      messages: [{ role: 'system', content: effectiveSystemPrompt }, ...sanitizedMessages],
-      temperature: 0.2,
-      max_tokens: 1500,
-      stream: !!onChunk,
-    }),
-    signal,
-  });
+  let rawText;
+  let toolExecutionData = null;
 
-  if (!res.ok) {
-    const errorBody = await res.text().catch(() => '');
-    throw new Error(`LLM request failed (HTTP ${res.status}): ${errorBody.slice(0, 200)}`);
-  }
+  if (supportsTools) {
+    // Turn 1 with tool declarations
+    const turn1Res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${cleanApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: effectiveModel,
+        messages: [{ role: 'system', content: effectiveSystemPrompt }, ...sanitizedMessages],
+        tools: AURORA_TOOLS,
+        temperature: 0.2,
+        max_tokens: 1500,
+        stream: false,
+      }),
+      signal,
+    });
 
-  let rawText = '';
-  if (onChunk && res.body) {
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let sseBuffer = '';
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      sseBuffer += decoder.decode(value, { stream: true });
-      const lines = sseBuffer.split('\n');
-      sseBuffer = lines.pop(); // Retain incomplete line
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (trimmed.startsWith('data: ') && trimmed !== 'data: [DONE]') {
-          try {
-            const data = JSON.parse(trimmed.slice(6));
-            const content = data.choices?.[0]?.delta?.content || '';
-            if (content) {
-              rawText += content;
-              onChunk(rawText);
-            }
-          } catch (_) {}
+    if (!turn1Res.ok) {
+      const errorBody = await turn1Res.text().catch(() => '');
+      throw new Error(`LLM request failed (HTTP ${turn1Res.status}): ${errorBody.slice(0, 200)}`);
+    }
+
+    const turn1Data = await turn1Res.json();
+    const turn1Message = turn1Data?.choices?.[0]?.message;
+
+    if (
+      turn1Message?.tool_calls &&
+      Array.isArray(turn1Message.tool_calls) &&
+      turn1Message.tool_calls.length > 0
+    ) {
+      const toolCall = turn1Message.tool_calls[0];
+      const toolName = toolCall.function?.name;
+      let toolArgs = {};
+      try {
+        toolArgs = JSON.parse(toolCall.function?.arguments || '{}');
+      } catch (_) {}
+
+      if (typeof onToolStart === 'function') {
+        onToolStart({ id: toolCall.id, name: toolName, args: toolArgs });
+      }
+
+      let toolResult;
+      if (typeof toolExecutor === 'function') {
+        toolResult = await toolExecutor(toolName, toolArgs, { signal, cleanApiKey });
+      } else {
+        // Built-in tool dispatching
+        if (toolName === 'web_search') {
+          const sKey =
+            (typeof serpapiKey === 'string' && serpapiKey.trim()) ||
+            process.env.SERPAPI_API_KEY ||
+            process.env.SERPAPI_KEY ||
+            '';
+          const sRes = await performLiveResearch(toolArgs.query || userQuery, {
+            apiKey: sKey,
+            signal,
+          });
+          if (sRes.ok) {
+            toolResult = {
+              query: sRes.query,
+              results: sRes.results,
+            };
+          } else {
+            toolResult = {
+              query: sRes.query,
+              error: sRes.error || 'Live search temporarily unavailable',
+              results: [],
+            };
+          }
+        } else if (toolName === 'inspect_github_repo') {
+          const ghRes = await fetchGitHubRepoDetails(toolArgs.owner, toolArgs.repo, { signal });
+          if (ghRes.ok) {
+            toolResult = {
+              fullName: ghRes.fullName,
+              description: ghRes.description,
+              language: ghRes.language,
+              stars: ghRes.stars,
+              forks: ghRes.forks,
+              files: ghRes.files,
+              readmeSnippet: ghRes.readme ? ghRes.readme.slice(0, 3000) : '',
+            };
+          } else {
+            toolResult = {
+              error: ghRes.error || 'Failed to inspect GitHub repository',
+            };
+          }
+        } else {
+          toolResult = { error: `Unknown tool: ${toolName}` };
         }
+      }
+
+      if (typeof onToolEnd === 'function') {
+        onToolEnd({ id: toolCall.id, name: toolName, args: toolArgs, result: toolResult });
+      }
+
+      toolExecutionData = {
+        tool: toolName,
+        args: toolArgs,
+        result: toolResult,
+      };
+
+      // Turn 2: Provide tool output back to model (without tools) for grounded response
+      const turn2Messages = [
+        { role: 'system', content: effectiveSystemPrompt },
+        ...sanitizedMessages,
+        turn1Message,
+        {
+          role: 'tool',
+          tool_call_id: toolCall.id,
+          content: JSON.stringify(toolResult),
+        },
+      ];
+
+      const turn2Res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${cleanApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: effectiveModel,
+          messages: turn2Messages,
+          temperature: 0.2,
+          max_tokens: 1500,
+          stream: !!onChunk,
+        }),
+        signal,
+      });
+
+      if (!turn2Res.ok) {
+        const errorBody = await turn2Res.text().catch(() => '');
+        throw new Error(
+          `LLM Turn 2 request failed (HTTP ${turn2Res.status}): ${errorBody.slice(0, 200)}`
+        );
+      }
+
+      if (onChunk && turn2Res.body) {
+        rawText = await readSseStream(turn2Res.body, onChunk);
+      } else {
+        const turn2Data = await turn2Res.json();
+        rawText = turn2Data?.choices?.[0]?.message?.content?.trim() || '';
+      }
+    } else {
+      // Model responded directly without calling any tool (e.g. "Explain recursion")
+      rawText = turn1Message?.content?.trim() || '';
+      if (onChunk && rawText) {
+        onChunk(rawText);
       }
     }
   } else {
-    const data = await res.json();
-    rawText = data?.choices?.[0]?.message?.content?.trim() || '';
+    // Provider does not support tools or tools disabled
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${cleanApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: effectiveModel,
+        messages: [{ role: 'system', content: effectiveSystemPrompt }, ...sanitizedMessages],
+        temperature: 0.2,
+        max_tokens: 1500,
+        stream: !!onChunk,
+      }),
+      signal,
+    });
+
+    if (!res.ok) {
+      const errorBody = await res.text().catch(() => '');
+      throw new Error(`LLM request failed (HTTP ${res.status}): ${errorBody.slice(0, 200)}`);
+    }
+
+    if (onChunk && res.body) {
+      rawText = await readSseStream(res.body, onChunk);
+    } else {
+      const data = await res.json();
+      rawText = data?.choices?.[0]?.message?.content?.trim() || '';
+    }
   }
 
-  return parseStructuredResponse(rawText, userQuery, messages, userOverride);
+  const parsed = parseStructuredResponse(rawText, userQuery, messages, userOverride);
+  if (toolExecutionData) {
+    parsed.toolExecution = toolExecutionData;
+  }
+  return parsed;
 }
 
 /**
@@ -294,8 +503,6 @@ export function parseStructuredResponse(
     if (!hasSpokenExplanation) {
       if (queryLang === 'hi') {
         spoken = `लीजिए, मैंने वर्कस्पेस में ${lang.toUpperCase()} कोड तैयार कर दिया है।`;
-      } else if (queryLang === 'hinglish') {
-        spoken = `Maine workspace me ${lang.toUpperCase()} code taiyar kar diya hai.`;
       }
     }
     return validateAndEnforceContract(
@@ -328,8 +535,6 @@ export function parseStructuredResponse(
     if (!hasSpokenIntro) {
       if (queryLang === 'hi') {
         spoken = 'यहाँ वर्कस्पेस में तुलना तालिका दी गई है।';
-      } else if (queryLang === 'hinglish') {
-        spoken = 'Yeh rahi comparison table aapke workspace me.';
       }
     }
     return validateAndEnforceContract(
@@ -360,9 +565,7 @@ export function parseStructuredResponse(
     cleanSpoken =
       queryLang === 'hi'
         ? 'लीजिए, मैंने वर्कस्पेस में जवाब तैयार कर दिया है।'
-        : queryLang === 'hinglish'
-          ? 'Maine workspace me response ready kar diya hai.'
-          : "I've placed the response in the workspace.";
+        : "I've placed the response in the workspace.";
     cleanVisual = cleanVisual
       .replace(/^\s*\{[\s\S]*?"content"\s*:\s*"/i, '')
       .replace(/"\s*\}\s*$/i, '')
@@ -401,11 +604,7 @@ export function localFallbackReply(messagesOrQuery, userOverride = null, researc
 
   if (!last) {
     const emptySpoken =
-      lang === 'hi'
-        ? 'नमस्ते! मैं आपकी क्या मदद कर सकता हूँ?'
-        : lang === 'hinglish'
-          ? 'Main taiyar hoon — boliye kya madad karoon?'
-          : "I'm here — what's on your mind?";
+      lang === 'hi' ? 'नमस्ते! मैं आपकी क्या मदद कर सकता हूँ?' : "I'm here — what's on your mind?";
     return finalize({
       responseMode: 'VOICE',
       spokenResponse: emptySpoken,
@@ -432,7 +631,7 @@ export function localFallbackReply(messagesOrQuery, userOverride = null, researc
   // --- Recursion Concept Handling ---
   if (has('recursion', 'रिकर्शन')) {
     let spoken =
-      'Sure bro! Recursion is a technique where a function calls itself until it reaches a base case.';
+      'Sure! Recursion is a technique where a function calls itself until it reaches a base case.';
     let visual =
       '### Recursion Concept\nRecursion is a programming approach where a function solves a problem by calling a smaller instance of itself.\n\n1. **Base Case**: Halting condition that stops recursive calls.\n2. **Recursive Step**: Reduces the problem and calls the same function.';
 
@@ -441,11 +640,6 @@ export function localFallbackReply(messagesOrQuery, userOverride = null, researc
         'ज़रूर! Recursion एक ऐसी तकनीक है जिसमें एक फ़ंक्शन खुद को तब तक कॉल करता है जब तक कि बेस केस पूरा न हो जाए।';
       visual =
         '### रिकर्शन (Recursion) की अवधारणा\n**Recursion** एक ऐसी प्रोग्रामिंग तकनीक है जिसमें कोई फ़ंक्शन अपनी समस्या को हल करने के लिए स्वयं को बार-बार कॉल करता है।\n\n1. **बेस केस (Base Case)**: यह कॉल को रोकने की अनिवार्य शर्त है।\n2. **रिकर्सिव कॉल (Recursive Step)**: समस्या को छोटा करके फ़ंक्शन को दोबारा कॉल करता है।';
-    } else if (lang === 'hinglish') {
-      spoken =
-        'Haan bhai! Recursion mein ek function khud ko call karta hai jab tak base case na reach ho jaye.';
-      visual =
-        '### Recursion Concept (Hinglish)\n**Recursion** ek aisi programming technique hai jahan function problem solve karne ke liye khud ko hi call karta hai.\n\n1. **Base Case**: Recursion ko stop karne ki condition taaki infinite loop na bane.\n2. **Recursive Call**: Problem size ko reduce karke function ko repeatedly execute karta hai.';
     }
 
     return finalize({
@@ -471,11 +665,6 @@ export function localFallbackReply(messagesOrQuery, userOverride = null, researc
         'ज़रूर! DSA (Data Structures and Algorithms) कुशल सॉफ़्टवेयर और समस्या समाधान की बुनियादी नींव है।';
       visual =
         '### डेटा स्ट्रक्चर्स और एल्गोरिदम (DSA)\n**DSA** कंप्यूटर साइंस का सबसे महत्वपूर्ण आधार है:\n- **डेटा स्ट्रक्चर्स (Data Structures)**: डेटा को मेमोरी में कुशलतापूर्वक स्टोर और व्यवस्थित करना (ऐरे, लिंक्ड लिस्ट, ट्री, ग्राफ़)।\n- **एल्गोरिदम (Algorithms)**: किसी कार्य को हल करने के चरणबद्ध नियम (सॉर्टिंग, सर्चिंग, डायनामिक प्रोग्रामिंग)।';
-    } else if (lang === 'hinglish') {
-      spoken =
-        'Haan bhai! DSA (Data Structures and Algorithms) basically computer science ka core foundation hai jo efficient software banane mein use hota hai.';
-      visual =
-        '### Data Structures & Algorithms (DSA)\n**DSA** computer science ka main foundation hai:\n- **Data Structures**: Data ko memory mein efficiently store aur organize karna (Arrays, Linked Lists, Trees, Graphs).\n- **Algorithms**: Problem solve karne ke step-by-step logic aur procedures (Sorting, Searching, Dynamic Programming).';
     }
 
     return finalize({
@@ -501,11 +690,6 @@ export function localFallbackReply(messagesOrQuery, userOverride = null, researc
         'ज़रूर! DBMS डेटाबेस को व्यवस्थित, सुरक्षित और कुशलता से प्रबंधित करने वाला सॉफ़्टवेयर सिस्टम है।';
       visual =
         '### डेटाबेस मैनेजमेंट सिस्टम (DBMS)\n**DBMS** एक ऐसा सॉफ़्टवेयर है जो डेटाबेस को सुरक्षित रूप से स्टोर, अपडेट और प्रोसेस करने की सुविधा देता है (जैसे MySQL, PostgreSQL, Oracle)।';
-    } else if (lang === 'hinglish') {
-      spoken =
-        'DBMS basically ek software system hai jo databases ko create, manage aur efficiently query karne ke liye use hota hai.';
-      visual =
-        '### Database Management System (DBMS)\n**DBMS** ek software layer hai jo application aur database ke beech structured data management, security aur ACID properties ensure karti hai (jaise MySQL, PostgreSQL, SQLite).';
     }
 
     return finalize({
@@ -543,11 +727,6 @@ export function localFallbackReply(messagesOrQuery, userOverride = null, researc
       spoken = 'एपीआई दो सॉफ्टवेयर सिस्टम्स के बीच डेटा और संचार का सुरक्षित माध्यम बनती है।';
       visual =
         '**एपीआई (API - Application Programming Interface)** दो अलग-अलग एप्लिकेशन के बीच डेटा और संचार की सुविधा प्रदान करती है।';
-    } else if (lang === 'hinglish') {
-      spoken =
-        'API basically do applications ke beech communication ka kaam karti hai. Ek application request bhejti hai aur doosri application uska response provide karti hai.';
-      visual =
-        '**API (Application Programming Interface)** do applications ke beech data exchange aur structured communication enable karti hai.\n\n- **Client**: Request bhejta hai (GET, POST, PUT, DELETE)\n- **Server**: Request process karta hai aur response return karta hai (JSON/XML)\n- **Protocols**: REST, GraphQL, WebSocket';
     }
 
     return finalize({
@@ -571,11 +750,6 @@ export function localFallbackReply(messagesOrQuery, userOverride = null, researc
     if (lang === 'hi') {
       spoken =
         'डेटाबेस डेटा को सुरक्षित रूप से संग्रहीत, प्रबंधित और खोजने की एक संगठित प्रणाली है।';
-    } else if (lang === 'hinglish') {
-      spoken =
-        'Database ek organized system hai jahan application ka data securely store, update aur query hota hai.';
-      visual =
-        '**Database** ek structured system hai jismein application ka data safely persist aur query kiya jata hai (jaise PostgreSQL, SQLite, MongoDB).';
     }
 
     return finalize({
@@ -607,11 +781,6 @@ export function localFallbackReply(messagesOrQuery, userOverride = null, researc
 
     if (lang === 'hi') {
       spoken = 'टर्मिनल लॉग्स में पोर्ट टकराव या अनुपलब्ध पर्यावरण चर की जांच करें।';
-    } else if (lang === 'hinglish') {
-      spoken =
-        'Server logs check karke error trace dekhiye, usually port conflict ya missing environment variables ki wajah se server crash hota hai.';
-      visual =
-        '### Server Troubleshooting Checklist:\n1. Terminal logs aur stack trace inspect karein\n2. Port conflict verify karein (e.g. `kill -9` or change `PORT`)\n3. `.env` file aur environment variables verify karein\n4. `npm install` run karke dependencies update karein';
     }
 
     return finalize({
@@ -663,69 +832,11 @@ export function localFallbackReply(messagesOrQuery, userOverride = null, researc
     if (has('हिंदी बोल', 'हिंदी आती', 'हिंदी जानते', 'हिंदी में बात')) {
       return finalize({
         responseMode: 'VOICE',
-        spokenResponse: 'हाँ बिल्कुल! मैं हिंदी और हिंग्लिश दोनों में आसानी से बात कर सकता हूँ।',
+        spokenResponse: 'हाँ बिल्कुल! मैं हिंदी में आसानी से बात कर सकता हूँ।',
         visualResponse: {
           type: 'text',
           content:
-            'हाँ, मैं **हिंदी** और **हिंग्लिश** दोनों में पूरी तरह सक्षम हूँ। आप बेझिझक हिंदी में मुझसे सवाल पूछ सकते हैं या कोडिंग करवा सकते हैं।',
-        },
-      });
-    }
-  }
-
-  // --- Hinglish (Roman Hindi) conversational intelligence ---
-  if (lang === 'hinglish') {
-    if (has('namaste', 'namaskar', 'pranam')) {
-      return finalize({
-        responseMode: 'VOICE',
-        spokenResponse: 'Main bilkul badhiya hoon! Aap bataiye, aaj kya madad karoon?',
-        visualResponse: {
-          type: 'text',
-          content:
-            'Namaste! Main **Aurora** hoon — aapka voice-first AI assistant.\n\nAaj hum kis topic par kaam karenge? Coding, doubt solving, ya naya project?',
-        },
-      });
-    }
-    if (
-      has(
-        'aap kaise ho',
-        'aap kaise hain',
-        'kaise ho',
-        'kaise hain',
-        'kya haal',
-        'kaisa hai',
-        'kya chal raha'
-      )
-    ) {
-      return finalize({
-        responseMode: 'VOICE',
-        spokenResponse: 'Main ekdum theek hoon, aap kaise hain?',
-        visualResponse: {
-          type: 'text',
-          content:
-            'Main ekdum badhiya hoon, poochne ke liye shukriya! Aap bataiye, aaj aapka din kaisa chal raha hai aur main aapki kya madad karoon?',
-        },
-      });
-    }
-    if (has('kaun ho', 'kaun hai', 'who are you', 'naam kya hai', 'apne bare me')) {
-      return finalize({
-        responseMode: 'VOICE',
-        spokenResponse: 'Main Aurora hoon, aapka real-time conversational voice AI assistant.',
-        visualResponse: {
-          type: 'text',
-          content:
-            'Main **Aurora** hoon — ek real-time AI assistant jo voice conversation aur interactive visual workspace ke sath kaam karta hai.',
-        },
-      });
-    }
-    if (has('hindi bol', 'hindi aati', 'hindi me baat', 'can you speak hindi')) {
-      return finalize({
-        responseMode: 'VOICE',
-        spokenResponse: 'Haan bilkul! Main Hindi aur Hinglish dono me fluent baat kar sakta hoon.',
-        visualResponse: {
-          type: 'text',
-          content:
-            'Haan bilkul! Main **Hindi (हिन्दी)** aur **Hinglish** dono me bohot fluently aur naturally baat kar sakta hoon. Boliye, aaj kya code ya explain karna hai?',
+            'हाँ, मैं **हिंदी** में पूरी तरह सक्षम हूँ। आप बेझिझक हिंदी में मुझसे सवाल पूछ सकते हैं या कोडिंग करवा सकते हैं।',
         },
       });
     }
@@ -742,8 +853,6 @@ export function localFallbackReply(messagesOrQuery, userOverride = null, researc
     let spoken = "Sure — I've prepared the Python prime checker in the workspace.";
     if (lang === 'hi') {
       spoken = 'लीजिए, मैंने वर्कस्पेस में पायथन प्राइम नंबर चेकर तैयार कर दिया है।';
-    } else if (lang === 'hinglish') {
-      spoken = 'Maine workspace me Python prime checker ready kar diya hai.';
     }
     return finalize({
       responseMode: 'TEXT',
@@ -798,8 +907,6 @@ for num in numbers:
     let spoken = "Done. I've placed the Python program for odd and even numbers in the workspace.";
     if (lang === 'hi') {
       spoken = 'लीजिए, सम और विषम संख्याओं का पायथन प्रोग्राम वर्कस्पेस में तैयार है।';
-    } else if (lang === 'hinglish') {
-      spoken = 'Done! Maine odd aur even number ka Python code workspace me add kar diya hai.';
     }
     return finalize({
       responseMode: 'TEXT',
@@ -833,10 +940,6 @@ for num in test_numbers:
       spoken = isHybrid
         ? 'रिकर्शन में एक फ़ंक्शन खुद को तब तक कॉल करता है जब तक बेस केस न मिल जाए। पूरा कोड वर्कस्पेस में है।'
         : 'रिकर्शन कंप्यूटर साइंस की एक तकनीक है जहाँ कोई फ़ंक्शन किसी समस्या को छोटे हिस्सों में हल करने के लिए खुद को कॉल करता है।';
-    } else if (lang === 'hinglish') {
-      spoken = isHybrid
-        ? 'Recursion me function khud ko bar-bar call karta hai jab tak base case na mil jaye. Code workspace me taiyar hai.'
-        : 'Recursion ek technique hai jisme function khud ko hi call karke problem ko chhote parts me solve karta hai.';
     }
     return finalize({
       responseMode: isHybrid ? 'HYBRID' : 'VOICE',
@@ -856,9 +959,7 @@ for num in test_numbers:
 print("Factorial of 5 is:", factorial(5))  # 120`
           : lang === 'hi'
             ? 'रिकर्शन एक प्रोग्रामिंग तकनीक है जिसमें कोई फ़ंक्शन किसी बड़ी समस्या को हल करने के लिए बार-बार खुद को छोटे इनपुट के साथ कॉल करता है। इसमें एक बेस केस (Base Case) होना ज़रूरी है जो कॉल को रोकता है।'
-            : lang === 'hinglish'
-              ? 'Recursion ek programming technique hai jahan function khud ko call karta hai jab tak base case trigger na ho jaye. Yeh problems ko simple aur modular banata hai.'
-              : 'Recursion is a method in computer science where the solution to a problem depends on solutions to smaller instances of the same problem. A recursive function solves a base case directly, and otherwise calls itself with modified input, progressing toward the base case.',
+            : 'Recursion is a method in computer science where the solution to a problem depends on solutions to smaller instances of the same problem. A recursive function solves a base case directly, and otherwise calls itself with modified input, progressing toward the base case.',
       },
     });
   }
@@ -894,8 +995,6 @@ print(factorial(5))`,
       : "Done. I've written the binary search algorithm in C++ in the workspace.";
     if (lang === 'hi') {
       spoken = 'लीजिए, मैंने वर्कस्पेस में बाइनरी सर्च का C++ कोड लिख दिया है।';
-    } else if (lang === 'hinglish') {
-      spoken = 'Maine workspace me binary search ka C++ implementation place kar diya hai.';
     }
     return finalize({
       responseMode: isHybrid ? 'HYBRID' : 'TEXT',

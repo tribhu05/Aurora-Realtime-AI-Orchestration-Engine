@@ -143,11 +143,7 @@ export async function executeScaffoldTask({
   let initialSpoken = researchContext
     ? `Starting the Express ${flavor} REST API scaffolding using current best practices.`
     : `Starting the Express ${flavor} REST API scaffolding now.`;
-  if (taskLang === 'hinglish') {
-    initialSpoken = researchContext
-      ? `Maine current best practices ke sath Express ${flavor} REST API scaffold karna shuru kar diya hai.`
-      : `Maine Express ${flavor} REST API ka project scaffold karna start kar diya hai.`;
-  } else if (taskLang === 'hi') {
+  if (taskLang === 'hi') {
     initialSpoken = `मैंने एक्सप्रेस ${flavor} रेस्ट एपीआई का प्रोजेक्ट तैयार करना शुरू कर दिया है।`;
   }
   send(ws, {
@@ -294,9 +290,7 @@ export async function executeScaffoldTask({
 
   // 6. Final spoken voice announcement
   let finalSpoken = `Your Express ${flavor} project is ready. I've placed the full code in the chat.`;
-  if (taskLang === 'hinglish') {
-    finalSpoken = `Aapka Express ${flavor} project ready hai. Maine complete code workspace me place kar diya hai.`;
-  } else if (taskLang === 'hi') {
+  if (taskLang === 'hi') {
     finalSpoken = `आपका एक्सप्रेस ${flavor} प्रोजेक्ट तैयार है। मैंने पूरा कोड वर्कस्पेस में रख दिया है।`;
   }
   try {

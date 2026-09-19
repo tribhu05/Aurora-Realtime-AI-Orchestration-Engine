@@ -4,9 +4,12 @@
 // AbortSignal-compatible search execution, result normalization,
 // and dual-channel LLM context formatting.
 
+import { detectGitHubUrl } from './github.js';
+
 /**
  * Deterministic triggers for queries that require live web research.
- * Covers current libraries, release notes, recent docs, and explicit research requests.
+ * Covers current libraries, release notes, recent docs, explicit research requests,
+ * weather queries, current figures/events, and web searches.
  */
 const RESEARCH_TRIGGER_PATTERNS = [
   /\b(?:latest|recent|currently|current)\b/i,
@@ -17,7 +20,12 @@ const RESEARCH_TRIGGER_PATTERNS = [
   /\b(?:compare\s*current|current\s*libraries|recommended\s*approach)\b/i,
   /\b(?:today'?s\s*news|today'?s\s*weather|current\s*events)\b/i,
   /\b(?:documentation\s*for|docs\s*for)\b/i,
-  /\b(?:search\s*(?:for|the\s*web|online))\b/i,
+  /\b(?:search\s*(?:for|the\s*web|online|google)?)\b/i,
+  /\b(?:weather|temperature|forecast|climate)\b/i,
+  /\b(?:who\s+is\s+(?:the\s+)?(?:current\s+)?(?:ceo|president|founder|director|prime\s*minister))\b/i,
+  /\b(?:ceo|founder|net\s*worth|stock\s*price)\s+of\b/i,
+  /\b(?:github\.com\/[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+)\b/i,
+  /\b(?:tell\s+me\s+about\s+(?:this\s+)?(?:repo|repository))\b/i,
 ];
 
 /**
@@ -34,10 +42,10 @@ const TIMELESS_PATTERNS = [
 ];
 
 /**
- * Determines whether a given user text warrants live web research.
+ * Determines whether a given user text warrants live web research or external inspection.
  *
  * @param {string} text - The raw user prompt or transcribed speech.
- * @returns {boolean} True if research should be conducted.
+ * @returns {boolean} True if research or GitHub inspection should be conducted.
  */
 export function isResearchNeeded(text) {
   if (!text || typeof text !== 'string') return false;
@@ -51,7 +59,12 @@ export function isResearchNeeded(text) {
     }
   }
 
-  // 2. Check for explicit or technical current-info triggers
+  // 2. Check for GitHub repository URL
+  if (detectGitHubUrl(trimmed)) {
+    return true;
+  }
+
+  // 3. Check for explicit or technical current-info triggers
   for (const pattern of RESEARCH_TRIGGER_PATTERNS) {
     if (pattern.test(trimmed)) {
       return true;
@@ -72,6 +85,11 @@ export function isResearchNeeded(text) {
 export function generateResearchQuery(text) {
   if (!text || typeof text !== 'string') return '';
 
+  const gh = detectGitHubUrl(text);
+  if (gh) {
+    return `${gh.owner} ${gh.repo} GitHub`;
+  }
+
   let q = text.trim();
 
   // Strip common conversational / voice prefixes
@@ -80,7 +98,7 @@ export function generateResearchQuery(text) {
     /^(?:can\s+you\s+(?:please\s+)?|could\s+you\s+(?:please\s+)?|please\s+|i\s+want\s+(?:you\s+to\s+)?|kindly\s+)/i,
     ''
   );
-  q = q.replace(/^(?:search\s+(?:for|the\s+web\s+for|online\s+for)\s+)/i, '');
+  q = q.replace(/^(?:search\s+(?:for|the\s+web\s+for|online\s+for|google\s+for)?\s*)/i, '');
   q = q.replace(/^(?:look\s*up\s+(?:the\s+)?)/i, '');
   q = q.replace(/^(?:research\s+(?:the\s+)?)/i, '');
   q = q.replace(
@@ -88,6 +106,7 @@ export function generateResearchQuery(text) {
     ''
   );
   q = q.replace(/^(?:tell\s+me\s+(?:about\s+)?|explain\s+to\s+me\s+)/i, '');
+  q = q.replace(/^(?:what\s+is\s+the\s+|what's\s+the\s+|who\s+is\s+the\s+)/i, '');
   q = q.replace(/^(?:create|build|scaffold|setup|set\s+up|generate)\s+(?:an?\s+)?/i, '');
 
   // Strip trailing scaffolding instructions if preceded by research intent
@@ -360,4 +379,96 @@ export async function performLiveResearch(query, options = {}) {
       signal.removeEventListener('abort', onAbort);
     }
   }
+}
+
+/**
+ * Diagnostic utility to verify SerpApi connectivity safely without exposing secrets.
+ * Validates API key existence, endpoint reachability, parameter formatting,
+ * and quota/authentication status with real or mock search execution.
+ *
+ * @param {string} [apiKey] - SerpApi key to verify. Defaults to process.env.
+ * @param {object} [options] - Verification options.
+ * @param {string} [options.testQuery='latest AI news'] - Test query to execute.
+ * @param {number} [options.timeoutMs=5000] - Diagnostic timeout threshold.
+ * @param {object} [options.mockResults] - Optional mock results for tests.
+ * @returns {Promise<{
+ *   ok: boolean,
+ *   configured: boolean,
+ *   endpoint: string,
+ *   query: string,
+ *   status?: number,
+ *   resultCount: number,
+ *   latencyMs: number,
+ *   maskedKey: string,
+ *   error?: string
+ * }>}
+ */
+export async function testSerpApiConnectivity(apiKey = null, options = {}) {
+  const { testQuery = 'latest AI news', timeoutMs = 5000, mockResults = null } = options;
+
+  const key =
+    (typeof apiKey === 'string' && apiKey.trim()) ||
+    process.env.SERPAPI_API_KEY ||
+    process.env.SERPAPI_KEY ||
+    '';
+
+  const cleanKey = key.trim().replace(/^["']|["']$/g, '');
+  const isConfigured = Boolean(cleanKey && !/^your_.*_here$/i.test(cleanKey));
+  const maskedKey = isConfigured
+    ? cleanKey.length > 8
+      ? `${cleanKey.slice(0, 4)}...${cleanKey.slice(-4)}`
+      : '****'
+    : 'none';
+
+  const endpoint = 'https://serpapi.com/search.json';
+
+  if (!isConfigured && !mockResults) {
+    return {
+      ok: false,
+      configured: false,
+      endpoint,
+      query: testQuery,
+      resultCount: 0,
+      latencyMs: 0,
+      maskedKey: 'none',
+      error: 'SERPAPI_API_KEY is not configured on the server.',
+    };
+  }
+
+  const t0 = Date.now();
+  const res = await performLiveResearch(testQuery, {
+    apiKey: cleanKey,
+    timeoutMs,
+    mockResults,
+  });
+  const latencyMs = Date.now() - t0;
+
+  if (res.ok) {
+    return {
+      ok: true,
+      configured: true,
+      endpoint,
+      query: testQuery,
+      status: 200,
+      resultCount: Array.isArray(res.results) ? res.results.length : 0,
+      latencyMs,
+      maskedKey,
+      resultsPreview: (res.results || []).slice(0, 2).map((r) => ({
+        title: r.title,
+        source: r.source,
+        url: r.url,
+      })),
+    };
+  }
+
+  return {
+    ok: false,
+    configured: isConfigured,
+    endpoint,
+    query: testQuery,
+    resultCount: 0,
+    latencyMs,
+    maskedKey,
+    error: res.error || 'SerpApi test query failed.',
+  };
 }
