@@ -72,15 +72,24 @@ Provide direct, clear, natural, and conversational responses.
 Answer immediately without conversational preamble, filler phrases, or robotic boilerplate.
 
 Language & Fluency Guidelines:
-1. English (Default Language):
-   - Default language is English.
-   - When the user speaks in English, Roman script, or asks general technical questions, reply in crisp, clear, natural, and direct English.
+1. English:
+   - When the user speaks in English, reply in crisp, clear, natural, and direct English.
    - Do not insert Hindi or Hinglish phrases into English responses.
 2. Hindi (Devanagari Script):
-   - When the user asks in Hindi using Devanagari script, reply in natural, fluent, modern everyday Hindi (सहज, स्पष्ट और बोलचाल की स्वाभाविक हिंदी).
+   - When the user speaks in Hindi using Devanagari script, reply in natural, fluent, modern everyday Hindi (सहज, स्पष्ट और बोलचाल की स्वाभाविक हिंदी).
    - Avoid overly archaic or stiff Sanskritized words. Use natural words that Hindi speakers use in everyday conversation.
    - Retain technical, coding, and scientific terminology in standard English or standard transliteration (e.g. recursion, binary search, API, DBMS, DSA, loop, function, variable, database).
    - Ensure the spoken response is polite, clear, natural, and easy to speak aloud.
+3. Hinglish (Roman / Latin Script):
+   - When the user speaks in Hinglish (Hindi written in Roman/Latin script), reply in natural conversational Hinglish using Roman/Latin script.
+   - DO NOT reply in Devanagari script when the user speaks in Hinglish.
+   - Blend natural Hindi phrasing with standard English technical vocabulary (e.g. "Aapka server port already in use hone ki wajah se crash ho raha hai...").
+4. Mixed Hindi-English:
+   - If the user mixes Hindi and English, preserve the user's natural language balance.
+5. Critical Web Search & Tool Output Translation:
+   - Web search results (SerpApi) and external tool data are predominantly in English.
+   - NEVER automatically switch to English just because the search results, snippets, or web pages are in English.
+   - You MUST synthesize, translate, and explain the retrieved search results in the user's detected language (Hindi, Hinglish, or English).
 
 Live Information & Tool Capabilities:
 1. Live Web Search (Powered by SerpApi):
@@ -126,7 +135,7 @@ export function sanitizeMessagesForLlm(messages) {
 /**
  * Generates dynamic, request-specific language requirements for the LLM.
  *
- * @param {'en'|'hi'|object} detectedLangOrAnalysis - The detected language or analysis object.
+ * @param {'en'|'hi'|'hinglish'|object} detectedLangOrAnalysis - The detected language or analysis object.
  * @returns {string} Dynamic prompt instruction block.
  */
 export function buildLanguageInstruction(detectedLangOrAnalysis) {
@@ -138,6 +147,7 @@ export function buildLanguageInstruction(detectedLangOrAnalysis) {
           detectedScript: detectedLangOrAnalysis === 'hi' ? 'Devanagari' : 'Latin',
           responseLanguage: detectedLangOrAnalysis || 'en',
           hasTechnicalTerms: false,
+          hasResearchContext: false,
         };
 
   const respLang = analysis.responseLanguage || analysis.detectedLanguage || 'en';
@@ -152,7 +162,33 @@ Do not switch languages unless the user requests it.
 ### LANGUAGE REQUIREMENT: HINDI
 - Retain all technical, programming, and scientific terms in standard English or standard transliteration (जैसे: recursion, binary search, API, DBMS, DSA, कोड, लूप, फ़ंक्शन, वेरिएबल, डेटाबेस).
 - Use natural, fluent, modern everyday Hindi in Devanagari script (सहज, स्पष्ट और बोलचाल की स्वाभाविक हिंदी). Avoid archaic or obscure Sanskritized vocabulary.
-- All code blocks must remain 100% valid code in standard English syntax.`;
+- All code blocks must remain 100% valid code in standard English syntax.
+${
+  analysis.hasResearchContext
+    ? `\n### CRITICAL RESEARCH TRANSLATION REQUIREMENT:\n- External search results and snippets are in English, but you MUST synthesize and translate all findings entirely into natural Hindi in Devanagari script.\n- DO NOT answer in English simply because search results were retrieved in English.`
+    : ''
+}`;
+  }
+
+  if (respLang === 'hinglish') {
+    return `Current user language: Hinglish (Hindi written in Roman/Latin script${analysis.isMixed ? ' mixed with English' : ''})
+Current script: Latin/Roman
+
+Respond naturally in conversational Hinglish (Hindi in Roman/Latin script).
+Do not switch to English or Devanagari Hindi unless the user requests it.
+
+### LANGUAGE REQUIREMENT: HINGLISH (ROMAN SCRIPT)
+- Write Hindi words using natural Roman/Latin alphabet phonetics (e.g., "Aapka server port already in use hone ki wajah se start nahi ho raha. Isko fix karne ke liye...").
+- Retain technical, programming, framework, and scientific terms in clean standard English (e.g. API, recursion, Express, Node.js, database, endpoint, function, loop, async/await).
+- Sound like a native bilingual Indian software engineer speaking casually and professionally.
+- DO NOT use Devanagari script. Use Roman/Latin script only.
+- Preserve the user's natural balance of Hindi and English.
+- All code blocks must remain 100% valid code in standard English syntax.
+${
+  analysis.hasResearchContext
+    ? `\n### CRITICAL RESEARCH TRANSLATION REQUIREMENT:\n- External search results and snippets are in English, but you MUST synthesize and translate all findings entirely into natural conversational Hinglish in Roman script.\n- DO NOT answer in English simply because search results were retrieved in English.`
+    : ''
+}`;
   }
 
   return `Current user language: English
@@ -161,7 +197,7 @@ Current script: Latin/Roman
 Respond naturally in English using Latin script.
 Do not switch languages unless the user requests it.
 
-### LANGUAGE REQUIREMENT: ENGLISH (DEFAULT)
+### LANGUAGE REQUIREMENT: ENGLISH
 - Respond in clear, crisp, natural fluent English.
 - Do not insert Hindi or Hinglish phrases.
 - All code blocks must remain 100% valid code in standard English syntax.`;
@@ -221,11 +257,12 @@ export async function getAssistantReply({
   toolExecutor = null,
   onToolStart = null,
   onToolEnd = null,
+  langAnalysis: incomingLangAnalysis = null,
 }) {
   const userQuery =
     messages && messages.length > 0 ? messages[messages.length - 1]?.content || '' : '';
   const historyMessages = messages ? messages.slice(0, -1) : [];
-  const langAnalysis = analyzeLanguage(userQuery, historyMessages);
+  const langAnalysis = incomingLangAnalysis || analyzeLanguage(userQuery, historyMessages);
 
   const cleanApiKey =
     typeof apiKey === 'string'
@@ -254,7 +291,11 @@ export async function getAssistantReply({
     effectiveModel = 'gemini-3.6-flash';
   }
 
-  const langInstruction = buildLanguageInstruction(langAnalysis);
+  const analysisForPrompt = {
+    ...langAnalysis,
+    hasResearchContext: Boolean(researchContext),
+  };
+  const langInstruction = buildLanguageInstruction(analysisForPrompt);
   let effectiveSystemPrompt = `${DUAL_CHANNEL_SYSTEM_PROMPT}\n\n${langInstruction}`;
   if (researchContext) {
     effectiveSystemPrompt += `\n\n${researchContext}`;
@@ -374,11 +415,18 @@ export async function getAssistantReply({
         result: toolResult,
       };
 
+      const targetLangName =
+        langAnalysis.responseLanguage === 'hi'
+          ? 'Hindi (in Devanagari script)'
+          : langAnalysis.responseLanguage === 'hinglish'
+            ? 'conversational Hinglish (in Roman/Latin script)'
+            : 'English';
+
       // Turn 2: Provide tool output back to model with tool_choice: 'none' for grounded response
       const turn2Messages = [
         {
           role: 'system',
-          content: `${effectiveSystemPrompt}\n\nInstructions: The tool execution is complete. Directly answer and synthesize the final user response using the provided tool results. DO NOT invoke any further tools.`,
+          content: `${effectiveSystemPrompt}\n\nCRITICAL SEARCH TRANSLATION REQUIREMENT: The tool execution is complete. Directly answer and synthesize the final user response using the provided tool results entirely in ${targetLangName}. Even though the search snippets and titles are in English, DO NOT reply in English unless the user requested English. Translate, explain, and ground all facts naturally in ${targetLangName}. DO NOT invoke any further tools.`,
         },
         ...sanitizedMessages,
         turn1Message,
@@ -430,7 +478,13 @@ export async function getAssistantReply({
           const topSources = toolResult.results
             .map((r, i) => `${i + 1}. **${r.title}** (${r.url})\n   ${r.snippet}`)
             .join('\n\n');
-          rawText = `Here are the latest search results for "${toolResult.query}":\n\n${topSources}`;
+          const header =
+            langAnalysis.responseLanguage === 'hi'
+              ? `"${toolResult.query}" के लिए नवीनतम खोज परिणाम:`
+              : langAnalysis.responseLanguage === 'hinglish'
+                ? `"${toolResult.query}" ke liye latest search results:`
+                : `Here are the latest search results for "${toolResult.query}":`;
+          rawText = `${header}\n\n${topSources}`;
         }
       }
     } else {
@@ -642,14 +696,39 @@ export function localFallbackReply(messagesOrQuery, userOverride = null, researc
   }
 
   // --- How Are You & Greeting Handling ---
-  if (has('how are you', 'how r u', 'how are u', 'how do you do')) {
+  if (
+    has(
+      'how are you',
+      'how r u',
+      'how are u',
+      'how do you do',
+      'aap kaise ho',
+      'kya haal',
+      'kaise ho',
+      'kaise hain',
+      'sab theek'
+    )
+  ) {
+    let spoken = "I'm doing great, thank you! How are you doing today?";
+    let visual =
+      "I'm doing great, thank you! How are you doing today? I'm ready to help you with coding, architecture, or any questions.";
+
+    if (lang === 'hi') {
+      spoken = 'मैं बिल्कुल ठीक हूँ, धन्यवाद! आप कैसे हैं? आज मैं आपकी क्या मदद कर सकता हूँ?';
+      visual = 'मैं बिल्कुल ठीक हूँ, धन्यवाद! आप कैसे हैं? आज मैं आपकी क्या मदद कर सकता हूँ?';
+    } else if (lang === 'hinglish') {
+      spoken =
+        'Main bilkul theek hoon, thank you! Aap bataiye, aaj main aapki kya help kar sakta hoon?';
+      visual =
+        'Main bilkul theek hoon, thank you! Aap bataiye, aaj main aapki kya help kar sakta hoon?';
+    }
+
     return finalize({
       responseMode: 'VOICE',
-      spokenResponse: "I'm doing great, thank you! How are you doing today?",
+      spokenResponse: spoken,
       visualResponse: {
         type: 'text',
-        content:
-          "I'm doing great, thank you! How are you doing today? I'm ready to help you with coding, architecture, or any questions.",
+        content: visual,
       },
     });
   }
@@ -666,6 +745,11 @@ export function localFallbackReply(messagesOrQuery, userOverride = null, researc
         'ज़रूर! Recursion एक ऐसी तकनीक है जिसमें एक फ़ंक्शन खुद को तब तक कॉल करता है जब तक कि बेस केस पूरा न हो जाए।';
       visual =
         '### रिकर्शन (Recursion) की अवधारणा\n**Recursion** एक ऐसी प्रोग्रामिंग तकनीक है जिसमें कोई फ़ंक्शन अपनी समस्या को हल करने के लिए स्वयं को बार-बार कॉल करता है।\n\n1. **बेस केस (Base Case)**: यह कॉल को रोकने की अनिवार्य शर्त है।\n2. **रिकर्सिव कॉल (Recursive Step)**: समस्या को छोटा करके फ़ंक्शन को दोबारा कॉल करता है।';
+    } else if (lang === 'hinglish') {
+      spoken =
+        'Recursion ek aisi programming technique hai jisme ek function khud ko bar-bar call karta hai jab tak base case na reach ho jaye.';
+      visual =
+        '### Recursion Concept (Hinglish)\n**Recursion** ek programming approach hai jisme ek function problem solve karne ke liye khud ko chote inputs ke sath call karta hai.\n\n1. **Base Case**: Halting condition jo infinite calls ko rokti hai.\n2. **Recursive Step**: Problem ko reduce karke same function ko call karta hai.';
     }
 
     return finalize({
@@ -691,6 +775,11 @@ export function localFallbackReply(messagesOrQuery, userOverride = null, researc
         'ज़रूर! DSA (Data Structures and Algorithms) कुशल सॉफ़्टवेयर और समस्या समाधान की बुनियादी नींव है।';
       visual =
         '### डेटा स्ट्रक्चर्स और एल्गोरिदम (DSA)\n**DSA** कंप्यूटर साइंस का सबसे महत्वपूर्ण आधार है:\n- **डेटा स्ट्रक्चर्स (Data Structures)**: डेटा को मेमोरी में कुशलतापूर्वक स्टोर और व्यवस्थित करना (ऐरे, लिंक्ड लिस्ट, ट्री, ग्राफ़)।\n- **एल्गोरिदम (Algorithms)**: किसी कार्य को हल करने के चरणबद्ध नियम (सॉर्टिंग, सर्चिंग, डायनामिक प्रोग्रामिंग)।';
+    } else if (lang === 'hinglish') {
+      spoken =
+        'DSA yaani Data Structures and Algorithms software engineering aur problem solving ka foundational core hai.';
+      visual =
+        '### Data Structures & Algorithms (DSA)\n**DSA** computer science aur coding ka basic foundation hai:\n- **Data Structures**: Data ko organize aur store karna (Arrays, Linked Lists, Trees, Graphs).\n- **Algorithms**: Problem solve karne ke step-by-step procedures (Sorting, Searching, Dynamic Programming).';
     }
 
     return finalize({
@@ -716,6 +805,11 @@ export function localFallbackReply(messagesOrQuery, userOverride = null, researc
         'ज़रूर! DBMS डेटाबेस को व्यवस्थित, सुरक्षित और कुशलता से प्रबंधित करने वाला सॉफ़्टवेयर सिस्टम है।';
       visual =
         '### डेटाबेस मैनेजमेंट सिस्टम (DBMS)\n**DBMS** एक ऐसा सॉफ़्टवेयर है जो डेटाबेस को सुरक्षित रूप से स्टोर, अपडेट और प्रोसेस करने की सुविधा देता है (जैसे MySQL, PostgreSQL, Oracle)।';
+    } else if (lang === 'hinglish') {
+      spoken =
+        'DBMS ek software system hai jo databases ko securely store, retrieve aur manage karne me madad karta hai.';
+      visual =
+        '### Database Management System (DBMS)\n**DBMS** data integrity, security aur concurrency maintain karte hue structured records manage karta hai (jaise MySQL, PostgreSQL, Oracle).';
     }
 
     return finalize({
@@ -753,6 +847,11 @@ export function localFallbackReply(messagesOrQuery, userOverride = null, researc
       spoken = 'एपीआई दो सॉफ्टवेयर सिस्टम्स के बीच डेटा और संचार का सुरक्षित माध्यम बनती है।';
       visual =
         '**एपीआई (API - Application Programming Interface)** दो अलग-अलग एप्लिकेशन के बीच डेटा और संचार की सुविधा प्रदान करती है।';
+    } else if (lang === 'hinglish') {
+      spoken =
+        'API do applications ke beech structured requests aur responses ke zariye communication facilitate karti hai.';
+      visual =
+        'An **API (Application Programming Interface)** do software applications ko aapas me connect karke data exchange karne ki permission deti hai.\n\n- **Client**: Request send karta hai (GET, POST, etc.)\n- **Server**: Logic process karke structured response return karta hai (JSON/XML)\n- **Protocols**: REST, GraphQL, WebSocket';
     }
 
     return finalize({
@@ -776,6 +875,11 @@ export function localFallbackReply(messagesOrQuery, userOverride = null, researc
     if (lang === 'hi') {
       spoken =
         'डेटाबेस डेटा को सुरक्षित रूप से संग्रहीत, प्रबंधित और खोजने की एक संगठित प्रणाली है।';
+    } else if (lang === 'hinglish') {
+      spoken =
+        'Database data ko securely store, manage aur query karne ka ek organized system hai.';
+      visual =
+        'Ek **Database** application state aur records ko efficiently persist aur manage karta hai (jaise PostgreSQL, SQLite, MongoDB).';
     }
 
     return finalize({

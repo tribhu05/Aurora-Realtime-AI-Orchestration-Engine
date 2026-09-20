@@ -26,7 +26,7 @@ import { getAssistantReply, localFallbackReply } from './llm.js';
 import { synthesizeSpeech, RIME_SPEAKERS, RIME_MODELS } from './rime.js';
 import { isTaskRequest, executeScaffoldTask } from './tasks.js';
 import { getDb } from './db.js';
-import { analyzeLanguage } from './response-router.js';
+import { analyzeLanguage, detectLanguage } from './response-router.js';
 import {
   calculateTurnCost,
   checkSessionBudget,
@@ -616,9 +616,15 @@ export function createAuroraServer(options = {}) {
         const flavor = isTs ? 'TypeScript' : 'JavaScript';
         const targetSubject = isTodo ? 'Todo App' : 'REST API';
         const title = `Scaffold Express ${targetSubject} (${flavor})`;
-        const spoken = combinedResearchContext
+        const taskLang = detectLanguage(userText);
+        let spoken = combinedResearchContext
           ? `Scaffolded the Express ${flavor} REST API using current best practices.`
           : `Scaffolded the Express ${flavor} REST API in the workspace.`;
+        if (taskLang === 'hi') {
+          spoken = `मैंने एक्सप्रेस ${flavor} रेस्ट एपीआई का प्रोजेक्ट तैयार कर दिया है।`;
+        } else if (taskLang === 'hinglish') {
+          spoken = `Maine Express ${flavor} REST API project ready kar diya hai.`;
+        }
         const visualContent = `// Express ${flavor} ${targetSubject} Scaffolding Completed\n// Project structure, routes, controllers, and environment configuration generated.`;
         const visualResponse = {
           type: 'code',
@@ -634,6 +640,7 @@ export function createAuroraServer(options = {}) {
             ...rimeConfig,
             speaker: activeSpeaker,
             modelId: activeModel,
+            lang: taskLang === 'hi' || taskLang === 'hinglish' ? 'hi' : 'en',
           });
           if (buf) audioBase64 = buf.toString('base64');
         } catch (_) {}
@@ -690,6 +697,7 @@ export function createAuroraServer(options = {}) {
       const t0 = Date.now();
       let replyObj;
       let degraded = false;
+      const httpLangAnalysis = analyzeLanguage(userText, conversationHistory);
 
       if (forceLocal) {
         db.recordTelemetryEvent(sessionId, 'budget_cap_exceeded', {
@@ -720,6 +728,7 @@ export function createAuroraServer(options = {}) {
               researchContext: combinedResearchContext,
               serpapiKey: incomingSerpApiKey,
               toolsEnabled: effectiveSerpapiEnabled,
+              langAnalysis: httpLangAnalysis,
             }),
             new Promise((_, reject) =>
               setTimeout(
@@ -793,7 +802,7 @@ export function createAuroraServer(options = {}) {
 
       const t1 = Date.now();
       let audioBase64 = null;
-      const langAnalysis = analyzeLanguage(userText, conversationHistory);
+      const langAnalysis = httpLangAnalysis;
       const requestLang = langAnalysis.responseLanguage;
       try {
         const buf = await synthesizeSpeech(spokenText, {
@@ -801,7 +810,7 @@ export function createAuroraServer(options = {}) {
           apiKey: requestRimeApiKey,
           speaker: activeSpeaker,
           modelId: activeModel,
-          lang: requestLang === 'hi' ? 'hi' : 'en',
+          lang: requestLang === 'hi' || requestLang === 'hinglish' ? 'hi' : 'en',
         });
         if (buf) {
           audioBase64 = buf.toString('base64');
@@ -926,11 +935,16 @@ export function createAuroraServer(options = {}) {
           message: 'No Rime API key configured. Browser speech will be used.',
         });
       }
+      const incomingLang = req.body?.lang || req.headers['x-lang'];
+      const detectedL = detectLanguage(text);
+      const effectiveTtsLang =
+        incomingLang || (detectedL === 'hi' || detectedL === 'hinglish' ? 'hi' : 'en');
       const buf = await synthesizeSpeech(text, {
         ...rimeConfig,
         apiKey: requestRimeApiKey,
         speaker,
         modelId,
+        lang: effectiveTtsLang,
       });
       if (!buf) {
         return res.json({ ok: false, fallback: true });
@@ -1490,6 +1504,16 @@ async function handleTurn({
         generation: myGen,
         timestamp: Date.now(),
       });
+      send(ws, {
+        type: 'tool_activity',
+        id: `gh-${myGen}`,
+        tool: 'github',
+        status: 'running',
+        desc: `Inspecting GitHub repo ${ghUrl.owner}/${ghUrl.repo}`,
+        meta: 'GitHub API',
+        generation: myGen,
+        timestamp: Date.now(),
+      });
       const tGh0 = Date.now();
       const ghResult = await fetchGitHubRepoDetails(ghUrl.owner, ghUrl.repo, {
         token: process.env.GITHUB_TOKEN || '',
@@ -1502,6 +1526,16 @@ async function handleTurn({
       if (ghResult.ok) {
         githubData = ghResult;
         githubContext = formatGitHubContextForLLM(ghResult);
+        send(ws, {
+          type: 'tool_activity',
+          id: `gh-${myGen}`,
+          tool: 'github',
+          status: 'completed',
+          desc: `Analyzed repository ${ghResult.fullName} (${ghResult.stars || 0}★)`,
+          meta: `GitHub · ${ghDurationMs}ms`,
+          generation: myGen,
+          timestamp: Date.now(),
+        });
         send(ws, {
           type: 'research_result',
           query: ghResult.fullName,
@@ -1540,6 +1574,16 @@ async function handleTurn({
         generation: myGen,
         timestamp: Date.now(),
       });
+      send(ws, {
+        type: 'tool_activity',
+        id: `serpapi-${myGen}`,
+        tool: 'serpapi',
+        status: 'running',
+        desc: `Searching web for "${researchQuery.slice(0, 48)}"`,
+        meta: 'SerpApi Google Search',
+        generation: myGen,
+        timestamp: Date.now(),
+      });
 
       const tRes0 = Date.now();
       const researchResult = await performLiveResearch(researchQuery, {
@@ -1556,6 +1600,16 @@ async function handleTurn({
         researchData = researchResult;
         researchContext = formatResearchContextForLLM(researchResult);
         send(ws, {
+          type: 'tool_activity',
+          id: `serpapi-${myGen}`,
+          tool: 'serpapi',
+          status: 'completed',
+          desc: `Retrieved ${researchResult.results.length} verified web sources`,
+          meta: `SerpApi · ${researchDurationMs}ms`,
+          generation: myGen,
+          timestamp: Date.now(),
+        });
+        send(ws, {
           type: 'research_result',
           query: researchQuery,
           results: researchResult.results,
@@ -1568,6 +1622,16 @@ async function handleTurn({
           durationMs: researchDurationMs,
         });
       } else {
+        send(ws, {
+          type: 'tool_activity',
+          id: `serpapi-${myGen}`,
+          tool: 'serpapi',
+          status: 'failed',
+          desc: 'Live research unavailable — continuing with knowledge base',
+          meta: `SerpApi · ${researchDurationMs}ms`,
+          generation: myGen,
+          timestamp: Date.now(),
+        });
         send(ws, {
           type: 'research_failed',
           query: researchQuery,
@@ -1717,17 +1781,44 @@ async function handleTurn({
         researchContext: combinedResearchContext,
         serpapiKey: serpapiConfig.apiKey,
         toolsEnabled: serpapiConfig.enabled,
+        langAnalysis: turnLangAnalysis,
         onToolStart: (toolCall) => {
           if (isStale(state, myGen)) return;
+          const toolName = toolCall.name || 'web_search';
+          const q = toolCall.args?.query || toolCall.args?.repo || userText;
+          send(ws, {
+            type: 'tool_activity',
+            id: toolCall.id || `tool-${myGen}`,
+            tool: toolName.includes('git') ? 'github' : 'serpapi',
+            status: 'running',
+            desc: `Executing ${toolName}: "${String(q).slice(0, 48)}"`,
+            meta: 'Gemini Tool Call',
+            generation: myGen,
+            timestamp: Date.now(),
+          });
           send(ws, {
             type: 'research_started',
-            query: toolCall.args?.query || toolCall.args?.repo || userText,
+            query: q,
             generation: myGen,
             timestamp: Date.now(),
           });
         },
         onToolEnd: (toolCall) => {
           if (isStale(state, myGen)) return;
+          const toolName = toolCall.name || 'web_search';
+          const count = toolCall.result?.results?.length || 0;
+          send(ws, {
+            type: 'tool_activity',
+            id: toolCall.id || `tool-${myGen}`,
+            tool: toolName.includes('git') ? 'github' : 'serpapi',
+            status: toolCall.result?.error ? 'failed' : 'completed',
+            desc: toolCall.result?.error
+              ? `Tool failed: ${toolCall.result.error}`
+              : `Completed ${toolName} (${count} sources)`,
+            meta: 'Gemini Tool Result',
+            generation: myGen,
+            timestamp: Date.now(),
+          });
           if (toolCall.result?.results) {
             send(ws, {
               type: 'research_result',
@@ -1809,7 +1900,7 @@ async function handleTurn({
                   ...rimeConfig,
                   speaker: activeSpeaker,
                   modelId: activeModel,
-                  lang: turnLang === 'hi' ? 'hi' : 'en',
+                  lang: turnLang === 'hi' || turnLang === 'hinglish' ? 'hi' : 'en',
                 },
                 controller.signal
               );
@@ -1996,7 +2087,9 @@ async function handleTurn({
       cleanSpoken =
         turnLang === 'hi'
           ? 'मैंने कोड वर्कस्पेस में तैयार कर दिया है।'
-          : "I've written the implementation in the chat for you.";
+          : turnLang === 'hinglish'
+            ? 'Maine code workspace me ready kar diya hai.'
+            : "I've written the implementation in the chat for you.";
     } else {
       cleanSpoken = (replyObj.content || '').slice(0, 150);
     }
@@ -2013,7 +2106,7 @@ async function handleTurn({
               ...rimeConfig,
               speaker: activeSpeaker,
               modelId: activeModel,
-              lang: turnLang === 'hi' ? 'hi' : 'en',
+              lang: turnLang === 'hi' || turnLang === 'hinglish' ? 'hi' : 'en',
             },
             controller.signal
           );
@@ -2065,7 +2158,12 @@ async function handleTurn({
       const audioTurnStart = turnStartTime;
       const tailSynthPromise = synthesizeSpeech(
         tail,
-        { ...rimeConfig, speaker: activeSpeaker, modelId: activeModel },
+        {
+          ...rimeConfig,
+          speaker: activeSpeaker,
+          modelId: activeModel,
+          lang: turnLang === 'hi' || turnLang === 'hinglish' ? 'hi' : 'en',
+        },
         controller.signal
       );
       state.ttsChain = state.ttsChain.then(async () => {

@@ -113,6 +113,29 @@
   const btnConvNewChat = $('btnConvNewChat');
   const convHistoryGrid = $('convHistoryGrid');
 
+  // Right Intelligence & Tool Activity Sidebar Elements
+  const appBody = $('appBody');
+  const rightSidebar = $('rightSidebar');
+  const rightSidebarBackdrop = $('rightSidebarBackdrop');
+  const btnTopbarIntel = $('btnTopbarIntel');
+  const btnCollapseRightSidebar = $('btnCollapseRightSidebar');
+  const intelStatusPill = $('intelStatusPill');
+  const intelStatusText = $('intelStatusText');
+  const intelLiveIndicator = $('intelLiveIndicator');
+  const tabIntelAll = $('tabIntelAll');
+  const tabIntelActivity = $('tabIntelActivity');
+  const tabIntelResearch = $('tabIntelResearch');
+  const tabBadgeActivity = $('tabBadgeActivity');
+  const tabBadgeResearch = $('tabBadgeResearch');
+  const panelBlockActivity = $('panelBlockActivity');
+  const panelBlockResearch = $('panelBlockResearch');
+  const toolActivityStream = $('toolActivityStream');
+  const activityEmptyState = $('activityEmptyState');
+  const btnClearActivity = $('btnClearActivity');
+  const researchFindingsStream = $('researchFindingsStream');
+  const researchEmptyState = $('researchEmptyState');
+  const btnClearResearch = $('btnClearResearch');
+
   // Right panel
   const stepper = $('stepper');
   const timeEls = {
@@ -1146,10 +1169,29 @@
         break;
       }
 
+      case 'tool_activity': {
+        if (msg.generation && msg.generation < currentGen) return;
+        addToolActivityCard({
+          id: msg.id,
+          tool: msg.tool,
+          status: msg.status,
+          desc: msg.desc,
+          meta: msg.meta,
+        });
+        break;
+      }
+
       case 'research_started': {
         if (msg.generation && msg.generation < currentGen) return;
         if (captionAi) captionAi.textContent = '“Researching live web sources via SerpApi…”';
         setUiState('thinking');
+        addToolActivityCard({
+          id: `research-${msg.generation || Date.now()}`,
+          tool: 'serpapi',
+          status: 'running',
+          desc: `Searching web for "${(msg.query || '').slice(0, 48)}"`,
+          meta: 'Live Search',
+        });
         break;
       }
 
@@ -1157,12 +1199,27 @@
         if (msg.generation && msg.generation < currentGen) return;
         if (captionAi)
           captionAi.textContent = `“Analyzing ${msg.results?.length || 0} web sources…”`;
+        addResearchFindingsCard(msg);
+        addToolActivityCard({
+          id: `research-${msg.generation || Date.now()}`,
+          tool: 'serpapi',
+          status: 'completed',
+          desc: `Retrieved ${msg.results?.length || 0} verified web sources`,
+          meta: 'Live Search Result',
+        });
         break;
       }
 
       case 'research_failed': {
         if (msg.generation && msg.generation < currentGen) return;
         console.warn('[SerpApi Research]', msg.reason || 'Web research unavailable');
+        addToolActivityCard({
+          id: `research-${msg.generation || Date.now()}`,
+          tool: 'serpapi',
+          status: 'failed',
+          desc: msg.reason || 'Web research unavailable',
+          meta: 'Search Notice',
+        });
         break;
       }
 
@@ -1292,6 +1349,14 @@
           chatArea.scrollTop = chatArea.scrollHeight;
         }
 
+        addToolActivityCard({
+          id: `task-${msg.taskId || Date.now()}`,
+          tool: 'scaffold',
+          status: 'running',
+          desc: `Scaffolding: ${msg.title || 'Project'}`,
+          meta: 'Task Workflow',
+        });
+
         if (chatAreaConv) {
           const hint = $('convEmptyHint');
           if (hint) hint.remove();
@@ -1347,6 +1412,13 @@
         });
         if (chatArea) chatArea.scrollTop = chatArea.scrollHeight;
         if (chatAreaConv) chatAreaConv.scrollTop = chatAreaConv.scrollHeight;
+        addToolActivityCard({
+          id: `task-${msg.taskId || Date.now()}`,
+          tool: 'scaffold',
+          status: 'running',
+          desc: msg.details || `Step ${(msg.stepIndex || 0) + 1}`,
+          meta: 'Task Progress',
+        });
         break;
       }
 
@@ -1415,6 +1487,13 @@
 
         chatArea.scrollTop = chatArea.scrollHeight;
         if (chatAreaConv) chatAreaConv.scrollTop = chatAreaConv.scrollHeight;
+        addToolActivityCard({
+          id: `task-${msg.taskId || Date.now()}`,
+          tool: 'scaffold',
+          status: 'completed',
+          desc: `Task complete: ${msg.title || 'All files generated'}`,
+          meta: 'Artifacts Ready',
+        });
         break;
       }
 
@@ -4949,6 +5028,242 @@ executeTask();`,
     }, 15000);
   }
 
+  // ---------- Right Intelligence & Tool Activity Controller ----------
+  let _toolActivityCount = 0;
+  let _researchFindingsCount = 0;
+
+  function initRightSidebar() {
+    if (!rightSidebar || !appBody) return;
+    const isMobile = window.innerWidth <= 1200;
+    let savedCollapsed = null;
+    try {
+      savedCollapsed = localStorage.getItem('aurora-right-collapsed');
+    } catch (_) {}
+
+    // Default: expanded on desktop to utilize right side space
+    if (savedCollapsed === 'true' && !isMobile) {
+      appBody.classList.add('right-collapsed');
+      if (btnTopbarIntel) btnTopbarIntel.classList.remove('active');
+    } else if (!isMobile) {
+      appBody.classList.remove('right-collapsed');
+      if (btnTopbarIntel) btnTopbarIntel.classList.add('active');
+    }
+
+    if (btnTopbarIntel) {
+      btnTopbarIntel.addEventListener('click', toggleRightSidebar);
+    }
+    if (btnCollapseRightSidebar) {
+      btnCollapseRightSidebar.addEventListener('click', () => toggleRightSidebar(false));
+    }
+    if (rightSidebarBackdrop) {
+      rightSidebarBackdrop.addEventListener('click', () => toggleRightSidebar(false));
+    }
+
+    // Keyboard shortcut: Alt+R to toggle right sidebar
+    window.addEventListener('keydown', (e) => {
+      if (e.altKey && (e.key === 'r' || e.key === 'R')) {
+        e.preventDefault();
+        toggleRightSidebar();
+      }
+    });
+
+    // Tab switching
+    if (tabIntelAll) tabIntelAll.addEventListener('click', () => switchIntelTab('all'));
+    if (tabIntelActivity)
+      tabIntelActivity.addEventListener('click', () => switchIntelTab('activity'));
+    if (tabIntelResearch)
+      tabIntelResearch.addEventListener('click', () => switchIntelTab('research'));
+
+    // Clear actions
+    if (btnClearActivity) {
+      btnClearActivity.addEventListener('click', clearToolActivity);
+    }
+    if (btnClearResearch) {
+      btnClearResearch.addEventListener('click', clearResearchFindings);
+    }
+  }
+
+  function toggleRightSidebar(forceOpen = null) {
+    if (!appBody || !rightSidebar) return;
+    const isMobile = window.innerWidth <= 1200;
+
+    if (isMobile) {
+      const willOpen =
+        forceOpen !== null ? forceOpen : !appBody.classList.contains('right-sidebar-open');
+      appBody.classList.toggle('right-sidebar-open', willOpen);
+      if (btnTopbarIntel) btnTopbarIntel.classList.toggle('active', willOpen);
+    } else {
+      const willCollapse =
+        forceOpen !== null ? !forceOpen : !appBody.classList.contains('right-collapsed');
+      appBody.classList.toggle('right-collapsed', willCollapse);
+      if (btnTopbarIntel) btnTopbarIntel.classList.toggle('active', !willCollapse);
+      try {
+        localStorage.setItem('aurora-right-collapsed', willCollapse ? 'true' : 'false');
+      } catch (_) {}
+    }
+  }
+
+  function switchIntelTab(tab) {
+    [tabIntelAll, tabIntelActivity, tabIntelResearch].forEach((t) => {
+      if (t) t.classList.toggle('active', t.dataset.tab === tab);
+    });
+
+    if (panelBlockActivity) {
+      panelBlockActivity.style.display = tab === 'research' ? 'none' : 'flex';
+    }
+    if (panelBlockResearch) {
+      panelBlockResearch.style.display = tab === 'activity' ? 'none' : 'flex';
+    }
+  }
+
+  function setIntelStatus(status = 'STANDBY', isLive = false) {
+    if (intelStatusText) intelStatusText.textContent = status.toUpperCase();
+    if (intelStatusPill) intelStatusPill.classList.toggle('active', isLive);
+    if (intelLiveIndicator) intelLiveIndicator.classList.toggle('pulsing', isLive);
+  }
+
+  function addToolActivityCard({ id, tool = 'serpapi', status = 'running', desc = '', meta = '' }) {
+    if (!toolActivityStream) return;
+    if (activityEmptyState) activityEmptyState.style.display = 'none';
+
+    let card = id ? document.getElementById(`act-${id}`) : null;
+    const badgeClass = String(tool).toLowerCase().includes('git')
+      ? 'github'
+      : String(tool).toLowerCase().includes('scaffold') ||
+          String(tool).toLowerCase().includes('task')
+        ? 'scaffold'
+        : String(tool).toLowerCase().includes('llm')
+          ? 'llm'
+          : 'serpapi';
+
+    const toolLabel = badgeClass.toUpperCase();
+    const isRunning = status === 'running';
+
+    if (!card) {
+      card = document.createElement('div');
+      if (id) card.id = `act-${id}`;
+      card.className = 'tool-activity-card';
+      _toolActivityCount += 1;
+      if (tabBadgeActivity) tabBadgeActivity.textContent = String(_toolActivityCount);
+      toolActivityStream.prepend(card);
+    }
+
+    const statusHtml = isRunning
+      ? '<span class="tool-status-tag running"><div class="tool-spinner-mini"></div> Running</span>'
+      : status === 'failed'
+        ? '<span class="tool-status-tag failed">✕ Failed</span>'
+        : '<span class="tool-status-tag completed">✓ Completed</span>';
+
+    const timeStr = new Date().toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+
+    card.innerHTML = `
+      <div class="tool-card-head">
+        <span class="tool-badge ${badgeClass}">${escapeHtml(toolLabel)}</span>
+        ${statusHtml}
+      </div>
+      <div class="tool-card-desc">${escapeHtml(desc || 'Executing tool action…')}</div>
+      <div class="tool-card-meta">
+        <span>${escapeHtml(meta || timeStr)}</span>
+        <span>${timeStr}</span>
+      </div>
+    `;
+
+    setIntelStatus(isRunning ? 'ACTIVE' : 'STANDBY', isRunning);
+  }
+
+  function clearToolActivity() {
+    if (!toolActivityStream) return;
+    toolActivityStream.innerHTML = '';
+    if (activityEmptyState) {
+      toolActivityStream.appendChild(activityEmptyState);
+      activityEmptyState.style.display = 'flex';
+    }
+    _toolActivityCount = 0;
+    if (tabBadgeActivity) tabBadgeActivity.textContent = '0';
+    setIntelStatus('STANDBY', false);
+  }
+
+  function addResearchFindingsCard(research) {
+    if (
+      !researchFindingsStream ||
+      !research ||
+      !Array.isArray(research.results) ||
+      !research.results.length
+    )
+      return;
+    if (researchEmptyState) researchEmptyState.style.display = 'none';
+
+    research.results.forEach((r) => {
+      _researchFindingsCount += 1;
+      const card = document.createElement('div');
+      card.className = 'intel-research-card';
+
+      const title = r.title || 'Source Citation';
+      const url = r.url || '#';
+      const snippet = r.snippet || '';
+      const domain = r.source || (url.includes('//') ? url.split('/')[2] : 'web');
+
+      card.innerHTML = `
+        <div class="intel-research-top">
+          <span class="intel-research-source">${escapeHtml(domain)}</span>
+          <span class="intel-research-index">#${_researchFindingsCount}</span>
+        </div>
+        <a class="intel-research-title" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(title)}</a>
+        ${snippet ? `<div class="intel-research-snippet">${escapeHtml(snippet)}</div>` : ''}
+        <div class="intel-research-actions">
+          <button class="btn-intel-action btn-copy-link" data-url="${escapeHtml(url)}">Copy Link</button>
+          <a class="btn-intel-action" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">Open ↗</a>
+          <button class="btn-intel-action btn-ask-source" data-query="${escapeHtml(title)}">Explore</button>
+        </div>
+      `;
+
+      const copyBtn = card.querySelector('.btn-copy-link');
+      if (copyBtn) {
+        copyBtn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const targetUrl = copyBtn.dataset.url;
+          try {
+            await navigator.clipboard.writeText(targetUrl);
+            const orig = copyBtn.textContent;
+            copyBtn.textContent = 'Copied!';
+            setTimeout(() => (copyBtn.textContent = orig), 1800);
+          } catch (_) {}
+        });
+      }
+
+      const askBtn = card.querySelector('.btn-ask-source');
+      if (askBtn) {
+        askBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const q = askBtn.dataset.query;
+          if (typeInput) {
+            typeInput.value = `Tell me more about ${q}`;
+            typeInput.focus();
+          }
+        });
+      }
+
+      researchFindingsStream.prepend(card);
+    });
+
+    if (tabBadgeResearch) tabBadgeResearch.textContent = String(_researchFindingsCount);
+  }
+
+  function clearResearchFindings() {
+    if (!researchFindingsStream) return;
+    researchFindingsStream.innerHTML = '';
+    if (researchEmptyState) {
+      researchFindingsStream.appendChild(researchEmptyState);
+      researchEmptyState.style.display = 'flex';
+    }
+    _researchFindingsCount = 0;
+    if (tabBadgeResearch) tabBadgeResearch.textContent = '0';
+  }
+
   function escapeHtml(s) {
     return String(s).replace(
       /[&<>"']/g,
@@ -4964,6 +5279,7 @@ executeTask();`,
   }
   // Initialize sessions and initial workspace state safely after all event listeners and DOM bindings are registered
   initSessionOnBoot();
+  initRightSidebar();
 
   // Global handle for programmatic or button invocation
   window.createNewSession = createNewSession;

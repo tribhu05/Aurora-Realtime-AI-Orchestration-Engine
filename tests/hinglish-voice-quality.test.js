@@ -25,7 +25,7 @@ test('Voice Catalog Audit - includes native Hindi and Indian English voices', ()
   assert.match(codaModel.description, /Hindi & multilingual/i);
 });
 
-test('Pronunciation Controls - English default resolution for Roman queries', async () => {
+test('Pronunciation Controls - Hinglish resolution for Roman Hindi queries', async () => {
   const romanTokens = [
     'Bhai',
     'Kya haal hai',
@@ -41,15 +41,15 @@ test('Pronunciation Controls - English default resolution for Roman queries', as
     const analysis = analyzeLanguage(token);
     assert.equal(
       analysis.responseLanguage,
-      'en',
-      `Roman token "${token}" must default to English response language`
+      'hinglish',
+      `Roman token "${token}" must resolve to Hinglish response language`
     );
 
-    // Verify mock audio synthesis succeeds with taru on coda
+    // Verify mock audio synthesis succeeds with taru on coda with hi/hinglish phonetics
     const audioBuf = await synthesizeSpeech(token, {
       speaker: 'taru',
       modelId: 'coda',
-      lang: 'en',
+      lang: 'hi',
       mockAudio: true,
     });
     assert.ok(

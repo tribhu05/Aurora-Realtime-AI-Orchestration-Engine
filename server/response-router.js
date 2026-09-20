@@ -82,6 +82,246 @@ export function containsStructuredContent(text) {
  *   isExplicit: boolean
  * }}
  */
+/**
+ * Unambiguous Hindi / Hinglish lexical markers in Roman/Latin script.
+ * Excludes common English words to prevent false-positive language classification.
+ */
+export const UNAMBIGUOUS_HINGLISH_MARKERS = new Set([
+  // Question & relative words
+  'kya',
+  'kaise',
+  'kaisa',
+  'kaisi',
+  'kyun',
+  'kyu',
+  'kaun',
+  'kon',
+  'kahan',
+  'kab',
+  'kitna',
+  'kitne',
+  'kitni',
+  // Pronouns & demonstratives
+  'yeh',
+  'woh',
+  'ye',
+  'wo',
+  'iska',
+  'iski',
+  'iske',
+  'uska',
+  'uski',
+  'uske',
+  'mera',
+  'meri',
+  'mere',
+  'tera',
+  'teri',
+  'tere',
+  'tum',
+  'tumhara',
+  'tumhari',
+  'tumhare',
+  'aap',
+  'aapka',
+  'aapki',
+  'aapke',
+  'hum',
+  'humara',
+  'humari',
+  'humare',
+  'humein',
+  'humey',
+  'mujhe',
+  'mujhko',
+  'tujhe',
+  'tujhko',
+  'usey',
+  'usko',
+  'inhe',
+  'unhe',
+  'unko',
+  'sab',
+  'sabhi',
+  'apna',
+  'apni',
+  'apne',
+  'kisi',
+  'kisko',
+  'ek',
+  // Common verbs & auxiliaries
+  'hai',
+  'hain',
+  'hoon',
+  'hun',
+  'tha',
+  'thi',
+  'hoga',
+  'hogi',
+  'hoge',
+  'honge',
+  'karo',
+  'kare',
+  'karega',
+  'karegi',
+  'karenge',
+  'karna',
+  'karne',
+  'karni',
+  'kiya',
+  'kiye',
+  'karu',
+  'karoon',
+  'karun',
+  'karta',
+  'karti',
+  'karte',
+  'hota',
+  'hoti',
+  'hote',
+  'raha',
+  'rahi',
+  'rahe',
+  'dena',
+  'diya',
+  'diye',
+  'dekh',
+  'dekho',
+  'dekhna',
+  'bata',
+  'batao',
+  'batana',
+  'bataye',
+  'bolo',
+  'bolna',
+  'bol',
+  'bole',
+  'samajh',
+  'samjho',
+  'samjha',
+  'samjhao',
+  'samjhana',
+  'samjhe',
+  'bana',
+  'banao',
+  'banaye',
+  'chahiye',
+  'sakta',
+  'sakti',
+  'sakte',
+  'sakenge',
+  'aao',
+  'aana',
+  'aaya',
+  'aayi',
+  'aaye',
+  'jao',
+  'jana',
+  'gaya',
+  'gayi',
+  'gaye',
+  'chalo',
+  'chalna',
+  'chalta',
+  'chalti',
+  'chalte',
+  'chal',
+  'mila',
+  'mili',
+  'mile',
+  'rakho',
+  'rakhna',
+  'likho',
+  'likhna',
+  'suno',
+  'sunna',
+  'kaam',
+  // Conjunctions, particles, adverbs
+  'aur',
+  'lekin',
+  'magar',
+  'agar',
+  'phir',
+  'bhi',
+  'nahi',
+  'nahin',
+  'nhi',
+  'nhin',
+  'kyunki',
+  'kyuki',
+  'isliye',
+  'taaki',
+  'yahan',
+  'wahan',
+  'aise',
+  'waise',
+  'jaise',
+  'bahut',
+  'bohot',
+  'jyada',
+  'zyada',
+  'thoda',
+  'thodi',
+  'thode',
+  'bilkul',
+  'shayad',
+  'theek',
+  'thik',
+  'accha',
+  'achha',
+  'achi',
+  'acchi',
+  'sirf',
+  'pehle',
+  'baad',
+  'saath',
+  'bina',
+  'baare',
+  'wala',
+  'wali',
+  'wale',
+  'waala',
+  'waali',
+  'waale',
+  // Conversational terms
+  'bhai',
+  'yaar',
+  'dost',
+  'arre',
+  'arey',
+  'haan',
+]);
+
+/**
+ * Analyzes the user query and returns a structured multilingual analysis object.
+ *
+ * Supported modes:
+ * - English
+ * - Hindi (Devanagari script)
+ * - Hinglish (Hindi written in Latin/Roman script)
+ * - Mixed Hindi-English (e.g. Hindi with technical English terms)
+ *
+ * Tracks:
+ * - detectedLanguage: 'en' | 'hi' | 'hinglish'
+ * - detectedScript: 'Latin' | 'Devanagari'
+ * - responseLanguage: 'en' | 'hi' | 'hinglish'
+ * - confidence: 0.0 - 1.0
+ * - isMixed: boolean
+ * - hasTechnicalTerms: boolean
+ * - isExplicit: boolean
+ *
+ * @param {string} text - Input user text.
+ * @param {Array<{role: string, content: string}>|object|string} [context] - Previous messages or context state.
+ * @returns {{
+ *   detectedLanguage: 'en'|'hi'|'hinglish',
+ *   detectedScript: 'Latin'|'Devanagari',
+ *   responseLanguage: 'en'|'hi'|'hinglish',
+ *   confidence: number,
+ *   isMixed: boolean,
+ *   hasTechnicalTerms: boolean,
+ *   isExplicit: boolean
+ * }}
+ */
 export function analyzeLanguage(text, context = null) {
   if (!text || typeof text !== 'string') {
     const prev = resolvePreviousLang(context) || 'en';
@@ -100,7 +340,31 @@ export function analyzeLanguage(text, context = null) {
   const trimmed = text.trim();
   const hasDevanagari = /[\u0900-\u097F]/.test(trimmed);
 
-  // 1. Explicit Language Switch Directives (overrides previous context)
+  // 1. Explicit Language Switch Directives (Highest priority: overrides previous context)
+  // Check Hinglish explicit directive:
+  // e.g. "Ab Hinglish mein batao", "Reply in Hinglish", "Explain in Hinglish", "Hinglish please", "Hinglish me bolo"
+  const isExplicitHinglish =
+    /\b(in hinglish|explain in hinglish|speak in hinglish|switch to hinglish|hinglish please|reply in hinglish|answer in hinglish|tell me in hinglish)\b/i.test(
+      trimmed
+    ) ||
+    /\b(ab|abb|now)?\s*(in\s+)?hinglish\s*(mein|me|mai)?\s*(explain|batao|bata|bolo|karo|kar|likho|speak|reply)?\b/i.test(
+      trimmed
+    ) ||
+    /\b(reply|answer|respond|speak)\s+(in\s+)?hinglish\b/i.test(trimmed) ||
+    /\bcan you (explain|speak|reply)\s+(in\s+)?hinglish\b/i.test(trimmed);
+
+  if (isExplicitHinglish) {
+    return {
+      detectedLanguage: 'hinglish',
+      detectedScript: 'Latin',
+      responseLanguage: 'hinglish',
+      confidence: 0.99,
+      isMixed: false,
+      hasTechnicalTerms: false,
+      isExplicit: true,
+    };
+  }
+
   // Check English explicit directive:
   // e.g. "Ab English mein explain kar", "Reply in English", "Explain in English", "Switch to English", "English please", "English me batao"
   const isExplicitEnglish =
@@ -163,26 +427,77 @@ export function analyzeLanguage(text, context = null) {
     };
   }
 
-  // 3. Short Conversational Continuation / Follow-up Handling (<= 3 words)
+  // 3. Hinglish Lexical Detection (Roman script with Hindi words)
+  const tokens = trimmed
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean);
+  const matchedHinglish = tokens.filter((t) => UNAMBIGUOUS_HINGLISH_MARKERS.has(t));
+
+  if (matchedHinglish.length > 0) {
+    const nonHinglishTokens = tokens.filter(
+      (t) => !UNAMBIGUOUS_HINGLISH_MARKERS.has(t) && /^[a-z]{3,}$/.test(t)
+    );
+    const hasEnglishWords = nonHinglishTokens.length > 0;
+    return {
+      detectedLanguage: 'hinglish',
+      detectedScript: 'Latin',
+      responseLanguage: 'hinglish',
+      confidence: Math.min(0.99, 0.8 + matchedHinglish.length * 0.05),
+      isMixed: hasEnglishWords,
+      hasTechnicalTerms: hasEnglishWords,
+      isExplicit: false,
+    };
+  }
+
+  // 4. Short Conversational Continuation / Follow-up Handling (<= 3 words)
   const words = trimmed.split(/\s+/).filter(Boolean);
   const previousLang = resolvePreviousLang(context);
 
-  if (words.length <= 3 && previousLang === 'hi') {
-    // Distinctive Devanagari affirmations or Hindi affirmations
-    if (/^(हाँ|हा|जी|ठीक है|सही|और बताओ|क्यों|क्यों\?)$/i.test(trimmed)) {
-      return {
-        detectedLanguage: 'hi',
-        detectedScript: 'Devanagari',
-        responseLanguage: 'hi',
-        confidence: 0.92,
-        isMixed: false,
-        hasTechnicalTerms: false,
-        isExplicit: false,
-      };
+  if (words.length <= 3 && previousLang) {
+    if (previousLang === 'hi') {
+      if (/^(हाँ|हा|जी|ठीक है|सही|और बताओ|क्यों|क्यों\?)$/i.test(trimmed)) {
+        return {
+          detectedLanguage: 'hi',
+          detectedScript: 'Devanagari',
+          responseLanguage: 'hi',
+          confidence: 0.92,
+          isMixed: false,
+          hasTechnicalTerms: false,
+          isExplicit: false,
+        };
+      }
+    } else if (previousLang === 'hinglish') {
+      if (
+        /^(haan|ha|theek hai|thik hai|sahi|aur batao|kyun|kyu|accha|acha|ok|okay)$/i.test(trimmed)
+      ) {
+        return {
+          detectedLanguage: 'hinglish',
+          detectedScript: 'Latin',
+          responseLanguage: 'hinglish',
+          confidence: 0.92,
+          isMixed: false,
+          hasTechnicalTerms: false,
+          isExplicit: false,
+        };
+      }
+    } else if (previousLang === 'en') {
+      if (/^(yes|yeah|sure|okay|ok|why|right|tell me more)$/i.test(trimmed)) {
+        return {
+          detectedLanguage: 'en',
+          detectedScript: 'Latin',
+          responseLanguage: 'en',
+          confidence: 0.92,
+          isMixed: false,
+          hasTechnicalTerms: false,
+          isExplicit: false,
+        };
+      }
     }
   }
 
-  // Default: English (all Roman/Latin script is treated as English)
+  // Default: English (pure Roman/Latin script without Hindi markers)
   return {
     detectedLanguage: 'en',
     detectedScript: 'Latin',
@@ -228,6 +543,12 @@ function resolvePreviousLang(context) {
       const msg = context[i];
       if (msg?.role === 'user' && msg.content) {
         if (/[\u0900-\u097F]/.test(msg.content)) return 'hi';
+        const tokens = msg.content
+          .toLowerCase()
+          .replace(/[^a-z0-9\s]/g, ' ')
+          .split(/\s+/)
+          .filter(Boolean);
+        if (tokens.some((t) => UNAMBIGUOUS_HINGLISH_MARKERS.has(t))) return 'hinglish';
         return 'en';
       }
     }
@@ -777,6 +1098,14 @@ export function validateAndEnforceContract(
       if (effectiveLang === 'hi') {
         const itemDesc = visualType === 'code' ? 'कोड' : visualType === 'table' ? 'तालिका' : 'जवाब';
         spoken = `लीजिए, मैंने वर्कस्पेस में ${itemDesc} तैयार कर दिया है।`;
+      } else if (effectiveLang === 'hinglish') {
+        const itemDesc =
+          visualType === 'code'
+            ? visualTitle || 'code implementation'
+            : visualType === 'table'
+              ? 'table'
+              : 'response';
+        spoken = `Done! Maine workspace me ${itemDesc} ready kar diya hai.`;
       } else {
         const itemDesc =
           visualType === 'code'
@@ -799,6 +1128,9 @@ export function validateAndEnforceContract(
       if (effectiveLang === 'hi') {
         spoken =
           'मैंने मुख्य विचार संक्षेप में समझा दिया है, और पूरा विवरण वर्कस्पेस में जोड़ दिया है।';
+      } else if (effectiveLang === 'hinglish') {
+        spoken =
+          'Maine summary explain kar di hai, aur poori details workspace me add kar di hain.';
       } else {
         spoken = "I've provided a summary, and added the full details to the workspace.";
       }

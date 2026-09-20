@@ -59,43 +59,45 @@ test('Scenario 2: Hindi (Devanagari) - "आप कैसे हो?" detects Hin
   assert.match(reply.spokenResponse, /मैं बिल्कुल ठीक हूँ|आप कैसे हैं/);
 });
 
-test('Scenario 3: Roman query defaults to English (Hinglish removed)', () => {
+test('Scenario 3: Hinglish - "Aap kaise ho?" detects Hinglish and responds in natural conversational Hinglish', () => {
   const query = 'Aap kaise ho?';
   const analysis = analyzeLanguage(query);
 
-  assert.equal(analysis.detectedLanguage, 'en');
+  assert.equal(analysis.detectedLanguage, 'hinglish');
   assert.equal(analysis.detectedScript, 'Latin');
-  assert.equal(analysis.responseLanguage, 'en');
+  assert.equal(analysis.responseLanguage, 'hinglish');
 
   const instruction = buildLanguageInstruction(analysis);
-  assert.match(instruction, /Current user language: English/);
+  assert.match(instruction, /Current user language: Hinglish/);
   assert.match(instruction, /Current script: Latin\/Roman/);
-  assert.match(instruction, /Respond naturally in English using Latin script/);
+  assert.match(instruction, /conversational Hinglish/);
+  assert.match(instruction, /Use Roman\/Latin script only/);
 
   const reply = localFallbackReply(query);
-  assert.equal(reply.detectedLanguage, 'en');
+  assert.equal(reply.detectedLanguage, 'hinglish');
   assert.equal(reply.detectedScript, 'Latin');
   assert.doesNotMatch(
     reply.spokenResponse,
     /[\u0900-\u097F]/,
-    'English response must NOT contain Devanagari characters'
+    'Hinglish response must NOT contain Devanagari characters'
   );
+  assert.match(reply.spokenResponse, /theek hoon|help kar sakta/i);
 });
 
-test('Scenario 4: Roman DSA query defaults to English with technical terms', () => {
+test('Scenario 4: Mixed technical Hinglish - "Bhai mujhe DSA samjha de" detects Hinglish with technical terms', () => {
   const query = 'Bhai mujhe DSA samjha de';
   const analysis = analyzeLanguage(query);
 
-  assert.equal(analysis.detectedLanguage, 'en');
+  assert.equal(analysis.detectedLanguage, 'hinglish');
   assert.equal(analysis.detectedScript, 'Latin');
-  assert.equal(analysis.responseLanguage, 'en');
+  assert.equal(analysis.responseLanguage, 'hinglish');
 
   const reply = localFallbackReply(query);
-  assert.equal(reply.detectedLanguage, 'en');
+  assert.equal(reply.detectedLanguage, 'hinglish');
   assert.doesNotMatch(
     reply.spokenResponse,
     /[\u0900-\u097F]/,
-    'English DSA must NOT be in Devanagari script'
+    'Hinglish DSA must NOT be in Devanagari script'
   );
   assert.match(
     reply.spokenResponse,

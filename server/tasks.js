@@ -145,6 +145,8 @@ export async function executeScaffoldTask({
     : `Starting the Express ${flavor} REST API scaffolding now.`;
   if (taskLang === 'hi') {
     initialSpoken = `मैंने एक्सप्रेस ${flavor} रेस्ट एपीआई का प्रोजेक्ट तैयार करना शुरू कर दिया है।`;
+  } else if (taskLang === 'hinglish') {
+    initialSpoken = `Maine Express ${flavor} REST API project scaffold karna start kar diya hai.`;
   }
   send(ws, {
     type: 'ai_text',
@@ -162,7 +164,12 @@ export async function executeScaffoldTask({
   });
 
   try {
-    const audioBuffer = await synthesizeSpeech(initialSpoken, rimeConfig, signal);
+    const taskTtsLang = taskLang === 'hi' || taskLang === 'hinglish' ? 'hi' : 'en';
+    const audioBuffer = await synthesizeSpeech(
+      initialSpoken,
+      { ...rimeConfig, lang: taskTtsLang },
+      signal
+    );
     if (signal.aborted || state.generation !== myGen) return;
     if (audioBuffer) {
       send(ws, {
@@ -292,9 +299,16 @@ export async function executeScaffoldTask({
   let finalSpoken = `Your Express ${flavor} project is ready. I've placed the full code in the chat.`;
   if (taskLang === 'hi') {
     finalSpoken = `आपका एक्सप्रेस ${flavor} प्रोजेक्ट तैयार है। मैंने पूरा कोड वर्कस्पेस में रख दिया है।`;
+  } else if (taskLang === 'hinglish') {
+    finalSpoken = `Aapka Express ${flavor} project ready hai. Maine poora code workspace me add kar diya hai.`;
   }
   try {
-    const audioBuffer = await synthesizeSpeech(finalSpoken, rimeConfig, signal);
+    const taskTtsLang = taskLang === 'hi' || taskLang === 'hinglish' ? 'hi' : 'en';
+    const audioBuffer = await synthesizeSpeech(
+      finalSpoken,
+      { ...rimeConfig, lang: taskTtsLang },
+      signal
+    );
     if (signal?.aborted || (state && state.generation !== myGen)) return;
     if (audioBuffer) {
       send(ws, {

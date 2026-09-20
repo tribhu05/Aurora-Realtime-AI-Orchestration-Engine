@@ -25,8 +25,8 @@ test('Language Detection - English queries', () => {
   }
 });
 
-test('Language Detection - Roman queries default to English (Hinglish removed)', () => {
-  const romanQueries = [
+test('Language Detection - Hinglish queries detect hinglish', () => {
+  const hinglishQueries = [
     'API kaise kaam karti hai?',
     'API kya hoti hai?',
     'mujhe batao ki database kya hota hai',
@@ -37,9 +37,13 @@ test('Language Detection - Roman queries default to English (Hinglish removed)',
     'ek express api bana do',
   ];
 
-  for (const query of romanQueries) {
+  for (const query of hinglishQueries) {
     const lang = detectLanguage(query);
-    assert.equal(lang, 'en', `Expected 'en' for Roman query: "${query}", got: "${lang}"`);
+    assert.equal(
+      lang,
+      'hinglish',
+      `Expected 'hinglish' for Hinglish query: "${query}", got: "${lang}"`
+    );
   }
 });
 
@@ -100,9 +104,13 @@ test('Language Detection - Explicit language switches', () => {
   // User explicitly asks to switch to Hindi
   assert.equal(detectLanguage('Explain in Hindi please', historyEnglish), 'hi');
   assert.equal(detectLanguage('Ab Hindi mein batao', historyEnglish), 'hi');
+
+  // User explicitly asks to switch to Hinglish
+  assert.equal(detectLanguage('Hinglish mein batao', historyEnglish), 'hinglish');
+  assert.equal(detectLanguage('Explain in Hinglish please', historyEnglish), 'hinglish');
 });
 
-test('Dynamic LLM Prompting - buildLanguageInstruction defaults to English', () => {
+test('Dynamic LLM Prompting - buildLanguageInstruction handles English, Hindi, and Hinglish', () => {
   const englishPrompt = buildLanguageInstruction('en');
   assert.match(englishPrompt, /LANGUAGE REQUIREMENT: ENGLISH/);
   assert.match(englishPrompt, /clear, crisp, natural fluent English/);
@@ -113,6 +121,10 @@ test('Dynamic LLM Prompting - buildLanguageInstruction defaults to English', () 
   const hindiPrompt = buildLanguageInstruction('hi');
   assert.match(hindiPrompt, /LANGUAGE REQUIREMENT: HINDI/);
   assert.match(hindiPrompt, /Devanagari script/);
+
+  const hinglishPrompt = buildLanguageInstruction('hinglish');
+  assert.match(hinglishPrompt, /LANGUAGE REQUIREMENT: HINGLISH/);
+  assert.match(hinglishPrompt, /Roman\/Latin script only/i);
 });
 
 test('Local Fallback - English Spoken Verbal Response for API query', () => {
@@ -150,7 +162,7 @@ test('Task Scaffolding - English announcements by default', async () => {
   assert.match(res.artifacts[0].content, /express/);
 });
 
-test('Contract Enforcement - returns en for Roman script and hi for Devanagari', () => {
+test('Contract Enforcement - returns en for English, hi for Devanagari, and hinglish for Roman Hindi', () => {
   const contractEn = validateAndEnforceContract(
     {
       responseMode: 'VOICE',
@@ -170,4 +182,14 @@ test('Contract Enforcement - returns en for Roman script and hi for Devanagari',
     'मुझे बताओ कि यह कैसे काम करता है'
   );
   assert.equal(contractHi.detectedLanguage, 'hi');
+
+  const contractHinglish = validateAndEnforceContract(
+    {
+      responseMode: 'VOICE',
+      spokenResponse: 'Main aapki help ke liye ready hoon.',
+      visualResponse: { type: 'text', content: 'Ready.' },
+    },
+    'mujhe batao ye kaise kaam karta hai'
+  );
+  assert.equal(contractHinglish.detectedLanguage, 'hinglish');
 });
