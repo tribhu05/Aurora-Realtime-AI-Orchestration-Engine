@@ -35,6 +35,7 @@ import {
 } from './governance.js';
 import {
   isResearchNeeded,
+  isAcademicResearchQuery,
   generateResearchQuery,
   performLiveResearch,
   formatResearchContextForLLM,
@@ -574,19 +575,21 @@ export function createAuroraServer(options = {}) {
         }
       }
 
-      // Optional SerpApi live research
+      // Optional SerpApi / Academic live research
       let researchData = null;
       let researchContext = null;
-      if (!ghUrl && effectiveSerpapiEnabled && isResearchNeeded(userText)) {
+      const isAcademicQuery = isAcademicResearchQuery(userText);
+      if (!ghUrl && (effectiveSerpapiEnabled || isAcademicQuery) && isResearchNeeded(userText)) {
         const researchQuery = generateResearchQuery(userText);
         console.log(
-          `[SERPAPI_PREFETCH_TRIGGERED] UserText: "${userText.slice(0, 60)}" | Query: "${researchQuery}"`
+          `[RESEARCH_REQUEST_RECEIVED] Turn pre-fetch: "${userText.slice(0, 60)}" | Academic: ${isAcademicQuery} | Query: "${researchQuery}"`
         );
         const tRes0 = Date.now();
         const researchResult = await performLiveResearch(researchQuery, {
           apiKey: incomingSerpApiKey,
           timeoutMs: serpapiConfig.timeoutMs,
           mockResults: serpapiConfig.mockResults,
+          isAcademic: isAcademicQuery,
         });
         const researchDurationMs = Date.now() - tRes0;
         if (researchResult.ok && researchResult.results.length > 0) {
@@ -727,7 +730,7 @@ export function createAuroraServer(options = {}) {
               userOverride,
               researchContext: combinedResearchContext,
               serpapiKey: incomingSerpApiKey,
-              toolsEnabled: effectiveSerpapiEnabled,
+              toolsEnabled: effectiveSerpapiEnabled || isAcademicQuery,
               langAnalysis: httpLangAnalysis,
             }),
             new Promise((_, reject) =>
@@ -750,9 +753,16 @@ export function createAuroraServer(options = {}) {
       }
 
       if (replyObj.toolExecution) {
-        if (replyObj.toolExecution.tool === 'web_search') {
+        if (
+          replyObj.toolExecution.tool === 'web_search' ||
+          replyObj.toolExecution.tool === 'search_research_papers'
+        ) {
           researchData = {
             query: replyObj.toolExecution.args?.query || userText,
+            isAcademic:
+              replyObj.toolExecution.tool === 'search_research_papers' ||
+              replyObj.toolExecution.result?.isAcademic,
+            source: replyObj.toolExecution.result?.source,
             results: replyObj.toolExecution.result?.results || [],
           };
           db.recordTelemetryEvent(sessionId, 'serpapi_tool_success', {
@@ -881,6 +891,28 @@ export function createAuroraServer(options = {}) {
                 ],
               }
             : null),
+        toolActivity:
+          researchData && researchData.results?.length > 0
+            ? [
+                {
+                  id: `act-${sessionId}-${turnStartTime}`,
+                  tool: researchData.isAcademic ? 'scholar' : 'serpapi',
+                  status: 'completed',
+                  desc: `Retrieved ${researchData.results.length} verified ${researchData.isAcademic ? 'research papers' : 'sources'}`,
+                  meta: `${researchData.source || 'Verified Source'} · ${Date.now() - turnStartTime}ms`,
+                },
+              ]
+            : githubData
+              ? [
+                  {
+                    id: `act-${sessionId}-${turnStartTime}`,
+                    tool: 'github',
+                    status: 'completed',
+                    desc: `Analyzed repository ${githubData.fullName}`,
+                    meta: `GitHub · ${Date.now() - turnStartTime}ms`,
+                  },
+                ]
+              : [],
         llmMs,
         ttsMs,
         totalMs,
@@ -1558,29 +1590,33 @@ async function handleTurn({
     }
   }
 
-  // Optional SerpApi live research
+  // Optional SerpApi / Academic live research
   let researchData = null;
   let researchContext = null;
+  const isAcademicTurnQuery = isAcademicResearchQuery(userText);
 
-  if (!ghUrl && serpapiConfig?.enabled && isResearchNeeded(userText)) {
+  if (!ghUrl && (serpapiConfig?.enabled || isAcademicTurnQuery) && isResearchNeeded(userText)) {
     if (!isStale(state, myGen)) {
       const researchQuery = generateResearchQuery(userText);
       console.log(
-        `[SERPAPI_PREFETCH_TRIGGERED] UserText: "${userText.slice(0, 60)}" | Query: "${researchQuery}"`
+        `[RESEARCH_REQUEST_RECEIVED] Turn pre-fetch: "${userText.slice(0, 60)}" | Academic: ${isAcademicTurnQuery} | Query: "${researchQuery}"`
       );
       send(ws, {
         type: 'research_started',
         query: researchQuery,
+        isAcademic: isAcademicTurnQuery,
         generation: myGen,
         timestamp: Date.now(),
       });
       send(ws, {
         type: 'tool_activity',
-        id: `serpapi-${myGen}`,
-        tool: 'serpapi',
+        id: `research-${myGen}`,
+        tool: isAcademicTurnQuery ? 'scholar' : 'serpapi',
         status: 'running',
-        desc: `Searching web for "${researchQuery.slice(0, 48)}"`,
-        meta: 'SerpApi Google Search',
+        desc: isAcademicTurnQuery
+          ? `Searching research papers for "${researchQuery.slice(0, 48)}"`
+          : `Searching web for "${researchQuery.slice(0, 48)}"`,
+        meta: isAcademicTurnQuery ? 'Academic Literature Search' : 'SerpApi Google Search',
         generation: myGen,
         timestamp: Date.now(),
       });
@@ -1591,6 +1627,7 @@ async function handleTurn({
         signal: controller.signal,
         timeoutMs: serpapiConfig.timeoutMs,
         mockResults: serpapiConfig.mockResults,
+        isAcademic: isAcademicTurnQuery,
       });
       const researchDurationMs = Date.now() - tRes0;
 
@@ -1601,11 +1638,11 @@ async function handleTurn({
         researchContext = formatResearchContextForLLM(researchResult);
         send(ws, {
           type: 'tool_activity',
-          id: `serpapi-${myGen}`,
-          tool: 'serpapi',
+          id: `research-${myGen}`,
+          tool: isAcademicTurnQuery ? 'scholar' : 'serpapi',
           status: 'completed',
-          desc: `Retrieved ${researchResult.results.length} verified web sources`,
-          meta: `SerpApi · ${researchDurationMs}ms`,
+          desc: `Retrieved ${researchResult.results.length} verified ${isAcademicTurnQuery ? 'research papers' : 'web sources'}`,
+          meta: `${researchResult.source || (isAcademicTurnQuery ? 'Academic Registry' : 'SerpApi')} · ${researchDurationMs}ms`,
           generation: myGen,
           timestamp: Date.now(),
         });
@@ -1613,6 +1650,8 @@ async function handleTurn({
           type: 'research_result',
           query: researchQuery,
           results: researchResult.results,
+          isAcademic: isAcademicTurnQuery,
+          source: researchResult.source,
           generation: myGen,
           timestamp: Date.now(),
         });
@@ -1624,11 +1663,13 @@ async function handleTurn({
       } else {
         send(ws, {
           type: 'tool_activity',
-          id: `serpapi-${myGen}`,
-          tool: 'serpapi',
+          id: `research-${myGen}`,
+          tool: isAcademicTurnQuery ? 'scholar' : 'serpapi',
           status: 'failed',
-          desc: 'Live research unavailable — continuing with knowledge base',
-          meta: `SerpApi · ${researchDurationMs}ms`,
+          desc: isAcademicTurnQuery
+            ? 'Academic search unavailable — continuing with knowledge base'
+            : 'Live research unavailable — continuing with knowledge base',
+          meta: `Search · ${researchDurationMs}ms`,
           generation: myGen,
           timestamp: Date.now(),
         });
@@ -1780,7 +1821,7 @@ async function handleTurn({
         userOverride,
         researchContext: combinedResearchContext,
         serpapiKey: serpapiConfig.apiKey,
-        toolsEnabled: serpapiConfig.enabled,
+        toolsEnabled: serpapiConfig.enabled || isAcademicTurnQuery,
         langAnalysis: turnLangAnalysis,
         onToolStart: (toolCall) => {
           if (isStale(state, myGen)) return;
@@ -1789,7 +1830,11 @@ async function handleTurn({
           send(ws, {
             type: 'tool_activity',
             id: toolCall.id || `tool-${myGen}`,
-            tool: toolName.includes('git') ? 'github' : 'serpapi',
+            tool: toolName.includes('git')
+              ? 'github'
+              : toolName.includes('scholar') || toolName.includes('paper')
+                ? 'scholar'
+                : 'serpapi',
             status: 'running',
             desc: `Executing ${toolName}: "${String(q).slice(0, 48)}"`,
             meta: 'Gemini Tool Call',
@@ -1799,6 +1844,7 @@ async function handleTurn({
           send(ws, {
             type: 'research_started',
             query: q,
+            isAcademic: toolName.includes('scholar') || toolName.includes('paper'),
             generation: myGen,
             timestamp: Date.now(),
           });
@@ -1810,7 +1856,13 @@ async function handleTurn({
           send(ws, {
             type: 'tool_activity',
             id: toolCall.id || `tool-${myGen}`,
-            tool: toolName.includes('git') ? 'github' : 'serpapi',
+            tool: toolName.includes('git')
+              ? 'github'
+              : toolName.includes('scholar') ||
+                  toolName.includes('paper') ||
+                  toolCall.result?.isAcademic
+                ? 'scholar'
+                : 'serpapi',
             status: toolCall.result?.error ? 'failed' : 'completed',
             desc: toolCall.result?.error
               ? `Tool failed: ${toolCall.result.error}`
@@ -1824,6 +1876,8 @@ async function handleTurn({
               type: 'research_result',
               query: toolCall.args?.query || userText,
               results: toolCall.result.results,
+              isAcademic: toolCall.result.isAcademic,
+              source: toolCall.result.source,
               generation: myGen,
               timestamp: Date.now(),
             });

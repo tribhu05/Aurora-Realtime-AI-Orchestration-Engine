@@ -10,7 +10,7 @@ import {
   detectLanguage,
   analyzeLanguage,
 } from './response-router.js';
-import { performLiveResearch } from './research.js';
+import { performLiveResearch, isAcademicResearchQuery } from './research.js';
 import { fetchGitHubRepoDetails } from './github.js';
 
 const ENDPOINTS = {
@@ -37,6 +37,25 @@ export const AURORA_TOOLS = [
             type: 'string',
             description:
               'The search query to look up on Google via SerpApi (e.g. "latest AI news", "current CEO of OpenAI", "weather in Bhopal").',
+          },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'search_research_papers',
+      description:
+        'Search peer-reviewed academic research papers, scientific journals, conference proceedings, and literature with verified DOIs and direct links.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: {
+            type: 'string',
+            description:
+              'The academic research topic, keywords, or authors (e.g. "assistive technology visually impaired navigation").',
           },
         },
         required: ['query'],
@@ -92,11 +111,14 @@ Language & Fluency Guidelines:
    - You MUST synthesize, translate, and explain the retrieved search results in the user's detected language (Hindi, Hinglish, or English).
 
 Live Information & Tool Capabilities:
-1. Live Web Search (Powered by SerpApi):
-   - You are equipped with real-time web search powered by SerpApi Google Search.
-   - When the user asks for current news, today's weather, recent documentation, real-time facts, or asks you to look up/search something online, use your live search capabilities and ground your answer in the verified search results.
-   - DO NOT state "I do not have live internet access" or "I cannot browse the web" when search tools or search results are available.
-   - If the user asks whether you can visit or check websites/information, clarify accurately: "I can search the live web and retrieve real-time facts, news, documentation, and website content via SerpApi, though I do not render an interactive browser window."
+1. Live Web Search & Academic Research:
+   - You are equipped with real-time web search (SerpApi Google Search), academic paper research (Google Scholar / Open Academic Crossref), and GitHub repository inspection.
+   - When the user asks for research papers, scientific literature, current news, weather, or real-time facts, use your tool capabilities (\`search_research_papers\` or \`web_search\`) and ground your response in the verified results returned.
+   - CRITICAL ANTI-HALLUCINATION & FACTUAL HONESTY RULES:
+     * NEVER state "I am searching for...", "I'm looking up papers...", or claim you are currently searching in your final response.
+     * When research findings or papers are provided in your context or tool output, synthesize your answer directly from those verified sources. Quote real paper titles, authors, publication years, and real direct links/DOIs.
+     * NEVER fabricate, invent, or hallucinate paper titles, author names, DOIs, or URLs.
+     * If a search tool reports an error or returns no results, state clearly and gracefully that the live search tool is temporarily unavailable, and provide general conceptual knowledge without inventing fake citations or links.
 2. GitHub Repository Inspection:
    - You have direct access to inspect public GitHub repositories via the GitHub REST API.
    - When provided with a GitHub repository link or asked about a repository, analyze the retrieved repository description, README, tech stack, and file tree.
@@ -354,28 +376,34 @@ export async function getAssistantReply({
       if (typeof toolExecutor === 'function') {
         toolResult = await toolExecutor(toolName, toolArgs, { signal, cleanApiKey });
       } else {
-        // Built-in tool dispatching
-        if (toolName === 'web_search') {
+        if (toolName === 'web_search' || toolName === 'search_research_papers') {
+          const isAcademic =
+            toolName === 'search_research_papers' ||
+            isAcademicResearchQuery(toolArgs.query || userQuery);
           const sKey =
             (typeof serpapiKey === 'string' && serpapiKey.trim()) ||
             process.env.SERPAPI_API_KEY ||
             process.env.SERPAPI_KEY ||
             '';
           console.log(
-            `[TOOL_CALL_EXECUTED] Tool: web_search | Query: "${toolArgs.query || userQuery}"`
+            `[TOOL_CALL_EXECUTED] Tool: ${toolName} | Academic: ${isAcademic} | Query: "${toolArgs.query || userQuery}"`
           );
           const sRes = await performLiveResearch(toolArgs.query || userQuery, {
             apiKey: sKey,
             signal,
+            isAcademic,
           });
           if (sRes.ok) {
             toolResult = {
               query: sRes.query,
+              isAcademic: sRes.isAcademic || isAcademic,
+              source: sRes.source || (isAcademic ? 'Academic Registry' : 'Web Search'),
               results: sRes.results,
             };
           } else {
             toolResult = {
               query: sRes.query,
+              isAcademic,
               error: sRes.error || 'Live search temporarily unavailable',
               results: [],
             };

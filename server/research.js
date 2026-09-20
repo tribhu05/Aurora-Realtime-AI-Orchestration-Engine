@@ -42,6 +42,27 @@ const TIMELESS_PATTERNS = [
 ];
 
 /**
+ * Detects if a query is asking for scientific research papers, academic literature,
+ * peer-reviewed studies, conference proceedings, or journal publications.
+ *
+ * @param {string} text - User prompt or search query.
+ * @returns {boolean} True if query targets academic research papers.
+ */
+export function isAcademicResearchQuery(text) {
+  if (!text || typeof text !== 'string') return false;
+  const t = text.toLowerCase();
+  return (
+    /\b(?:research\s+paper|research\s+papers|academic\s+papers?|scientific\s+papers?|scholarly|peer-reviewed|journal\s+articles?|conference\s+proceedings?|literature\s+review|studies\s+on|study\s+on|arxiv|doi\.org|crossref|scholar)\b/i.test(
+      t
+    ) ||
+    (/\b(?:paper|papers|studies|literature)\b/i.test(t) &&
+      /\b(?:recent|latest|find|search|show|assistive|technology|biomedical|engineering|algorithm|model)\b/i.test(
+        t
+      ))
+  );
+}
+
+/**
  * Determines whether a given user text warrants live web research or external inspection.
  *
  * @param {string} text - The raw user prompt or transcribed speech.
@@ -52,19 +73,24 @@ export function isResearchNeeded(text) {
   const trimmed = text.trim();
   if (trimmed.length < 3) return false;
 
-  // 1. Guard against timeless elementary queries
+  // 1. Academic queries always warrant live research
+  if (isAcademicResearchQuery(trimmed)) {
+    return true;
+  }
+
+  // 2. Guard against timeless elementary queries
   for (const pattern of TIMELESS_PATTERNS) {
     if (pattern.test(trimmed)) {
       return false;
     }
   }
 
-  // 2. Check for GitHub repository URL
+  // 3. Check for GitHub repository URL
   if (detectGitHubUrl(trimmed)) {
     return true;
   }
 
-  // 3. Check for explicit or technical current-info triggers
+  // 4. Check for explicit or technical current-info triggers
   for (const pattern of RESEARCH_TRIGGER_PATTERNS) {
     if (pattern.test(trimmed)) {
       return true;
@@ -80,7 +106,7 @@ export function isResearchNeeded(text) {
  * key technical terms, framework names, and version qualifiers.
  *
  * @param {string} text - User prompt.
- * @returns {string} Clean search query suitable for SerpApi.
+ * @returns {string} Clean search query suitable for SerpApi or Academic API.
  */
 export function generateResearchQuery(text) {
   if (!text || typeof text !== 'string') return '';
@@ -98,6 +124,17 @@ export function generateResearchQuery(text) {
     /^(?:can\s+you\s+(?:please\s+)?|could\s+you\s+(?:please\s+)?|please\s+|i\s+want\s+(?:you\s+to\s+)?|kindly\s+)/i,
     ''
   );
+
+  // Strip research paper commands and trailing link requests
+  q = q.replace(
+    /^(?:find|search\s+for|show\s+me|get|fetch)\s+(?:recent|latest)?\s*(?:research\s+)?(?:papers?|articles?|studies|literature)\s+(?:on|about|regarding)?\s*/i,
+    ''
+  );
+  q = q.replace(/^(?:research\s+papers?\s+(?:on|about)?\s*)/i, '');
+  q = q.replace(/\s+and\s+(?:provide|give|include)\s+(?:direct\s+)?links?.*$/i, '');
+  q = q.replace(/\s+with\s+(?:direct\s+)?links?.*$/i, '');
+  q = q.replace(/\s+provide\s+(?:direct\s+)?links?.*$/i, '');
+
   q = q.replace(/^(?:search\s+(?:for|the\s+web\s+for|online\s+for|google\s+for)?\s*)/i, '');
   q = q.replace(/^(?:look\s*up\s+(?:the\s+)?)/i, '');
   q = q.replace(/^(?:research\s+(?:the\s+)?)/i, '');
@@ -165,8 +202,26 @@ export function normalizeSearchResults(data, query = '') {
       const url = item.link || item.url || '';
       const title = item.title || item.displayed_link || 'Web Source';
       const snippet = item.snippet || item.description || '';
+      const pubInfo = item.publication_info;
+      let year = '';
+      let authors = [];
+      let sourceName = '';
+
+      if (pubInfo && typeof pubInfo === 'object') {
+        const summary = pubInfo.summary || '';
+        const yMatch = summary.match(/\b(19\d\d|20\d\d)\b/);
+        if (yMatch) year = yMatch[1];
+        if (Array.isArray(pubInfo.authors)) {
+          authors = pubInfo.authors
+            .map((a) => (typeof a === 'string' ? a : a.name))
+            .filter(Boolean);
+        }
+        sourceName = summary.split('-').pop()?.trim() || 'Google Scholar';
+      }
+
       const source =
         item.source ||
+        sourceName ||
         (() => {
           try {
             return new URL(url).hostname.replace(/^www\./, '');
@@ -180,6 +235,9 @@ export function normalizeSearchResults(data, query = '') {
         url,
         snippet,
         source,
+        year,
+        authors,
+        pdfUrl: item.resources?.[0]?.link || null,
         position: item.position || rawResults.length + 1,
       });
     }
@@ -205,7 +263,7 @@ export function normalizeSearchResults(data, query = '') {
  * Formats research findings into a clear, structured markdown block
  * for inclusion in LLM prompt / system messages.
  *
- * @param {{ query: string, results: Array<{ title: string, url: string, snippet: string, source?: string }> }} researchData
+ * @param {{ query: string, results: Array<{ title: string, url: string, snippet: string, source?: string, year?: string, authors?: Array<string>, doi?: string }>, isAcademic?: boolean, source?: string }} researchData
  * @returns {string} Formatted context block.
  */
 export function formatResearchContextForLLM(researchData) {
@@ -213,28 +271,48 @@ export function formatResearchContextForLLM(researchData) {
     return '';
   }
 
+  const isAcademic = Boolean(
+    researchData.isAcademic || researchData.results.some((r) => r.year || r.doi)
+  );
+  const header = isAcademic ? 'VERIFIED ACADEMIC RESEARCH PAPERS' : 'LIVE WEB RESEARCH';
+
   const lines = [
-    'LIVE WEB RESEARCH',
+    header,
     '',
-    `Research query:`,
-    researchData.query || 'current query',
+    `Research topic: ${researchData.query || 'current topic'}`,
+    `Source registry: ${researchData.source || 'Verified Research Engine'}`,
     '',
-    'Sources:',
+    isAcademic ? 'Verified Peer-Reviewed Literature & Studies:' : 'Sources:',
   ];
 
   researchData.results.forEach((r, idx) => {
-    lines.push(`${idx + 1}. ${r.title}`);
-    lines.push(`   ${r.url}`);
+    const yearStr = r.year ? ` (${r.year})` : '';
+    const authorStr =
+      Array.isArray(r.authors) && r.authors.length ? ` - Authors: ${r.authors.join(', ')}` : '';
+    const sourceStr = r.source ? ` [${r.source}]` : '';
+    lines.push(`${idx + 1}. ${r.title}${yearStr}${sourceStr}`);
+    lines.push(`   Direct Link: ${r.url}`);
+    if (r.doi) {
+      lines.push(`   DOI: ${r.doi}`);
+    }
+    if (authorStr) {
+      lines.push(`  ${authorStr}`);
+    }
     if (r.snippet) {
-      lines.push(`   ${r.snippet}`);
+      lines.push(`   Summary: ${r.snippet}`);
     }
     lines.push('');
   });
 
   lines.push('Instructions for utilizing research:');
-  lines.push('- Ground facts, code packages, and recommendations in these sources.');
-  lines.push('- Spoken channel: Summarize naturally without reading raw URLs or list asterisks.');
-  lines.push('- Visual channel: You may reference findings and provide clean markdown links.');
+  lines.push('- Ground all answers, citations, and summaries strictly in these verified sources.');
+  lines.push(
+    '- Spoken channel: Summarize findings conversationally without reading raw URLs or DOI strings aloud.'
+  );
+  lines.push(
+    '- Visual channel: Reference the papers with authors, year, and provide clickable markdown links.'
+  );
+  lines.push('- CRITICAL: Never fabricate fake paper titles, fake DOIs, or fake URLs.');
 
   return lines.join('\n');
 }
@@ -258,8 +336,150 @@ export function formatSpokenResearchSummary(researchData) {
 }
 
 /**
+ * Fetches real, peer-reviewed academic research papers via Crossref Works REST API.
+ * Free, open, requires no private API keys, and guarantees genuine DOIs and metadata.
+ *
+ * @param {string} query - Academic research query.
+ * @param {object} [options={}] - Options.
+ * @returns {Promise<{ ok: boolean, query: string, results: Array<any>, error?: string, isAcademic: boolean, source: string, durationMs: number }>}
+ */
+export async function fetchOpenAcademicPapers(query, options = {}) {
+  const { signal = null, timeoutMs = 5000, rows = 4, fetchFn = globalThis.fetch } = options;
+
+  const cleanQuery = query.trim();
+  console.log(`[RESEARCH_TOOL_SELECTED] Tool: crossref_academic | Engine: crossref`);
+
+  const internalController = new AbortController();
+  const timeoutId = setTimeout(() => internalController.abort(), timeoutMs);
+  if (signal) {
+    signal.addEventListener('abort', () => internalController.abort(), { once: true });
+  }
+
+  const t0 = Date.now();
+  try {
+    const encoded = encodeURIComponent(cleanQuery);
+    const targetUrl = `https://api.crossref.org/works?query=${encoded}&rows=${rows}&sort=relevance`;
+    console.log(`[RESEARCH_API_REQUEST_STARTED] URL: ${targetUrl} | Engine: crossref`);
+
+    const res = await fetchFn(targetUrl, {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+        'User-Agent': 'Aurora-Research-Agent/1.0 (mailto:aurora-research@aurora-agent.dev)',
+      },
+      signal: internalController.signal,
+    });
+
+    const durationMs = Date.now() - t0;
+    console.log(
+      `[RESEARCH_API_RESPONSE_RECEIVED] Status: ${res.status} | Duration: ${durationMs}ms`
+    );
+
+    if (!res.ok) {
+      throw new Error(`Crossref API error HTTP ${res.status}`);
+    }
+
+    const data = await res.json();
+    const items = data?.message?.items || [];
+    const results = [];
+
+    for (const item of items) {
+      if (!item) continue;
+      const rawTitle = Array.isArray(item.title) ? item.title[0] : item.title;
+      const title =
+        typeof rawTitle === 'string' ? rawTitle.replace(/<[^>]+>/g, '').trim() : '';
+      if (!title) continue;
+
+      const doi = item.DOI || '';
+      const directUrl = doi
+        ? `https://doi.org/${doi}`
+        : item.URL || item.resource?.primary?.URL || '';
+      if (!directUrl) continue;
+
+      const year =
+        item.issued?.['date-parts']?.[0]?.[0] ||
+        item.published?.['date-parts']?.[0]?.[0] ||
+        item.created?.['date-parts']?.[0]?.[0] ||
+        '';
+
+      const journal = Array.isArray(item['container-title'])
+        ? item['container-title'][0]
+        : item['container-title'] || item.publisher || 'Crossref Academic';
+
+      const authors = Array.isArray(item.author)
+        ? item.author
+            .slice(0, 3)
+            .map((a) => [a.given, a.family].filter(Boolean).join(' ') || a.name)
+            .filter(Boolean)
+        : [];
+      if (item.author && item.author.length > 3) {
+        authors.push('et al.');
+      }
+
+      let snippet = '';
+      if (typeof item.abstract === 'string') {
+        snippet = item.abstract
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, 300);
+      } else {
+        const authorText = authors.length ? `Authors: ${authors.join(', ')}. ` : '';
+        const yearText = year ? `(${year}). ` : '';
+        const journalText = journal ? `Published in ${journal}.` : '';
+        snippet = `${authorText}${yearText}${journalText}`.trim();
+      }
+
+      results.push({
+        title,
+        url: directUrl,
+        snippet,
+        source: journal,
+        year: String(year),
+        authors,
+        doi,
+        position: results.length + 1,
+      });
+
+      if (results.length >= 4) break;
+    }
+
+    console.log(
+      `[RESEARCH_RESPONSE_PARSED] Extracted ${results.length} verified academic papers`
+    );
+    console.log(
+      `[RESEARCH_RESULTS_SENT] Transmitting ${results.length} items | Query: "${cleanQuery}"`
+    );
+
+    return {
+      ok: results.length > 0,
+      query: cleanQuery,
+      results,
+      isAcademic: true,
+      source: 'Crossref Academic Registry',
+      durationMs,
+    };
+  } catch (err) {
+    const durationMs = Date.now() - t0;
+    const isAborted = internalController.signal.aborted;
+    const reason = isAborted ? 'timeout or aborted' : err.message || String(err);
+    console.warn(`[RESEARCH_REQUEST_FAILED] Category: ACADEMIC_FETCH_ERROR | Reason: ${reason}`);
+    return {
+      ok: false,
+      query: cleanQuery,
+      results: [],
+      error: reason,
+      isAcademic: true,
+      durationMs,
+    };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+/**
  * Executes a live research query against SerpApi with strict AbortSignal cancellation,
- * configurable timeout, and robust error handling.
+ * configurable timeout, automatic academic fallback to Crossref, and robust error handling.
  *
  * @param {string} query - The search query.
  * @param {object} options - Execution options.
@@ -269,7 +489,8 @@ export function formatSpokenResearchSummary(researchData) {
  * @param {string} [options.engine='google'] - Target search engine.
  * @param {object} [options.mockResults] - Pre-canned results for deterministic offline tests.
  * @param {Function} [options.fetchFn] - Custom fetch override for unit testing.
- * @returns {Promise<{ ok: boolean, query: string, results: Array<any>, error?: string, raw?: object }>}
+ * @param {boolean} [options.isAcademic=false] - Force academic research pipeline.
+ * @returns {Promise<{ ok: boolean, query: string, results: Array<any>, error?: string, raw?: object, isAcademic?: boolean, source?: string }>}
  */
 export async function performLiveResearch(query, options = {}) {
   const {
@@ -279,32 +500,59 @@ export async function performLiveResearch(query, options = {}) {
     engine = 'google',
     mockResults = null,
     fetchFn = globalThis.fetch,
+    isAcademic = false,
   } = options;
 
+  const academicQuery = Boolean(isAcademic || isAcademicResearchQuery(query));
+  console.log(`[RESEARCH_REQUEST_RECEIVED] Query: "${query}" | Academic: ${academicQuery}`);
+
   if (signal?.aborted) {
+    console.warn(`[RESEARCH_REQUEST_FAILED] Category: ABORTED | Reason: aborted`);
     return { ok: false, query, results: [], error: 'aborted' };
   }
 
   // 1. Check for mock results (for offline testing & test suite)
   if (mockResults) {
+    console.log(`[RESEARCH_TOOL_SELECTED] Tool: mock_search | Engine: ${engine}`);
     console.log(`[SERPAPI_REQUEST_STARTED] Query: "${query}" (engine: ${engine}, mock: true)`);
     const normalized = normalizeSearchResults(mockResults, query);
     console.log(`[SERPAPI_RESPONSE_RECEIVED] Status: 200 (mock)`);
     console.log(
       `[SERPAPI_RESULT_COUNT] Count: ${normalized.results.length} | Query: "${query}" (mock)`
     );
+    console.log(
+      `[RESEARCH_RESPONSE_PARSED] Extracted ${normalized.results.length} verified sources`
+    );
+    console.log(
+      `[RESEARCH_RESULTS_SENT] Transmitting ${normalized.results.length} items | Query: "${query}"`
+    );
     return {
       ok: true,
       query,
       results: normalized.results,
       raw: mockResults,
+      isAcademic: academicQuery,
+      source: 'Mock Search Engine',
     };
   }
 
   const cleanApiKey = typeof apiKey === 'string' ? apiKey.trim() : '';
+  const effectiveEngine =
+    academicQuery && cleanApiKey ? options.engine || 'google_scholar' : engine;
+
+  // 2. If no valid SerpApi key:
   if (!cleanApiKey || /^your_.*_here$/i.test(cleanApiKey)) {
+    if (academicQuery) {
+      console.log(
+        `[RESEARCH_TOOL_SELECTED] SerpApi unconfigured, falling back to open academic literature API`
+      );
+      return fetchOpenAcademicPapers(query, { signal, timeoutMs, fetchFn });
+    }
     console.warn(
       `[SERPAPI_REQUEST_FAILED] Category: MISSING_API_KEY | Reason: SERPAPI_KEY is not configured or placeholder.`
+    );
+    console.warn(
+      `[RESEARCH_REQUEST_FAILED] Category: MISSING_API_KEY | Reason: SERPAPI_KEY is not configured or placeholder.`
     );
     return {
       ok: false,
@@ -314,7 +562,8 @@ export async function performLiveResearch(query, options = {}) {
     };
   }
 
-  // 2. Setup timeout controller combined with external barge-in signal
+  // 3. Setup timeout controller combined with external barge-in signal
+  console.log(`[RESEARCH_TOOL_SELECTED] Tool: serpapi | Engine: ${effectiveEngine}`);
   const internalController = new AbortController();
   let timedOut = false;
   const timeoutId = setTimeout(() => {
@@ -329,14 +578,17 @@ export async function performLiveResearch(query, options = {}) {
     signal.addEventListener('abort', onAbort, { once: true });
   }
 
+  const t0 = Date.now();
   try {
-    // 3. Execute request via native fetch to SerpApi endpoint
     const url = new URL('https://serpapi.com/search.json');
-    url.searchParams.set('engine', engine);
+    url.searchParams.set('engine', effectiveEngine);
     url.searchParams.set('q', query);
     url.searchParams.set('api_key', cleanApiKey);
 
-    console.log(`[SERPAPI_REQUEST_STARTED] Query: "${query}" | Engine: ${engine}`);
+    console.log(
+      `[RESEARCH_API_REQUEST_STARTED] URL: https://serpapi.com/search.json | Engine: ${effectiveEngine}`
+    );
+    console.log(`[SERPAPI_REQUEST_STARTED] Query: "${query}" | Engine: ${effectiveEngine}`);
 
     const response = await fetchFn(url.toString(), {
       method: 'GET',
@@ -346,7 +598,11 @@ export async function performLiveResearch(query, options = {}) {
       signal: internalController.signal,
     });
 
+    const durationMs = Date.now() - t0;
     console.log(`[SERPAPI_RESPONSE_RECEIVED] Status: ${response.status}`);
+    console.log(
+      `[RESEARCH_API_RESPONSE_RECEIVED] Status: ${response.status} | Duration: ${durationMs}ms`
+    );
 
     if (!response.ok) {
       let errorCategory = 'API_ERROR';
@@ -360,6 +616,16 @@ export async function performLiveResearch(query, options = {}) {
       const statusText = response.statusText || String(response.status);
       const safeErr = `SerpApi HTTP error ${response.status}: ${statusText}`;
       console.error(`[SERPAPI_REQUEST_FAILED] Category: ${errorCategory} | Error: ${safeErr}`);
+      console.error(`[RESEARCH_REQUEST_FAILED] Category: ${errorCategory} | Reason: ${safeErr}`);
+
+      // If academic query failed on SerpApi, fall back to Crossref
+      if (academicQuery) {
+        console.log(
+          `[RESEARCH_TOOL_SELECTED] SerpApi error (${response.status}), falling back to open academic literature API`
+        );
+        return fetchOpenAcademicPapers(query, { signal, timeoutMs, fetchFn });
+      }
+
       return {
         ok: false,
         query,
@@ -371,35 +637,71 @@ export async function performLiveResearch(query, options = {}) {
     const data = await response.json();
     const normalized = normalizeSearchResults(data, query);
     console.log(`[SERPAPI_RESULT_COUNT] Count: ${normalized.results.length} | Query: "${query}"`);
+    console.log(
+      `[RESEARCH_RESPONSE_PARSED] Extracted ${normalized.results.length} verified sources`
+    );
+
+    // If academic query returned 0 results on scholar, fall back to Crossref
+    if (academicQuery && normalized.results.length === 0) {
+      console.log(
+        `[RESEARCH_TOOL_SELECTED] 0 scholar results, falling back to open academic literature API`
+      );
+      return fetchOpenAcademicPapers(query, { signal, timeoutMs, fetchFn });
+    }
+
+    console.log(
+      `[RESEARCH_RESULTS_SENT] Transmitting ${normalized.results.length} items | Query: "${query}"`
+    );
 
     return {
       ok: true,
       query,
       results: normalized.results,
       raw: data,
+      isAcademic: academicQuery,
+      source:
+        effectiveEngine === 'google_scholar'
+          ? 'Google Scholar via SerpApi'
+          : 'SerpApi Google Search',
+      durationMs,
     };
   } catch (err) {
+    const durationMs = Date.now() - t0;
     if (signal?.aborted || err?.name === 'AbortError') {
       const reason = timedOut ? 'timeout' : 'aborted';
       console.warn(
         `[SERPAPI_REQUEST_FAILED] Category: ${timedOut ? 'TIMEOUT' : 'ABORTED'} | Reason: ${reason}`
+      );
+      console.warn(
+        `[RESEARCH_REQUEST_FAILED] Category: ${timedOut ? 'TIMEOUT' : 'ABORTED'} | Reason: ${reason}`
       );
       return {
         ok: false,
         query,
         results: [],
         error: reason,
+        durationMs,
       };
     }
 
     // Mask any accidental keys in error message
     const safeError = (err.message || String(err)).replace(cleanApiKey, '***REDACTED***');
     console.error(`[SERPAPI_REQUEST_FAILED] Category: NETWORK_ERROR | Error: ${safeError}`);
+    console.error(`[RESEARCH_REQUEST_FAILED] Category: NETWORK_ERROR | Reason: ${safeError}`);
+
+    if (academicQuery) {
+      console.log(
+        `[RESEARCH_TOOL_SELECTED] SerpApi network error, falling back to open academic literature API`
+      );
+      return fetchOpenAcademicPapers(query, { signal, timeoutMs, fetchFn });
+    }
+
     return {
       ok: false,
       query,
       results: [],
       error: safeError,
+      durationMs,
     };
   } finally {
     clearTimeout(timeoutId);
