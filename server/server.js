@@ -37,11 +37,13 @@ import {
   isResearchNeeded,
   isAcademicResearchQuery,
   generateResearchQuery,
-  performLiveResearch,
   formatResearchContextForLLM,
   testSerpApiConnectivity,
+  executeAutonomousResearch,
 } from './research.js';
 import { detectGitHubUrl, fetchGitHubRepoDetails, formatGitHubContextForLLM } from './github.js';
+
+const sessionRecentSources = new Map();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -237,9 +239,9 @@ export function createAuroraServer(options = {}) {
         ? Boolean(options.serpapiEnabled)
         : process.env.SERPAPI_ENABLED === 'false'
           ? false
-          : Boolean(resolvedSerpapiKey),
+          : true,
     apiKey: resolvedSerpapiKey,
-    timeoutMs: Number(options.serpapiTimeoutMs || process.env.SERPAPI_TIMEOUT_MS) || 4000,
+    timeoutMs: Number(options.serpapiTimeoutMs || process.env.SERPAPI_TIMEOUT_MS) || 4500,
     mockResults: options.mockResearchResults || null,
   };
 
@@ -575,34 +577,37 @@ export function createAuroraServer(options = {}) {
         }
       }
 
-      // Optional SerpApi / Academic live research
+      // Autonomous Live Web, News & Academic Research
       let researchData = null;
       let researchContext = null;
       const isAcademicQuery = isAcademicResearchQuery(userText);
-      if (!ghUrl && (effectiveSerpapiEnabled || isAcademicQuery) && isResearchNeeded(userText)) {
-        const researchQuery = generateResearchQuery(userText);
-        console.log(
-          `[RESEARCH_REQUEST_RECEIVED] Turn pre-fetch: "${userText.slice(0, 60)}" | Academic: ${isAcademicQuery} | Query: "${researchQuery}"`
-        );
+      const isSearchNeeded = isResearchNeeded(userText);
+      const sessionSources = sessionRecentSources.get(sessionId) || [];
+
+      if (!ghUrl && (effectiveSerpapiEnabled || isAcademicQuery) && isSearchNeeded) {
         const tRes0 = Date.now();
-        const researchResult = await performLiveResearch(researchQuery, {
+        const researchResult = await executeAutonomousResearch(userText, {
           apiKey: incomingSerpApiKey,
           timeoutMs: serpapiConfig.timeoutMs,
           mockResults: serpapiConfig.mockResults,
-          isAcademic: isAcademicQuery,
+          recentSources: sessionSources,
+          fetchPages: true,
+          maxPagesToRead: 2,
         });
         const researchDurationMs = Date.now() - tRes0;
+
         if (researchResult.ok && researchResult.results.length > 0) {
           researchData = researchResult;
-          researchContext = formatResearchContextForLLM(researchResult);
+          researchContext = researchResult.context || formatResearchContextForLLM(researchResult);
+          sessionRecentSources.set(sessionId, researchResult.results);
           db.recordTelemetryEvent(sessionId, 'serpapi_research_success', {
-            query: researchQuery,
+            query: researchResult.query,
             resultCount: researchResult.results.length,
             durationMs: researchDurationMs,
           });
         } else {
           db.recordTelemetryEvent(sessionId, 'serpapi_research_failed', {
-            query: researchQuery,
+            query: researchResult.query || userText,
             reason: sanitizeError(researchResult.error || 'unavailable'),
             durationMs: researchDurationMs,
           });
@@ -1594,8 +1599,10 @@ async function handleTurn({
   let researchData = null;
   let researchContext = null;
   const isAcademicTurnQuery = isAcademicResearchQuery(userText);
+  const isTurnSearchNeeded = isResearchNeeded(userText);
+  const sessionSources = sessionRecentSources.get(state.sessionId) || [];
 
-  if (!ghUrl && (serpapiConfig?.enabled || isAcademicTurnQuery) && isResearchNeeded(userText)) {
+  if (!ghUrl && (serpapiConfig?.enabled || isAcademicTurnQuery) && isTurnSearchNeeded) {
     if (!isStale(state, myGen)) {
       const researchQuery = generateResearchQuery(userText);
       console.log(
@@ -1616,18 +1623,35 @@ async function handleTurn({
         desc: isAcademicTurnQuery
           ? `Searching research papers for "${researchQuery.slice(0, 48)}"`
           : `Searching web for "${researchQuery.slice(0, 48)}"`,
-        meta: isAcademicTurnQuery ? 'Academic Literature Search' : 'SerpApi Google Search',
+        meta: isAcademicTurnQuery ? 'Academic Literature Search' : 'Live Web Research',
         generation: myGen,
         timestamp: Date.now(),
       });
 
       const tRes0 = Date.now();
-      const researchResult = await performLiveResearch(researchQuery, {
+      const researchResult = await executeAutonomousResearch(userText, {
         apiKey: serpapiConfig.apiKey,
         signal: controller.signal,
         timeoutMs: serpapiConfig.timeoutMs,
         mockResults: serpapiConfig.mockResults,
-        isAcademic: isAcademicTurnQuery,
+        recentSources: sessionSources,
+        fetchPages: true,
+        maxPagesToRead: 2,
+        onProgress: (evt) => {
+          if (isStale(state, myGen)) return;
+          if (evt.step === 'reading') {
+            send(ws, {
+              type: 'tool_activity',
+              id: `research-read-${myGen}`,
+              tool: 'page_reader',
+              status: 'running',
+              desc: evt.status,
+              meta: 'Webpage Content Retrieval',
+              generation: myGen,
+              timestamp: Date.now(),
+            });
+          }
+        },
       });
       const researchDurationMs = Date.now() - tRes0;
 
@@ -1635,28 +1659,30 @@ async function handleTurn({
 
       if (researchResult.ok && researchResult.results.length > 0) {
         researchData = researchResult;
-        researchContext = formatResearchContextForLLM(researchResult);
+        researchContext = researchResult.context || formatResearchContextForLLM(researchResult);
+        sessionRecentSources.set(state.sessionId, researchResult.results);
+
         send(ws, {
           type: 'tool_activity',
           id: `research-${myGen}`,
           tool: isAcademicTurnQuery ? 'scholar' : 'serpapi',
           status: 'completed',
-          desc: `Retrieved ${researchResult.results.length} verified ${isAcademicTurnQuery ? 'research papers' : 'web sources'}`,
-          meta: `${researchResult.source || (isAcademicTurnQuery ? 'Academic Registry' : 'SerpApi')} · ${researchDurationMs}ms`,
+          desc: `Retrieved ${researchResult.results.length} verified ${researchResult.isAcademic ? 'research papers' : 'web sources'}`,
+          meta: `${researchResult.source || (isAcademicTurnQuery ? 'Academic Registry' : 'Live Web Engine')} · ${researchDurationMs}ms`,
           generation: myGen,
           timestamp: Date.now(),
         });
         send(ws, {
           type: 'research_result',
-          query: researchQuery,
+          query: researchResult.query,
           results: researchResult.results,
-          isAcademic: isAcademicTurnQuery,
+          isAcademic: researchResult.isAcademic,
           source: researchResult.source,
           generation: myGen,
           timestamp: Date.now(),
         });
         db.recordTelemetryEvent(state.sessionId, 'serpapi_research_success', {
-          query: researchQuery,
+          query: researchResult.query,
           resultCount: researchResult.results.length,
           durationMs: researchDurationMs,
         });

@@ -10,7 +10,12 @@ import {
   detectLanguage,
   analyzeLanguage,
 } from './response-router.js';
-import { performLiveResearch, isAcademicResearchQuery } from './research.js';
+import {
+  performLiveResearch,
+  isAcademicResearchQuery,
+  fetchWebpageContent,
+  extractReadableContent,
+} from './research.js';
 import { fetchGitHubRepoDetails } from './github.js';
 
 const ENDPOINTS = {
@@ -81,6 +86,24 @@ export const AURORA_TOOLS = [
           },
         },
         required: ['owner', 'repo'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'read_webpage',
+      description:
+        'Fetch and read the extracted text of a public webpage given its URL. Useful for reading documentation pages, articles, or papers discovered during research.',
+      parameters: {
+        type: 'object',
+        properties: {
+          url: {
+            type: 'string',
+            description: 'The public HTTP/HTTPS URL of the webpage to read.',
+          },
+        },
+        required: ['url'],
       },
     },
   },
@@ -392,6 +415,7 @@ export async function getAssistantReply({
             apiKey: sKey,
             signal,
             isAcademic,
+            allowOpenFallback: true,
           });
           if (sRes.ok) {
             toolResult = {
@@ -406,6 +430,24 @@ export async function getAssistantReply({
               isAcademic,
               error: sRes.error || 'Live search temporarily unavailable',
               results: [],
+            };
+          }
+        } else if (toolName === 'read_webpage') {
+          console.log(`[TOOL_CALL_EXECUTED] Tool: read_webpage | URL: "${toolArgs.url}"`);
+          const pageRes = await fetchWebpageContent(toolArgs.url, { signal });
+          if (pageRes.ok && pageRes.html) {
+            const extracted = extractReadableContent(pageRes.html);
+            toolResult = {
+              ok: true,
+              url: toolArgs.url,
+              title: extracted.title,
+              content: extracted.content,
+            };
+          } else {
+            toolResult = {
+              ok: false,
+              url: toolArgs.url,
+              error: pageRes.error || 'Failed to retrieve webpage',
             };
           }
         } else if (toolName === 'inspect_github_repo') {

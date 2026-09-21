@@ -7,7 +7,11 @@ import { AURORA_TOOLS, getAssistantReply } from '../server/llm.js';
 
 test('Gemini Tools - Schema Definition', () => {
   assert.ok(Array.isArray(AURORA_TOOLS), 'AURORA_TOOLS must be an array');
-  assert.equal(AURORA_TOOLS.length, 3, 'Must define 3 tools (web_search, search_research_papers, inspect_github_repo)');
+  assert.equal(
+    AURORA_TOOLS.length,
+    4,
+    'Must define 4 tools (web_search, search_research_papers, inspect_github_repo, read_webpage)'
+  );
 
   const webSearchTool = AURORA_TOOLS.find((t) => t.function?.name === 'web_search');
   assert.ok(webSearchTool, 'web_search tool must be defined');
@@ -20,6 +24,12 @@ test('Gemini Tools - Schema Definition', () => {
   assert.equal(scholarTool.type, 'function');
   assert.ok(scholarTool.function.parameters.properties.query);
   assert.deepEqual(scholarTool.function.parameters.required, ['query']);
+
+  const readerTool = AURORA_TOOLS.find((t) => t.function?.name === 'read_webpage');
+  assert.ok(readerTool, 'read_webpage tool must be defined');
+  assert.equal(readerTool.type, 'function');
+  assert.ok(readerTool.function.parameters.properties.url);
+  assert.deepEqual(readerTool.function.parameters.required, ['url']);
 
   const ghTool = AURORA_TOOLS.find((t) => t.function?.name === 'inspect_github_repo');
   assert.ok(ghTool, 'inspect_github_repo tool must be defined');

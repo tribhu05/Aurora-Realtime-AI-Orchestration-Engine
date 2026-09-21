@@ -2497,14 +2497,12 @@ executeTask();`,
       const userProvider = localStorage.getItem('aurora-llm-provider') || 'gemini';
       if (userKey && userKey.trim()) {
         const _gwGroq = atob('aHR0cHM6Ly9hcGkuZ3JvcS5jb20vb3BlbmFpL3YxL2NoYXQvY29tcGxldGlvbnM=');
-        const _gwCore = atob('aHR0cHM6Ly9nZW5lcmF0aXZlbGFuZ3VhZ2UuZ29vZ2xlYXBpcy5jb20vdjFiZXRhL29wZW5haS9jaGF0L2NvbXBsZXRpb25z');
+        const _gwCore = atob(
+          'aHR0cHM6Ly9nZW5lcmF0aXZlbGFuZ3VhZ2UuZ29vZ2xlYXBpcy5jb20vdjFiZXRhL29wZW5haS9jaGF0L2NvbXBsZXRpb25z'
+        );
         const _gwReason = atob('aHR0cHM6Ly9vcGVucm91dGVyLmFpL2FwaS92MS9jaGF0L2NvbXBsZXRpb25z');
         const endpoint =
-          userProvider === 'groq'
-            ? _gwGroq
-            : userProvider === 'reasoning'
-              ? _gwReason
-              : _gwCore;
+          userProvider === 'groq' ? _gwGroq : userProvider === 'reasoning' ? _gwReason : _gwCore;
         const model =
           userProvider === 'groq'
             ? 'llama-3.1-8b-instant'
@@ -2885,7 +2883,11 @@ executeTask();`,
         data.sessionMetrics
       );
 
-      if (data.research && Array.isArray(data.research.results) && data.research.results.length > 0) {
+      if (
+        data.research &&
+        Array.isArray(data.research.results) &&
+        data.research.results.length > 0
+      ) {
         addResearchFindingsCard(data.research);
         addToolActivityCard({
           id: httpToolId,
@@ -2894,7 +2896,11 @@ executeTask();`,
           desc: `Retrieved ${data.research.results.length} verified ${data.research.isAcademic || isAcademic ? 'research papers' : 'web sources'}`,
           meta: `${data.research.source || (isAcademic ? 'Academic Registry' : 'SerpApi')} · ${data.totalMs || totalMs}ms`,
         });
-      } else if (data.toolActivity && Array.isArray(data.toolActivity) && data.toolActivity.length > 0) {
+      } else if (
+        data.toolActivity &&
+        Array.isArray(data.toolActivity) &&
+        data.toolActivity.length > 0
+      ) {
         data.toolActivity.forEach((act) => addToolActivityCard(act));
       } else if (isResearch) {
         addToolActivityCard({
@@ -5216,7 +5222,9 @@ executeTask();`,
           ? 'llm'
           : String(tool).toLowerCase().includes('scholar')
             ? 'scholar'
-            : 'serpapi';
+            : String(tool).toLowerCase().includes('reader')
+              ? 'reader'
+              : 'serpapi';
 
     const toolLabel = badgeClass.toUpperCase();
     const isRunning = status === 'running';
@@ -5281,10 +5289,7 @@ executeTask();`,
 
     research.results.forEach((r) => {
       const url = r.url || '#';
-      if (
-        url !== '#' &&
-        researchFindingsStream.querySelector(`a[href="${CSS.escape(url)}"]`)
-      ) {
+      if (url !== '#' && researchFindingsStream.querySelector(`a[href="${CSS.escape(url)}"]`)) {
         return; // Deduplicate
       }
 
@@ -5305,10 +5310,12 @@ executeTask();`,
       const doiBadge = r.doi
         ? `<span class="intel-research-doi-badge" style="display:inline-block;font-size:0.7rem;font-weight:600;padding:2px 6px;border-radius:4px;background:rgba(52,211,153,0.15);color:#34d399;margin-right:6px;border:1px solid rgba(52,211,153,0.3);">DOI VERIFIED</span>`
         : '';
+      const rawType = r.sourceType || (r.doi || r.year ? 'academic_paper' : 'web');
+      const typeBadge = `<span class="intel-type-badge ${escapeHtml(rawType)}">${escapeHtml(rawType.replace('_', ' '))}</span>`;
 
       card.innerHTML = `
         <div class="intel-research-top">
-          <span class="intel-research-source">${doiBadge}${escapeHtml(domain)}${yearStr}</span>
+          <span class="intel-research-source">${doiBadge}${typeBadge}${escapeHtml(domain)}${yearStr}</span>
           <span class="intel-research-index">#${_researchFindingsCount}</span>
         </div>
         <a class="intel-research-title" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(title)}</a>
@@ -5317,7 +5324,14 @@ executeTask();`,
         <div class="intel-research-actions">
           <button class="btn-intel-action btn-copy-link" data-url="${escapeHtml(url)}">Copy Link</button>
           <a class="btn-intel-action" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">Open ↗</a>
-          <button class="btn-intel-action btn-ask-source" data-query="${escapeHtml(title)}">Explore</button>
+          <button class="btn-intel-action btn-ask-source" data-query="${escapeHtml(title)}">Explore ▾</button>
+        </div>
+        <div class="intel-explore-menu" style="display: none;">
+          <button class="btn-explore-option" data-prompt="Summarize the core takeaways and details from: ${escapeHtml(title)}">📄 Summarize this source</button>
+          <button class="btn-explore-option" data-prompt="Explain the important findings and key insights from: ${escapeHtml(title)}">💡 Explain important findings</button>
+          <button class="btn-explore-option" data-prompt="Extract the concrete implementation steps and guidelines from: ${escapeHtml(title)}">⚡ Extract implementation steps</button>
+          <button class="btn-explore-option" data-prompt="Compare this source with other perspectives on this topic: ${escapeHtml(title)}">⚖️ Compare with other sources</button>
+          <button class="btn-explore-option" data-prompt="Find supporting research and evidence related to: ${escapeHtml(title)}">🔬 Find supporting research</button>
         </div>
       `;
 
@@ -5336,16 +5350,34 @@ executeTask();`,
       }
 
       const askBtn = card.querySelector('.btn-ask-source');
-      if (askBtn) {
+      const exploreMenu = card.querySelector('.intel-explore-menu');
+      if (askBtn && exploreMenu) {
         askBtn.addEventListener('click', (e) => {
           e.stopPropagation();
-          const q = askBtn.dataset.query;
-          if (typeInput) {
-            typeInput.value = `Tell me more about ${q}`;
-            typeInput.focus();
-          }
+          const isHidden = exploreMenu.style.display === 'none';
+          exploreMenu.style.display = isHidden ? 'flex' : 'none';
+          askBtn.textContent = isHidden ? 'Explore ▴' : 'Explore ▾';
         });
       }
+
+      const exploreOptions = card.querySelectorAll('.btn-explore-option');
+      exploreOptions.forEach((opt) => {
+        opt.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const prompt = opt.dataset.prompt;
+          if (typeInput && prompt) {
+            typeInput.value = prompt;
+            typeInput.focus();
+            if (typeForm) {
+              if (typeof typeForm.requestSubmit === 'function') {
+                typeForm.requestSubmit();
+              } else {
+                typeForm.dispatchEvent(new Event('submit', { cancelable: true }));
+              }
+            }
+          }
+        });
+      });
 
       researchFindingsStream.prepend(card);
     });
